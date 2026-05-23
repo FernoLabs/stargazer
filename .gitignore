@@ -1,6 +1,7 @@
 backend/target/
-backend/data/
-data/
+backend/data/*
+!backend/data/platform_registry_snapshot.json
+/data/
 frontend/build/
 frontend/.svelte-kit/
 frontend/.wrangler/
