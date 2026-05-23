@@ -6,11 +6,14 @@ Use `docker-compose.dokploy.yml` at the repository root for the Dokploy Compose 
 
 - Provider: Git repository
 - Compose file: `docker-compose.dokploy.yml`
-- Service domain target: `firewatch-indexer`, port `8080`
+- Service domain target: none when using Cloudflare Tunnel
 - Volume: keep `firewatch-indexer-data` as a Docker named volume
 - Environment: paste values from `deploy/dokploy/.env.example` into Dokploy's Environment editor
+- Tunnel: set `COMPOSE_PROFILES=tunnel` and fill `CLOUDFLARE_TUNNEL_TOKEN`
 
 Dokploy writes the Environment editor values to `.env`. The compose file uses `env_file: .env` so the backend container receives the indexer settings.
+
+The tunnel profile runs `firewatch-cloudflared` and forwards `firewatch-origin.ferno.ag` to `http://firewatch-indexer:8080`. Keep the indexer off a public Dokploy domain for the first deployment.
 
 ## Backups
 

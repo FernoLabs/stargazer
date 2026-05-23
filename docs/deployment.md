@@ -8,7 +8,8 @@ This setup keeps the expensive, stateful work on one low-cost origin and pushes 
 users
   -> Cloudflare Pages / Worker frontend
   -> /api/backend/* same-origin proxy with edge cache
-  -> Dokploy on a low-cost VPS running firewatch-indexer
+  -> Cloudflare Tunnel firewatch-origin.ferno.ag
+  -> Dokploy on a low-cost VPS running firewatch-indexer privately
   -> SQLite on a Docker named volume backed by local NVMe
   -> R2 for database backups and, later, large immutable blobs
 ```
@@ -23,6 +24,9 @@ Current project:
 - Project name: `firewatch-frontend`
 - Pages URL: `https://firewatch-frontend-5rr.pages.dev`
 - Custom domain: `https://watch.ferno.ag`
+- Tunnel name: `firewatch-origin`
+- Tunnel ID: `24bab5c9-01d6-4448-a35e-94280db763db`
+- Tunnel hostname: `https://firewatch-origin.ferno.ag`
 
 GitHub Actions runs `npm ci`, `npm run check`, `npm run build`, and then deploys `.svelte-kit/cloudflare` to Cloudflare Pages. Pushes to `main` deploy production. Other branches and pull requests deploy preview branches.
 
@@ -48,7 +52,7 @@ Set these Cloudflare Pages variables/secrets for both Production and Preview env
 
 | Name | Value |
 | --- | --- |
-| `BACKEND_ORIGIN_URL` | `https://origin.watch.example.com` or your Dokploy origin URL |
+| `BACKEND_ORIGIN_URL` | `https://firewatch-origin.ferno.ag` |
 | `BACKEND_ORIGIN_TOKEN` | Same value as backend `ORIGIN_API_TOKEN` |
 | `ADMIN_USERNAME` | Usually `admin` |
 | `ADMIN_PASSWORD` | Strong private password for `/admin` |
@@ -68,6 +72,17 @@ When `ORIGIN_API_TOKEN` is set, the backend rejects direct `/api/*` requests unl
 
 The browser calls same-origin paths such as `/api/backend/api/events`. The Pages function injects the origin token, applies small edge-cache windows to public reads, and blocks protected admin API paths unless `/admin` Basic Auth has already succeeded.
 
+### DNS Records
+
+Create these Cloudflare DNS records in the `ferno.ag` zone:
+
+| Type | Name | Target | Proxy |
+| --- | --- | --- | --- |
+| `CNAME` | `watch` | `firewatch-frontend-5rr.pages.dev` | Proxied |
+| `CNAME` | `firewatch-origin` | `24bab5c9-01d6-4448-a35e-94280db763db.cfargotunnel.com` | Proxied |
+
+The origin hostname is only a Cloudflare Tunnel route. It does not require opening inbound ports on the backend VM.
+
 ### Manual Pages Deploy
 
 Use this for a one-off smoke test or when bootstrapping the project locally:
@@ -86,12 +101,22 @@ Provision one EU VM first, install Dokploy there, and deploy the indexer as a Do
 
 - Provider: Git repository
 - Compose file: `docker-compose.dokploy.yml`
-- Domain target: service `firewatch-indexer`, port `8080`
+- Domain target: none when using Cloudflare Tunnel
 - Data persistence: keep the `firewatch-indexer-data` Docker named volume
 - Environment: paste values from `deploy/dokploy/.env.example` into the Environment editor
 - Origin API token: set `ORIGIN_API_TOKEN` to match the Cloudflare Pages `BACKEND_ORIGIN_TOKEN`
+- Tunnel profile: set `COMPOSE_PROFILES=tunnel`
+- Tunnel token: set `CLOUDFLARE_TUNNEL_TOKEN` from Cloudflare Zero Trust or the private bootstrap env file
 
 The compose file uses `env_file: .env` because Dokploy writes Environment editor values to a `.env` file next to the compose deployment.
+
+The `tunnel` profile runs `firewatch-cloudflared` next to the backend. Cloudflare Tunnel is configured to forward:
+
+```text
+firewatch-origin.ferno.ag -> http://firewatch-indexer:8080
+```
+
+Keep the Dokploy app off the public internet unless you intentionally add a separate protected origin hostname later.
 
 The backend container is built from `deploy/dokploy/backend.Dockerfile` and stores SQLite at:
 
@@ -179,7 +204,7 @@ sudo editor /etc/caddy/Caddyfile
 sudo systemctl reload caddy
 ```
 
-Prefer a dedicated hostname such as `origin.watch.example.com`. Keep it unlisted, firewall SSH tightly, and only expose ports 80/443 publicly. If you use Cloudflare Tunnel instead, Caddy is optional.
+Prefer Cloudflare Tunnel for the first deployment. If you expose the origin directly later, use a dedicated hostname such as `origin.watch.ferno.ag`, keep it unlisted, firewall SSH tightly, and only expose ports 80/443 publicly.
 
 ## R2 Backups
 

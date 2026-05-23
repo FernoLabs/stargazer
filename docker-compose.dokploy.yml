@@ -42,5 +42,19 @@ services:
       - firewatch-indexer-data:/data
     restart: "no"
 
+  firewatch-cloudflared:
+    profiles:
+      - tunnel
+    image: ${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:latest}
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      firewatch-indexer:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   firewatch-indexer-data:
