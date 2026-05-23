@@ -154,9 +154,7 @@ async fn main() -> Result<()> {
         Command::MigrateBlobs { vacuum } => {
             let report = state.db.migrate_inline_blobs().await?;
             println!("Migrated inline blobs to {}", blob_store_label(&config));
-            println!("Program data writes: {}", report.program_data_writes);
             println!("Program versions: {}", report.program_versions);
-            println!("Program IDL writes: {}", report.program_idl_writes);
             println!(
                 "Program IDL version bytes: {}",
                 report.program_idl_version_bytes

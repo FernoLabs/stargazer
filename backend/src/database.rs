@@ -126,9 +126,7 @@ struct CompleteIdlVersionBytes {
 
 #[derive(Clone, Debug, Default)]
 pub struct BlobMigrationReport {
-    pub program_data_writes: u64,
     pub program_versions: u64,
-    pub program_idl_writes: u64,
     pub program_idl_version_bytes: u64,
     pub program_idl_version_texts: u64,
     pub disassemblies: u64,
@@ -1056,15 +1054,6 @@ impl Database {
     }
 
     pub async fn insert_program_data_write(&self, write: &ProgramDataWrite) -> Result<bool> {
-        let bytes_blob_key = self
-            .put_program_data_write_blob(&write.write_account, &write.bytes_sha256, &write.bytes)
-            .await?;
-        let inline_bytes = if bytes_blob_key.is_some() {
-            &[][..]
-        } else {
-            write.bytes.as_slice()
-        };
-
         let result = sqlx::query(
             r#"
             INSERT INTO program_data_writes (
@@ -1081,10 +1070,9 @@ impl Database {
                 offset,
                 data_len,
                 bytes_sha256,
-                bytes,
-                bytes_blob_key
+                bytes
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO NOTHING;
             "#,
         )
@@ -1101,8 +1089,7 @@ impl Database {
         .bind(write.offset)
         .bind(write.bytes.len() as i64)
         .bind(&write.bytes_sha256)
-        .bind(inline_bytes)
-        .bind(bytes_blob_key.as_deref())
+        .bind(&write.bytes)
         .execute(&self.pool)
         .await?;
 
@@ -1110,20 +1097,6 @@ impl Database {
     }
 
     pub async fn insert_program_idl_data_write(&self, write: &ProgramIdlDataWrite) -> Result<bool> {
-        let bytes_blob_key = self
-            .put_program_idl_write_blob(
-                &write.program_address,
-                &write.source_account,
-                &write.bytes_sha256,
-                &write.bytes,
-            )
-            .await?;
-        let inline_bytes = if bytes_blob_key.is_some() {
-            &[][..]
-        } else {
-            write.bytes.as_slice()
-        };
-
         let result = sqlx::query(
             r#"
             INSERT INTO program_idl_writes (
@@ -1142,10 +1115,9 @@ impl Database {
                 offset,
                 data_len,
                 bytes_sha256,
-                bytes,
-                bytes_blob_key
+                bytes
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO NOTHING;
             "#,
         )
@@ -1164,8 +1136,7 @@ impl Database {
         .bind(write.offset)
         .bind(write.bytes.len() as i64)
         .bind(&write.bytes_sha256)
-        .bind(inline_bytes)
-        .bind(bytes_blob_key.as_deref())
+        .bind(&write.bytes)
         .execute(&self.pool)
         .await?;
 
@@ -4050,9 +4021,7 @@ impl Database {
         }
 
         let mut report = BlobMigrationReport::default();
-        self.migrate_program_data_write_blobs(&mut report).await?;
         self.migrate_program_version_blobs(&mut report).await?;
-        self.migrate_program_idl_write_blobs(&mut report).await?;
         self.migrate_program_idl_version_blobs(&mut report).await?;
         self.migrate_disassembly_blobs(&mut report).await?;
         Ok(report)
@@ -4064,57 +4033,6 @@ impl Database {
             .execute(&self.pool)
             .await?;
         Ok(())
-    }
-
-    async fn migrate_program_data_write_blobs(
-        &self,
-        report: &mut BlobMigrationReport,
-    ) -> Result<()> {
-        loop {
-            let rows = sqlx::query(
-                r#"
-                SELECT id, write_account, bytes_sha256, bytes
-                FROM program_data_writes
-                WHERE bytes_blob_key IS NULL
-                  AND length(bytes) > 0
-                LIMIT 500;
-                "#,
-            )
-            .fetch_all(&self.pool)
-            .await?;
-            if rows.is_empty() {
-                return Ok(());
-            }
-
-            for row in rows {
-                let id = row.try_get::<String, _>("id")?;
-                let write_account = row.try_get::<String, _>("write_account")?;
-                let bytes_sha256 = row.try_get::<String, _>("bytes_sha256")?;
-                let bytes = row.try_get::<Vec<u8>, _>("bytes")?;
-                let bytes_len = bytes.len() as u64;
-                let blob_key = self
-                    .put_program_data_write_blob(&write_account, &bytes_sha256, &bytes)
-                    .await?
-                    .context("program data write blob store disabled")?;
-
-                let result = sqlx::query(
-                    r#"
-                    UPDATE program_data_writes
-                    SET bytes = X'', bytes_blob_key = ?
-                    WHERE id = ?
-                      AND bytes_blob_key IS NULL;
-                    "#,
-                )
-                .bind(&blob_key)
-                .bind(&id)
-                .execute(&self.pool)
-                .await?;
-                if result.rows_affected() > 0 {
-                    report.program_data_writes += 1;
-                    report.bytes_moved += bytes_len;
-                }
-            }
-        }
     }
 
     async fn migrate_program_version_blobs(&self, report: &mut BlobMigrationReport) -> Result<()> {
@@ -4161,63 +4079,6 @@ impl Database {
                 .await?;
                 if result.rows_affected() > 0 {
                     report.program_versions += 1;
-                    report.bytes_moved += bytes_len;
-                }
-            }
-        }
-    }
-
-    async fn migrate_program_idl_write_blobs(
-        &self,
-        report: &mut BlobMigrationReport,
-    ) -> Result<()> {
-        loop {
-            let rows = sqlx::query(
-                r#"
-                SELECT id, program_address, source_account, bytes_sha256, bytes
-                FROM program_idl_writes
-                WHERE bytes_blob_key IS NULL
-                  AND length(bytes) > 0
-                LIMIT 500;
-                "#,
-            )
-            .fetch_all(&self.pool)
-            .await?;
-            if rows.is_empty() {
-                return Ok(());
-            }
-
-            for row in rows {
-                let id = row.try_get::<String, _>("id")?;
-                let program_address = row.try_get::<String, _>("program_address")?;
-                let source_account = row.try_get::<String, _>("source_account")?;
-                let bytes_sha256 = row.try_get::<String, _>("bytes_sha256")?;
-                let bytes = row.try_get::<Vec<u8>, _>("bytes")?;
-                let bytes_len = bytes.len() as u64;
-                let blob_key = self
-                    .put_program_idl_write_blob(
-                        &program_address,
-                        &source_account,
-                        &bytes_sha256,
-                        &bytes,
-                    )
-                    .await?
-                    .context("program IDL write blob store disabled")?;
-
-                let result = sqlx::query(
-                    r#"
-                    UPDATE program_idl_writes
-                    SET bytes = X'', bytes_blob_key = ?
-                    WHERE id = ?
-                      AND bytes_blob_key IS NULL;
-                    "#,
-                )
-                .bind(&blob_key)
-                .bind(&id)
-                .execute(&self.pool)
-                .await?;
-                if result.rows_affected() > 0 {
-                    report.program_idl_writes += 1;
                     report.bytes_moved += bytes_len;
                 }
             }
@@ -4388,20 +4249,6 @@ impl Database {
         }
     }
 
-    async fn put_program_data_write_blob(
-        &self,
-        write_account: &str,
-        bytes_sha256: &str,
-        bytes: &[u8],
-    ) -> Result<Option<String>> {
-        self.put_blob(
-            program_data_write_blob_key(write_account, bytes_sha256),
-            bytes,
-            "program data write",
-        )
-        .await
-    }
-
     async fn put_program_version_blob(
         &self,
         program_address: &str,
@@ -4412,21 +4259,6 @@ impl Database {
             program_version_blob_key(program_address, program_sha256),
             bytes,
             "program version",
-        )
-        .await
-    }
-
-    async fn put_program_idl_write_blob(
-        &self,
-        program_address: &str,
-        source_account: &str,
-        bytes_sha256: &str,
-        bytes: &[u8],
-    ) -> Result<Option<String>> {
-        self.put_blob(
-            program_idl_write_blob_key(program_address, source_account, bytes_sha256),
-            bytes,
-            "program IDL write",
         )
         .await
     }
@@ -4551,32 +4383,11 @@ impl Database {
     }
 }
 
-fn program_data_write_blob_key(write_account: &str, bytes_sha256: &str) -> String {
-    format!(
-        "program-data-writes/{}/{}.bin",
-        safe_path_component(write_account),
-        safe_path_component(bytes_sha256)
-    )
-}
-
 fn program_version_blob_key(program_address: &str, program_sha256: &str) -> String {
     format!(
         "program-bytes/{}/{}.bin",
         safe_path_component(program_address),
         safe_path_component(program_sha256)
-    )
-}
-
-fn program_idl_write_blob_key(
-    program_address: &str,
-    source_account: &str,
-    bytes_sha256: &str,
-) -> String {
-    format!(
-        "program-idl-writes/{}/{}/{}.bin",
-        safe_path_component(program_address),
-        safe_path_component(source_account),
-        safe_path_component(bytes_sha256)
     )
 }
 
@@ -5206,7 +5017,6 @@ mod tests {
         db.migrate().await?;
         let report = db.migrate_inline_blobs().await?;
 
-        assert_eq!(report.program_data_writes, 2);
         assert_eq!(report.program_versions, 1);
         assert_eq!(
             db.program_version_bytes(
@@ -5238,9 +5048,9 @@ mod tests {
         .fetch_one(&db.pool)
         .await?;
 
-        assert_eq!(inline_write_bytes, 0);
+        assert_eq!(inline_write_bytes, 6);
         assert_eq!(inline_version_bytes, 0);
-        assert_eq!(blob_key_count, 3);
+        assert_eq!(blob_key_count, 1);
 
         let _ = std::fs::remove_file(db_path);
         let _ = std::fs::remove_dir_all(blob_dir);

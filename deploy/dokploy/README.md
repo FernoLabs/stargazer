@@ -17,7 +17,7 @@ The tunnel profile runs `firewatch-cloudflared` and forwards `firewatch-origin.f
 
 ## Blob Store
 
-The backend stores large program bytes, IDLs, and disassemblies in `BLOB_STORE_DIR=/blobs`. For an existing database, pause the live indexer, then run this once after the blob volume is mounted:
+The backend stores large assembled program bytes, IDLs, and disassemblies in `BLOB_STORE_DIR=/blobs`. Raw write chunks remain in SQLite for now to avoid hundreds of thousands of tiny filesystem objects. For an existing database, pause the live indexer, then run this once after the blob volume is mounted:
 
 ```bash
 docker compose run --rm firewatch-indexer migrate-blobs --vacuum

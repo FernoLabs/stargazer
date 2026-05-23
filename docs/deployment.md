@@ -238,14 +238,12 @@ journalctl -u firewatch-backup.service -n 80
 
 ## Next Cost Lever
 
-Large immutable payloads are stored outside SQLite when `BLOB_STORE_DIR` is set. Dokploy mounts `firewatch-blob-data` at `/blobs`; SQLite keeps object keys, hashes, sizes, and metadata.
+Large immutable payloads are stored outside SQLite when `BLOB_STORE_DIR` is set. Dokploy mounts `firewatch-blob-data` at `/blobs`; SQLite keeps object keys, hashes, sizes, and metadata. Raw write chunks stay in SQLite for now because storing hundreds of thousands of tiny chunks as individual filesystem objects wastes disk blocks and makes R2 sync noisy.
 
 Current blob layout:
 
 ```text
-program-data-writes/{write_account}/{sha256}.bin
 program-bytes/{program}/{sha256}.bin
-program-idl-writes/{program}/{source_account}/{sha256}.bin
 idl-bytes/{program}/{sha256}.bin
 idl-text/{program}/{sha256}.json
 disassembly/{program}/{program_sha256}/{asm_sha256}.asm
