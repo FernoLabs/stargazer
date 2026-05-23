@@ -14,8 +14,10 @@ services:
     environment:
       HTTP_BIND: 0.0.0.0:8080
       DATABASE_URL: sqlite:///data/indexer.db
+      BLOB_STORE_DIR: /blobs
     volumes:
       - firewatch-indexer-data:/data
+      - firewatch-blob-data:/blobs
     expose:
       - "8080"
     healthcheck:
@@ -40,6 +42,25 @@ services:
       BACKUP_TMP_DIR: /tmp/firewatch-backups
     volumes:
       - firewatch-indexer-data:/data
+      - firewatch-blob-data:/blobs
+    restart: "no"
+
+  firewatch-r2-blob-sync:
+    profiles:
+      - backup
+    build:
+      context: .
+      dockerfile: deploy/dokploy/backup.Dockerfile
+    image: ${FIREWATCH_BACKUP_IMAGE:-firewatch-sqlite-r2-backup:local}
+    entrypoint: ["/opt/firewatch/bin/sync-blobs-to-r2.sh"]
+    env_file:
+      - .env
+    environment:
+      BLOB_STORE_DIR: /blobs
+      R2_BLOB_BUCKET: ${R2_BLOB_BUCKET:-firewatch-blobs}
+      R2_BLOB_PREFIX: ${R2_BLOB_PREFIX:-blobs}
+    volumes:
+      - firewatch-blob-data:/blobs:ro
     restart: "no"
 
   firewatch-cloudflared:
@@ -58,3 +79,4 @@ services:
 
 volumes:
   firewatch-indexer-data:
+  firewatch-blob-data:

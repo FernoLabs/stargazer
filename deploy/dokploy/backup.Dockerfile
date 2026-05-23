@@ -6,5 +6,6 @@ RUN apt-get update \
 	&& mkdir -p /opt/firewatch/bin /tmp/firewatch-backups
 
 COPY deploy/backend/backup-sqlite-to-r2.sh /opt/firewatch/bin/backup-sqlite-to-r2.sh
+COPY deploy/backend/sync-blobs-to-r2.sh /opt/firewatch/bin/sync-blobs-to-r2.sh
 
 ENTRYPOINT ["/opt/firewatch/bin/backup-sqlite-to-r2.sh"]

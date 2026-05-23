@@ -1,4 +1,7 @@
-use crate::program_bytes::{ProgramDataChunk, assemble_program_bytes, instruction_order_key};
+use crate::blob_store::BlobStore;
+use crate::program_bytes::{
+    ProgramDataChunk, assemble_program_bytes, instruction_order_key, sha256_hex,
+};
 use crate::program_disassembly::{
     DISASSEMBLY_FORMAT, KnownProgramInstruction, disassemble_program_bytes,
 };
@@ -13,7 +16,7 @@ use crate::{
         event_kind, now_ts,
     },
 };
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use flate2::read::{GzDecoder, ZlibDecoder};
 use sqlx::{
@@ -25,6 +28,7 @@ use std::{collections::HashMap, io::Read, str::FromStr, time::Duration};
 #[derive(Clone)]
 pub struct Database {
     pool: SqlitePool,
+    blob_store: BlobStore,
 }
 
 #[derive(Clone, Copy)]
@@ -120,8 +124,19 @@ struct CompleteIdlVersionBytes {
     idl_bytes: Vec<u8>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct BlobMigrationReport {
+    pub program_data_writes: u64,
+    pub program_versions: u64,
+    pub program_idl_writes: u64,
+    pub program_idl_version_bytes: u64,
+    pub program_idl_version_texts: u64,
+    pub disassemblies: u64,
+    pub bytes_moved: u64,
+}
+
 impl Database {
-    pub async fn connect(database_url: &str) -> Result<Self> {
+    pub async fn connect(database_url: &str, blob_store: BlobStore) -> Result<Self> {
         let connect_options = SqliteConnectOptions::from_str(database_url)?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal);
@@ -132,7 +147,7 @@ impl Database {
             .connect_with(connect_options)
             .await?;
 
-        Ok(Self { pool })
+        Ok(Self { pool, blob_store })
     }
 
     pub async fn migrate(&self) -> Result<()> {
@@ -214,6 +229,8 @@ impl Database {
         )
         .execute(&self.pool)
         .await?;
+        self.ensure_column("program_data_writes", "bytes_blob_key", "TEXT")
+            .await?;
 
         sqlx::query(
             r#"
@@ -261,6 +278,8 @@ impl Database {
         )
         .execute(&self.pool)
         .await?;
+        self.ensure_column("program_versions", "program_bytes_blob_key", "TEXT")
+            .await?;
 
         sqlx::query(
             r#"
@@ -304,6 +323,8 @@ impl Database {
         )
         .execute(&self.pool)
         .await?;
+        self.ensure_column("program_idl_writes", "bytes_blob_key", "TEXT")
+            .await?;
 
         sqlx::query(
             r#"
@@ -357,6 +378,10 @@ impl Database {
         )
         .execute(&self.pool)
         .await?;
+        self.ensure_column("program_idl_versions", "idl_bytes_blob_key", "TEXT")
+            .await?;
+        self.ensure_column("program_idl_versions", "idl_text_blob_key", "TEXT")
+            .await?;
 
         sqlx::query(
             r#"
@@ -385,6 +410,8 @@ impl Database {
         )
         .execute(&self.pool)
         .await?;
+        self.ensure_column("program_version_disassemblies", "asm_text_blob_key", "TEXT")
+            .await?;
 
         sqlx::query(
             r#"
@@ -1029,6 +1056,15 @@ impl Database {
     }
 
     pub async fn insert_program_data_write(&self, write: &ProgramDataWrite) -> Result<bool> {
+        let bytes_blob_key = self
+            .put_program_data_write_blob(&write.write_account, &write.bytes_sha256, &write.bytes)
+            .await?;
+        let inline_bytes = if bytes_blob_key.is_some() {
+            &[][..]
+        } else {
+            write.bytes.as_slice()
+        };
+
         let result = sqlx::query(
             r#"
             INSERT INTO program_data_writes (
@@ -1045,9 +1081,10 @@ impl Database {
                 offset,
                 data_len,
                 bytes_sha256,
-                bytes
+                bytes,
+                bytes_blob_key
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO NOTHING;
             "#,
         )
@@ -1064,7 +1101,8 @@ impl Database {
         .bind(write.offset)
         .bind(write.bytes.len() as i64)
         .bind(&write.bytes_sha256)
-        .bind(&write.bytes)
+        .bind(inline_bytes)
+        .bind(bytes_blob_key.as_deref())
         .execute(&self.pool)
         .await?;
 
@@ -1072,6 +1110,20 @@ impl Database {
     }
 
     pub async fn insert_program_idl_data_write(&self, write: &ProgramIdlDataWrite) -> Result<bool> {
+        let bytes_blob_key = self
+            .put_program_idl_write_blob(
+                &write.program_address,
+                &write.source_account,
+                &write.bytes_sha256,
+                &write.bytes,
+            )
+            .await?;
+        let inline_bytes = if bytes_blob_key.is_some() {
+            &[][..]
+        } else {
+            write.bytes.as_slice()
+        };
+
         let result = sqlx::query(
             r#"
             INSERT INTO program_idl_writes (
@@ -1090,9 +1142,10 @@ impl Database {
                 offset,
                 data_len,
                 bytes_sha256,
-                bytes
+                bytes,
+                bytes_blob_key
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO NOTHING;
             "#,
         )
@@ -1111,7 +1164,8 @@ impl Database {
         .bind(write.offset)
         .bind(write.bytes.len() as i64)
         .bind(&write.bytes_sha256)
-        .bind(&write.bytes)
+        .bind(inline_bytes)
+        .bind(bytes_blob_key.as_deref())
         .execute(&self.pool)
         .await?;
 
@@ -1211,6 +1265,21 @@ impl Database {
             .await?;
         let assembly = assemble_program_bytes(base_bytes, chunks);
         let missing_ranges_json = serde_json::to_string(&assembly.missing_ranges)?;
+        let program_bytes_blob_key = match (
+            assembly.bytes.as_deref(),
+            assembly.program_sha256.as_deref(),
+        ) {
+            (Some(bytes), Some(program_sha256)) => {
+                self.put_program_version_blob(&source.program_address, program_sha256, bytes)
+                    .await?
+            }
+            _ => None,
+        };
+        let program_bytes_inline: Option<&[u8]> = if program_bytes_blob_key.is_some() {
+            None
+        } else {
+            assembly.bytes.as_deref()
+        };
         let now = now_ts();
 
         sqlx::query(
@@ -1234,10 +1303,11 @@ impl Database {
                 program_len,
                 program_sha256,
                 program_bytes,
+                program_bytes_blob_key,
                 missing_ranges_json,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 signature = excluded.signature,
                 instruction_path = excluded.instruction_path,
@@ -1255,6 +1325,7 @@ impl Database {
                 program_len = excluded.program_len,
                 program_sha256 = excluded.program_sha256,
                 program_bytes = excluded.program_bytes,
+                program_bytes_blob_key = excluded.program_bytes_blob_key,
                 missing_ranges_json = excluded.missing_ranges_json,
                 updated_at = excluded.updated_at;
             "#,
@@ -1276,7 +1347,8 @@ impl Database {
         .bind(assembly.chunk_count as i64)
         .bind(assembly.program_len)
         .bind(&assembly.program_sha256)
-        .bind(assembly.bytes.as_deref())
+        .bind(program_bytes_inline)
+        .bind(program_bytes_blob_key.as_deref())
         .bind(&missing_ranges_json)
         .bind(now)
         .execute(&self.pool)
@@ -1600,6 +1672,33 @@ impl Database {
         idl_text: Option<String>,
     ) -> Result<()> {
         let missing_ranges_json = serde_json::to_string(&assembly.missing_ranges)?;
+        let idl_bytes_blob_key = match (
+            assembly.bytes.as_deref(),
+            assembly.program_sha256.as_deref(),
+        ) {
+            (Some(bytes), Some(idl_sha256)) => {
+                self.put_idl_version_blob(&source.program_address, idl_sha256, bytes)
+                    .await?
+            }
+            _ => None,
+        };
+        let idl_text_blob_key = match (idl_text.as_deref(), assembly.program_sha256.as_deref()) {
+            (Some(text), Some(idl_sha256)) => {
+                self.put_idl_text_blob(&source.program_address, idl_sha256, text)
+                    .await?
+            }
+            _ => None,
+        };
+        let idl_bytes_inline: Option<&[u8]> = if idl_bytes_blob_key.is_some() {
+            None
+        } else {
+            assembly.bytes.as_deref()
+        };
+        let idl_text_inline = if idl_text_blob_key.is_some() {
+            None
+        } else {
+            idl_text.as_deref()
+        };
         let now = now_ts();
 
         sqlx::query(
@@ -1624,7 +1723,9 @@ impl Database {
                 idl_len,
                 idl_sha256,
                 idl_bytes,
+                idl_bytes_blob_key,
                 idl_text,
+                idl_text_blob_key,
                 encoding,
                 compression,
                 format,
@@ -1632,7 +1733,7 @@ impl Database {
                 missing_ranges_json,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 signature = excluded.signature,
                 instruction_path = excluded.instruction_path,
@@ -1651,7 +1752,9 @@ impl Database {
                 idl_len = excluded.idl_len,
                 idl_sha256 = excluded.idl_sha256,
                 idl_bytes = excluded.idl_bytes,
+                idl_bytes_blob_key = excluded.idl_bytes_blob_key,
                 idl_text = excluded.idl_text,
+                idl_text_blob_key = excluded.idl_text_blob_key,
                 encoding = excluded.encoding,
                 compression = excluded.compression,
                 format = excluded.format,
@@ -1678,8 +1781,10 @@ impl Database {
         .bind(assembly.chunk_count as i64)
         .bind(assembly.program_len)
         .bind(&assembly.program_sha256)
-        .bind(assembly.bytes.as_deref())
-        .bind(idl_text.as_deref())
+        .bind(idl_bytes_inline)
+        .bind(idl_bytes_blob_key.as_deref())
+        .bind(idl_text_inline)
+        .bind(idl_text_blob_key.as_deref())
         .bind(&source.encoding)
         .bind(&source.compression)
         .bind(&source.format)
@@ -1824,12 +1929,12 @@ impl Database {
     ) -> Result<Option<Vec<u8>>> {
         let row = sqlx::query(
             r#"
-            SELECT idl_bytes
+            SELECT idl_bytes, idl_bytes_blob_key
             FROM program_idl_versions
             WHERE program_address = ?
               AND id = ?
               AND complete = 1
-              AND idl_bytes IS NOT NULL
+              AND (idl_bytes IS NOT NULL OR idl_bytes_blob_key IS NOT NULL)
             LIMIT 1;
             "#,
         )
@@ -1838,7 +1943,17 @@ impl Database {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(|row| row.try_get("idl_bytes")).transpose()?)
+        match row {
+            Some(row) => {
+                self.blob_bytes_or_inline(
+                    row.try_get("idl_bytes_blob_key")?,
+                    row.try_get("idl_bytes")?,
+                    "IDL version",
+                )
+                .await
+            }
+            None => Ok(None),
+        }
     }
 
     pub async fn program_idl_version_text(
@@ -1848,12 +1963,12 @@ impl Database {
     ) -> Result<Option<String>> {
         let row = sqlx::query(
             r#"
-            SELECT idl_text
+            SELECT idl_text, idl_text_blob_key
             FROM program_idl_versions
             WHERE program_address = ?
               AND id = ?
               AND complete = 1
-              AND idl_text IS NOT NULL
+              AND (idl_text IS NOT NULL OR idl_text_blob_key IS NOT NULL)
             LIMIT 1;
             "#,
         )
@@ -1862,7 +1977,17 @@ impl Database {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(|row| row.try_get("idl_text")).transpose()?)
+        match row {
+            Some(row) => {
+                self.blob_text_or_inline(
+                    row.try_get("idl_text_blob_key")?,
+                    row.try_get("idl_text")?,
+                    "IDL text",
+                )
+                .await
+            }
+            None => Ok(None),
+        }
     }
 
     pub async fn program_version_bytes(
@@ -1979,6 +2104,19 @@ impl Database {
         })
         .await
         .context("join sBPF disassembly task")??;
+        let asm_text_blob_key = self
+            .put_disassembly_blob(
+                program_address,
+                program_sha256,
+                &disassembly.asm_sha256,
+                &disassembly.asm_text,
+            )
+            .await?;
+        let asm_text_inline = if asm_text_blob_key.is_some() {
+            ""
+        } else {
+            disassembly.asm_text.as_str()
+        };
         let now = now_ts();
 
         sqlx::query(
@@ -1992,10 +2130,11 @@ impl Database {
                 entrypoint_instruction,
                 asm_sha256,
                 asm_text,
+                asm_text_blob_key,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(version_id) DO UPDATE SET
                 program_address = excluded.program_address,
                 program_sha256 = excluded.program_sha256,
@@ -2004,6 +2143,7 @@ impl Database {
                 entrypoint_instruction = excluded.entrypoint_instruction,
                 asm_sha256 = excluded.asm_sha256,
                 asm_text = excluded.asm_text,
+                asm_text_blob_key = excluded.asm_text_blob_key,
                 updated_at = excluded.updated_at;
             "#,
         )
@@ -2014,7 +2154,8 @@ impl Database {
         .bind(disassembly.instruction_count)
         .bind(disassembly.entrypoint_instruction)
         .bind(&disassembly.asm_sha256)
-        .bind(&disassembly.asm_text)
+        .bind(asm_text_inline)
+        .bind(asm_text_blob_key.as_deref())
         .bind(now)
         .bind(now)
         .execute(&self.pool)
@@ -2039,6 +2180,7 @@ impl Database {
                 entrypoint_instruction,
                 asm_sha256,
                 asm_text,
+                asm_text_blob_key,
                 created_at,
                 updated_at
             FROM program_version_disassemblies
@@ -2052,21 +2194,31 @@ impl Database {
         .fetch_optional(&self.pool)
         .await?;
 
-        row.map(|row| {
-            Ok(ProgramDisassemblyRecord {
-                version_id: row.try_get("version_id")?,
-                program_address: row.try_get("program_address")?,
-                program_sha256: row.try_get("program_sha256")?,
-                format: row.try_get("format")?,
-                instruction_count: row.try_get("instruction_count")?,
-                entrypoint_instruction: row.try_get("entrypoint_instruction")?,
-                asm_sha256: row.try_get("asm_sha256")?,
-                asm_text: row.try_get("asm_text")?,
-                created_at: row.try_get("created_at")?,
-                updated_at: row.try_get("updated_at")?,
-            })
-        })
-        .transpose()
+        match row {
+            Some(row) => {
+                let asm_text = self
+                    .blob_text_or_inline(
+                        row.try_get("asm_text_blob_key")?,
+                        Some(row.try_get("asm_text")?),
+                        "program disassembly",
+                    )
+                    .await?
+                    .context("program disassembly text missing")?;
+                Ok(Some(ProgramDisassemblyRecord {
+                    version_id: row.try_get("version_id")?,
+                    program_address: row.try_get("program_address")?,
+                    program_sha256: row.try_get("program_sha256")?,
+                    format: row.try_get("format")?,
+                    instruction_count: row.try_get("instruction_count")?,
+                    entrypoint_instruction: row.try_get("entrypoint_instruction")?,
+                    asm_sha256: row.try_get("asm_sha256")?,
+                    asm_text,
+                    created_at: row.try_get("created_at")?,
+                    updated_at: row.try_get("updated_at")?,
+                }))
+            }
+            None => Ok(None),
+        }
     }
 
     async fn previous_program_version_order_for_source(
@@ -2112,11 +2264,11 @@ impl Database {
     ) -> Result<Option<Vec<u8>>> {
         let row = sqlx::query(
             r#"
-            SELECT program_bytes
+            SELECT program_bytes, program_bytes_blob_key
             FROM program_versions
             WHERE program_address = ?
               AND complete = 1
-              AND program_bytes IS NOT NULL
+              AND (program_bytes IS NOT NULL OR program_bytes_blob_key IS NOT NULL)
               AND (
                     slot < ?
                  OR (slot = ? AND instruction_order < ?)
@@ -2132,7 +2284,17 @@ impl Database {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(|row| row.try_get("program_bytes")).transpose()?)
+        match row {
+            Some(row) => {
+                self.blob_bytes_or_inline(
+                    row.try_get("program_bytes_blob_key")?,
+                    row.try_get("program_bytes")?,
+                    "previous program version",
+                )
+                .await
+            }
+            None => Ok(None),
+        }
     }
 
     async fn program_data_chunks_for_source(
@@ -2144,7 +2306,7 @@ impl Database {
     ) -> Result<Vec<ProgramDataChunk>> {
         let mut builder = QueryBuilder::<Sqlite>::new(
             r#"
-            SELECT offset, bytes
+            SELECT offset, bytes, bytes_blob_key
             FROM program_data_writes
             WHERE write_account =
             "#,
@@ -2180,15 +2342,23 @@ impl Database {
         builder.push(")) ORDER BY slot ASC, instruction_order ASC, id ASC");
 
         let rows = builder.build().fetch_all(&self.pool).await?;
-        rows.into_iter()
-            .map(|row| {
-                let offset = row.try_get::<i64, _>("offset")?;
-                Ok(ProgramDataChunk {
-                    offset: u32::try_from(offset).context("program data write offset overflow")?,
-                    bytes: row.try_get("bytes")?,
-                })
-            })
-            .collect()
+        let mut chunks = Vec::with_capacity(rows.len());
+        for row in rows {
+            let offset = row.try_get::<i64, _>("offset")?;
+            let bytes = self
+                .blob_bytes_or_inline(
+                    row.try_get("bytes_blob_key")?,
+                    Some(row.try_get("bytes")?),
+                    "program data write",
+                )
+                .await?
+                .context("program data write bytes missing")?;
+            chunks.push(ProgramDataChunk {
+                offset: u32::try_from(offset).context("program data write offset overflow")?,
+                bytes,
+            });
+        }
+        Ok(chunks)
     }
 
     async fn program_idl_chunks_for_source(
@@ -2200,7 +2370,7 @@ impl Database {
     ) -> Result<Vec<ProgramDataChunk>> {
         let mut builder = QueryBuilder::<Sqlite>::new(
             r#"
-            SELECT offset, bytes
+            SELECT offset, bytes, bytes_blob_key
             FROM program_idl_writes
             WHERE source_account =
             "#,
@@ -2237,26 +2407,31 @@ impl Database {
 
         let rows = builder.build().fetch_all(&self.pool).await?;
         let mut append_offset = 0_u32;
-        rows.into_iter()
-            .map(|row| {
-                let bytes = row.try_get::<Vec<u8>, _>("bytes")?;
-                let offset = match row.try_get::<Option<i64>, _>("offset")? {
-                    Some(offset) => {
-                        u32::try_from(offset).context("IDL data write offset overflow")?
-                    }
-                    None => {
-                        let offset = append_offset;
-                        append_offset = append_offset
-                            .checked_add(
-                                u32::try_from(bytes.len()).context("IDL append length overflow")?,
-                            )
-                            .context("IDL append offset overflow")?;
-                        offset
-                    }
-                };
-                Ok(ProgramDataChunk { offset, bytes })
-            })
-            .collect()
+        let mut chunks = Vec::with_capacity(rows.len());
+        for row in rows {
+            let bytes = self
+                .blob_bytes_or_inline(
+                    row.try_get("bytes_blob_key")?,
+                    Some(row.try_get("bytes")?),
+                    "IDL data write",
+                )
+                .await?
+                .context("IDL data write bytes missing")?;
+            let offset = match row.try_get::<Option<i64>, _>("offset")? {
+                Some(offset) => u32::try_from(offset).context("IDL data write offset overflow")?,
+                None => {
+                    let offset = append_offset;
+                    append_offset = append_offset
+                        .checked_add(
+                            u32::try_from(bytes.len()).context("IDL append length overflow")?,
+                        )
+                        .context("IDL append offset overflow")?;
+                    offset
+                }
+            };
+            chunks.push(ProgramDataChunk { offset, bytes });
+        }
+        Ok(chunks)
     }
 
     async fn update_event_program_version_payload(
@@ -2343,7 +2518,7 @@ impl Database {
             FROM program_versions
             WHERE program_address = ?
               AND complete = 1
-              AND program_bytes IS NOT NULL
+              AND (program_bytes IS NOT NULL OR program_bytes_blob_key IS NOT NULL)
               AND (
                     slot < ?
                  OR (slot = ? AND instruction_order < ?)
@@ -2416,7 +2591,7 @@ impl Database {
             FROM program_idl_versions
             WHERE program_address = ?
               AND complete = 1
-              AND idl_bytes IS NOT NULL
+              AND (idl_bytes IS NOT NULL OR idl_bytes_blob_key IS NOT NULL)
               AND (
                     slot < ?
                  OR (slot = ? AND instruction_order < ?)
@@ -2450,12 +2625,12 @@ impl Database {
     ) -> Result<Option<CompleteIdlVersionBytes>> {
         let row = sqlx::query(
             r#"
-            SELECT idl_bytes
+            SELECT idl_bytes, idl_bytes_blob_key
             FROM program_idl_versions
             WHERE program_address = ?
               AND complete = 1
               AND idl_sha256 IS NOT NULL
-              AND idl_bytes IS NOT NULL
+              AND (idl_bytes IS NOT NULL OR idl_bytes_blob_key IS NOT NULL)
               AND (
                     slot < ?
                  OR (slot = ? AND instruction_order < ?)
@@ -2471,12 +2646,20 @@ impl Database {
         .fetch_optional(&self.pool)
         .await?;
 
-        row.map(|row| {
-            Ok(CompleteIdlVersionBytes {
-                idl_bytes: row.try_get("idl_bytes")?,
-            })
-        })
-        .transpose()
+        match row {
+            Some(row) => {
+                let idl_bytes = self
+                    .blob_bytes_or_inline(
+                        row.try_get("idl_bytes_blob_key")?,
+                        row.try_get("idl_bytes")?,
+                        "previous IDL version",
+                    )
+                    .await?
+                    .context("previous IDL version bytes missing")?;
+                Ok(Some(CompleteIdlVersionBytes { idl_bytes }))
+            }
+            None => Ok(None),
+        }
     }
 
     async fn program_idl_version_by_id(
@@ -2660,13 +2843,13 @@ impl Database {
     ) -> Result<Option<CompleteProgramVersionBytes>> {
         let row = sqlx::query(
             r#"
-            SELECT id, program_sha256, program_bytes
+            SELECT id, program_sha256, program_bytes, program_bytes_blob_key
             FROM program_versions
             WHERE program_address = ?
               AND id = ?
               AND complete = 1
               AND program_sha256 IS NOT NULL
-              AND program_bytes IS NOT NULL
+              AND (program_bytes IS NOT NULL OR program_bytes_blob_key IS NOT NULL)
             LIMIT 1;
             "#,
         )
@@ -2675,14 +2858,24 @@ impl Database {
         .fetch_optional(&self.pool)
         .await?;
 
-        row.map(|row| {
-            Ok(CompleteProgramVersionBytes {
-                id: row.try_get("id")?,
-                program_sha256: row.try_get("program_sha256")?,
-                program_bytes: row.try_get("program_bytes")?,
-            })
-        })
-        .transpose()
+        match row {
+            Some(row) => {
+                let program_bytes = self
+                    .blob_bytes_or_inline(
+                        row.try_get("program_bytes_blob_key")?,
+                        row.try_get("program_bytes")?,
+                        "program version",
+                    )
+                    .await?
+                    .context("program version bytes missing")?;
+                Ok(Some(CompleteProgramVersionBytes {
+                    id: row.try_get("id")?,
+                    program_sha256: row.try_get("program_sha256")?,
+                    program_bytes,
+                }))
+            }
+            None => Ok(None),
+        }
     }
 
     pub async fn list_events_filtered(
@@ -3851,6 +4044,489 @@ impl Database {
             .unwrap_or(delta))
     }
 
+    pub async fn migrate_inline_blobs(&self) -> Result<BlobMigrationReport> {
+        if !self.blob_store.enabled() {
+            bail!("BLOB_STORE_DIR must be set before migrating inline SQLite blobs");
+        }
+
+        let mut report = BlobMigrationReport::default();
+        self.migrate_program_data_write_blobs(&mut report).await?;
+        self.migrate_program_version_blobs(&mut report).await?;
+        self.migrate_program_idl_write_blobs(&mut report).await?;
+        self.migrate_program_idl_version_blobs(&mut report).await?;
+        self.migrate_disassembly_blobs(&mut report).await?;
+        Ok(report)
+    }
+
+    pub async fn vacuum(&self) -> Result<()> {
+        sqlx::query("VACUUM;").execute(&self.pool).await?;
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE);")
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn migrate_program_data_write_blobs(
+        &self,
+        report: &mut BlobMigrationReport,
+    ) -> Result<()> {
+        loop {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, write_account, bytes_sha256, bytes
+                FROM program_data_writes
+                WHERE bytes_blob_key IS NULL
+                  AND length(bytes) > 0
+                LIMIT 500;
+                "#,
+            )
+            .fetch_all(&self.pool)
+            .await?;
+            if rows.is_empty() {
+                return Ok(());
+            }
+
+            for row in rows {
+                let id = row.try_get::<String, _>("id")?;
+                let write_account = row.try_get::<String, _>("write_account")?;
+                let bytes_sha256 = row.try_get::<String, _>("bytes_sha256")?;
+                let bytes = row.try_get::<Vec<u8>, _>("bytes")?;
+                let bytes_len = bytes.len() as u64;
+                let blob_key = self
+                    .put_program_data_write_blob(&write_account, &bytes_sha256, &bytes)
+                    .await?
+                    .context("program data write blob store disabled")?;
+
+                let result = sqlx::query(
+                    r#"
+                    UPDATE program_data_writes
+                    SET bytes = X'', bytes_blob_key = ?
+                    WHERE id = ?
+                      AND bytes_blob_key IS NULL;
+                    "#,
+                )
+                .bind(&blob_key)
+                .bind(&id)
+                .execute(&self.pool)
+                .await?;
+                if result.rows_affected() > 0 {
+                    report.program_data_writes += 1;
+                    report.bytes_moved += bytes_len;
+                }
+            }
+        }
+    }
+
+    async fn migrate_program_version_blobs(&self, report: &mut BlobMigrationReport) -> Result<()> {
+        loop {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, program_address, program_sha256, program_bytes
+                FROM program_versions
+                WHERE program_bytes_blob_key IS NULL
+                  AND program_sha256 IS NOT NULL
+                  AND program_bytes IS NOT NULL
+                  AND length(program_bytes) > 0
+                LIMIT 100;
+                "#,
+            )
+            .fetch_all(&self.pool)
+            .await?;
+            if rows.is_empty() {
+                return Ok(());
+            }
+
+            for row in rows {
+                let id = row.try_get::<String, _>("id")?;
+                let program_address = row.try_get::<String, _>("program_address")?;
+                let program_sha256 = row.try_get::<String, _>("program_sha256")?;
+                let bytes = row.try_get::<Vec<u8>, _>("program_bytes")?;
+                let bytes_len = bytes.len() as u64;
+                let blob_key = self
+                    .put_program_version_blob(&program_address, &program_sha256, &bytes)
+                    .await?
+                    .context("program version blob store disabled")?;
+
+                let result = sqlx::query(
+                    r#"
+                    UPDATE program_versions
+                    SET program_bytes = NULL, program_bytes_blob_key = ?
+                    WHERE id = ?
+                      AND program_bytes_blob_key IS NULL;
+                    "#,
+                )
+                .bind(&blob_key)
+                .bind(&id)
+                .execute(&self.pool)
+                .await?;
+                if result.rows_affected() > 0 {
+                    report.program_versions += 1;
+                    report.bytes_moved += bytes_len;
+                }
+            }
+        }
+    }
+
+    async fn migrate_program_idl_write_blobs(
+        &self,
+        report: &mut BlobMigrationReport,
+    ) -> Result<()> {
+        loop {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, program_address, source_account, bytes_sha256, bytes
+                FROM program_idl_writes
+                WHERE bytes_blob_key IS NULL
+                  AND length(bytes) > 0
+                LIMIT 500;
+                "#,
+            )
+            .fetch_all(&self.pool)
+            .await?;
+            if rows.is_empty() {
+                return Ok(());
+            }
+
+            for row in rows {
+                let id = row.try_get::<String, _>("id")?;
+                let program_address = row.try_get::<String, _>("program_address")?;
+                let source_account = row.try_get::<String, _>("source_account")?;
+                let bytes_sha256 = row.try_get::<String, _>("bytes_sha256")?;
+                let bytes = row.try_get::<Vec<u8>, _>("bytes")?;
+                let bytes_len = bytes.len() as u64;
+                let blob_key = self
+                    .put_program_idl_write_blob(
+                        &program_address,
+                        &source_account,
+                        &bytes_sha256,
+                        &bytes,
+                    )
+                    .await?
+                    .context("program IDL write blob store disabled")?;
+
+                let result = sqlx::query(
+                    r#"
+                    UPDATE program_idl_writes
+                    SET bytes = X'', bytes_blob_key = ?
+                    WHERE id = ?
+                      AND bytes_blob_key IS NULL;
+                    "#,
+                )
+                .bind(&blob_key)
+                .bind(&id)
+                .execute(&self.pool)
+                .await?;
+                if result.rows_affected() > 0 {
+                    report.program_idl_writes += 1;
+                    report.bytes_moved += bytes_len;
+                }
+            }
+        }
+    }
+
+    async fn migrate_program_idl_version_blobs(
+        &self,
+        report: &mut BlobMigrationReport,
+    ) -> Result<()> {
+        loop {
+            let rows = sqlx::query(
+                r#"
+                SELECT
+                    id,
+                    program_address,
+                    idl_sha256,
+                    idl_bytes,
+                    idl_bytes_blob_key,
+                    idl_text,
+                    idl_text_blob_key
+                FROM program_idl_versions
+                WHERE (
+                        idl_bytes_blob_key IS NULL
+                    AND idl_bytes IS NOT NULL
+                    AND length(idl_bytes) > 0
+                )
+                   OR (
+                        idl_text_blob_key IS NULL
+                    AND idl_text IS NOT NULL
+                    AND length(idl_text) > 0
+                )
+                LIMIT 100;
+                "#,
+            )
+            .fetch_all(&self.pool)
+            .await?;
+            if rows.is_empty() {
+                return Ok(());
+            }
+
+            for row in rows {
+                let id = row.try_get::<String, _>("id")?;
+                let program_address = row.try_get::<String, _>("program_address")?;
+                let idl_sha256 = row.try_get::<Option<String>, _>("idl_sha256")?;
+                let idl_bytes = row.try_get::<Option<Vec<u8>>, _>("idl_bytes")?;
+                let idl_bytes_blob_key = row.try_get::<Option<String>, _>("idl_bytes_blob_key")?;
+                let idl_text = row.try_get::<Option<String>, _>("idl_text")?;
+                let idl_text_blob_key = row.try_get::<Option<String>, _>("idl_text_blob_key")?;
+
+                if idl_bytes_blob_key.is_none()
+                    && let Some(bytes) = idl_bytes.as_ref()
+                    && !bytes.is_empty()
+                {
+                    let fallback_hash;
+                    let hash = match idl_sha256.as_deref() {
+                        Some(hash) => hash,
+                        None => {
+                            fallback_hash = sha256_hex(bytes);
+                            &fallback_hash
+                        }
+                    };
+                    let blob_key = self
+                        .put_idl_version_blob(&program_address, hash, bytes)
+                        .await?
+                        .context("IDL version blob store disabled")?;
+                    let result = sqlx::query(
+                        r#"
+                        UPDATE program_idl_versions
+                        SET idl_bytes = NULL, idl_bytes_blob_key = ?
+                        WHERE id = ?
+                          AND idl_bytes_blob_key IS NULL;
+                        "#,
+                    )
+                    .bind(&blob_key)
+                    .bind(&id)
+                    .execute(&self.pool)
+                    .await?;
+                    if result.rows_affected() > 0 {
+                        report.program_idl_version_bytes += 1;
+                        report.bytes_moved += bytes.len() as u64;
+                    }
+                }
+
+                if idl_text_blob_key.is_none()
+                    && let Some(text) = idl_text.as_ref()
+                    && !text.is_empty()
+                {
+                    let fallback_hash;
+                    let hash = match idl_sha256.as_deref() {
+                        Some(hash) => hash,
+                        None => {
+                            fallback_hash = sha256_hex(text.as_bytes());
+                            &fallback_hash
+                        }
+                    };
+                    let blob_key = self
+                        .put_idl_text_blob(&program_address, hash, text)
+                        .await?
+                        .context("IDL text blob store disabled")?;
+                    let result = sqlx::query(
+                        r#"
+                        UPDATE program_idl_versions
+                        SET idl_text = NULL, idl_text_blob_key = ?
+                        WHERE id = ?
+                          AND idl_text_blob_key IS NULL;
+                        "#,
+                    )
+                    .bind(&blob_key)
+                    .bind(&id)
+                    .execute(&self.pool)
+                    .await?;
+                    if result.rows_affected() > 0 {
+                        report.program_idl_version_texts += 1;
+                        report.bytes_moved += text.len() as u64;
+                    }
+                }
+            }
+        }
+    }
+
+    async fn migrate_disassembly_blobs(&self, report: &mut BlobMigrationReport) -> Result<()> {
+        loop {
+            let rows = sqlx::query(
+                r#"
+                SELECT version_id, program_address, program_sha256, asm_sha256, asm_text
+                FROM program_version_disassemblies
+                WHERE asm_text_blob_key IS NULL
+                  AND length(asm_text) > 0
+                LIMIT 25;
+                "#,
+            )
+            .fetch_all(&self.pool)
+            .await?;
+            if rows.is_empty() {
+                return Ok(());
+            }
+
+            for row in rows {
+                let version_id = row.try_get::<String, _>("version_id")?;
+                let program_address = row.try_get::<String, _>("program_address")?;
+                let program_sha256 = row.try_get::<String, _>("program_sha256")?;
+                let asm_sha256 = row.try_get::<String, _>("asm_sha256")?;
+                let asm_text = row.try_get::<String, _>("asm_text")?;
+                let bytes_len = asm_text.len() as u64;
+                let blob_key = self
+                    .put_disassembly_blob(&program_address, &program_sha256, &asm_sha256, &asm_text)
+                    .await?
+                    .context("program disassembly blob store disabled")?;
+
+                let result = sqlx::query(
+                    r#"
+                    UPDATE program_version_disassemblies
+                    SET asm_text = '', asm_text_blob_key = ?
+                    WHERE version_id = ?
+                      AND asm_text_blob_key IS NULL;
+                    "#,
+                )
+                .bind(&blob_key)
+                .bind(&version_id)
+                .execute(&self.pool)
+                .await?;
+                if result.rows_affected() > 0 {
+                    report.disassemblies += 1;
+                    report.bytes_moved += bytes_len;
+                }
+            }
+        }
+    }
+
+    async fn put_program_data_write_blob(
+        &self,
+        write_account: &str,
+        bytes_sha256: &str,
+        bytes: &[u8],
+    ) -> Result<Option<String>> {
+        self.put_blob(
+            program_data_write_blob_key(write_account, bytes_sha256),
+            bytes,
+            "program data write",
+        )
+        .await
+    }
+
+    async fn put_program_version_blob(
+        &self,
+        program_address: &str,
+        program_sha256: &str,
+        bytes: &[u8],
+    ) -> Result<Option<String>> {
+        self.put_blob(
+            program_version_blob_key(program_address, program_sha256),
+            bytes,
+            "program version",
+        )
+        .await
+    }
+
+    async fn put_program_idl_write_blob(
+        &self,
+        program_address: &str,
+        source_account: &str,
+        bytes_sha256: &str,
+        bytes: &[u8],
+    ) -> Result<Option<String>> {
+        self.put_blob(
+            program_idl_write_blob_key(program_address, source_account, bytes_sha256),
+            bytes,
+            "program IDL write",
+        )
+        .await
+    }
+
+    async fn put_idl_version_blob(
+        &self,
+        program_address: &str,
+        idl_sha256: &str,
+        bytes: &[u8],
+    ) -> Result<Option<String>> {
+        self.put_blob(
+            idl_version_blob_key(program_address, idl_sha256),
+            bytes,
+            "IDL version",
+        )
+        .await
+    }
+
+    async fn put_idl_text_blob(
+        &self,
+        program_address: &str,
+        idl_sha256: &str,
+        text: &str,
+    ) -> Result<Option<String>> {
+        self.put_blob(
+            idl_text_blob_key(program_address, idl_sha256),
+            text.as_bytes(),
+            "IDL text",
+        )
+        .await
+    }
+
+    async fn put_disassembly_blob(
+        &self,
+        program_address: &str,
+        program_sha256: &str,
+        asm_sha256: &str,
+        asm_text: &str,
+    ) -> Result<Option<String>> {
+        self.put_blob(
+            disassembly_blob_key(program_address, program_sha256, asm_sha256),
+            asm_text.as_bytes(),
+            "program disassembly",
+        )
+        .await
+    }
+
+    async fn put_blob(&self, key: String, bytes: &[u8], label: &str) -> Result<Option<String>> {
+        self.blob_store
+            .put_bytes(&key, bytes)
+            .await
+            .with_context(|| format!("store {label} blob {key}"))
+    }
+
+    async fn blob_bytes_or_inline(
+        &self,
+        blob_key: Option<String>,
+        inline: Option<Vec<u8>>,
+        label: &str,
+    ) -> Result<Option<Vec<u8>>> {
+        let Some(blob_key) = blob_key else {
+            return Ok(inline);
+        };
+
+        if let Some(bytes) = self.blob_store.get_bytes(&blob_key).await? {
+            return Ok(Some(bytes));
+        }
+        if let Some(bytes) = inline
+            && !bytes.is_empty()
+        {
+            return Ok(Some(bytes));
+        }
+
+        bail!("missing {label} blob {blob_key}");
+    }
+
+    async fn blob_text_or_inline(
+        &self,
+        blob_key: Option<String>,
+        inline: Option<String>,
+        label: &str,
+    ) -> Result<Option<String>> {
+        let Some(blob_key) = blob_key else {
+            return Ok(inline);
+        };
+
+        if let Some(bytes) = self.blob_store.get_bytes(&blob_key).await? {
+            return String::from_utf8(bytes)
+                .map(Some)
+                .with_context(|| format!("{label} blob {blob_key} is not valid UTF-8"));
+        }
+        if let Some(text) = inline
+            && !text.is_empty()
+        {
+            return Ok(Some(text));
+        }
+
+        bail!("missing {label} blob {blob_key}");
+    }
+
     async fn ensure_column(
         &self,
         table_name: &str,
@@ -3872,6 +4548,79 @@ impl Database {
         Ok(rows
             .into_iter()
             .any(|row| row.try_get::<String, _>("name").ok().as_deref() == Some(column_name)))
+    }
+}
+
+fn program_data_write_blob_key(write_account: &str, bytes_sha256: &str) -> String {
+    format!(
+        "program-data-writes/{}/{}.bin",
+        safe_path_component(write_account),
+        safe_path_component(bytes_sha256)
+    )
+}
+
+fn program_version_blob_key(program_address: &str, program_sha256: &str) -> String {
+    format!(
+        "program-bytes/{}/{}.bin",
+        safe_path_component(program_address),
+        safe_path_component(program_sha256)
+    )
+}
+
+fn program_idl_write_blob_key(
+    program_address: &str,
+    source_account: &str,
+    bytes_sha256: &str,
+) -> String {
+    format!(
+        "program-idl-writes/{}/{}/{}.bin",
+        safe_path_component(program_address),
+        safe_path_component(source_account),
+        safe_path_component(bytes_sha256)
+    )
+}
+
+fn idl_version_blob_key(program_address: &str, idl_sha256: &str) -> String {
+    format!(
+        "idl-bytes/{}/{}.bin",
+        safe_path_component(program_address),
+        safe_path_component(idl_sha256)
+    )
+}
+
+fn idl_text_blob_key(program_address: &str, idl_sha256: &str) -> String {
+    format!(
+        "idl-text/{}/{}.json",
+        safe_path_component(program_address),
+        safe_path_component(idl_sha256)
+    )
+}
+
+fn disassembly_blob_key(program_address: &str, program_sha256: &str, asm_sha256: &str) -> String {
+    format!(
+        "disassembly/{}/{}/{}.asm",
+        safe_path_component(program_address),
+        safe_path_component(program_sha256),
+        safe_path_component(asm_sha256)
+    )
+}
+
+fn safe_path_component(value: &str) -> String {
+    let component = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+
+    if component.is_empty() {
+        "_".to_owned()
+    } else {
+        component
     }
 }
 
@@ -4301,7 +5050,7 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         let database_url = format!("sqlite://{}", db_path.display());
-        let db = Database::connect(&database_url).await?;
+        let db = Database::connect(&database_url, BlobStore::new(None)?).await?;
         db.migrate().await?;
 
         let buffer = "Buffer111111111111111111111111111111111111".to_owned();
@@ -4390,6 +5139,111 @@ mod tests {
         assert_eq!(stored_block_time, Some(100));
 
         let _ = std::fs::remove_file(db_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn migrates_inline_program_blobs_to_blob_store() -> Result<()> {
+        let suffix = uuid::Uuid::new_v4();
+        let db_path = std::env::temp_dir().join(format!("firewatch-blob-migration-{suffix}.db"));
+        let blob_dir = std::env::temp_dir().join(format!("firewatch-blob-migration-{suffix}"));
+        let database_url = format!("sqlite://{}", db_path.display());
+        let db = Database::connect(&database_url, BlobStore::new(None)?).await?;
+        db.migrate().await?;
+
+        let buffer = "Buffer111111111111111111111111111111111111".to_owned();
+        let program = "Program11111111111111111111111111111111111".to_owned();
+        let authority = "Authority111111111111111111111111111111111".to_owned();
+        for (path, offset, bytes) in [("0", 0_i64, b"abc".to_vec()), ("1", 3_i64, b"def".to_vec())]
+        {
+            db.insert_program_data_write(&ProgramDataWrite {
+                id: format!("sig:{path}:program_data_write:{buffer}:{offset}"),
+                signature: "sig".to_owned(),
+                instruction_path: path.to_owned(),
+                instruction_order: instruction_order_key(path),
+                loader: "upgradeable".to_owned(),
+                write_account: buffer.clone(),
+                authority: Some(authority.clone()),
+                slot: 10,
+                block_time: Some(100),
+                indexed_at: 100,
+                offset,
+                bytes_sha256: sha256_hex(&bytes),
+                bytes,
+            })
+            .await?;
+        }
+
+        let event = ChainEvent {
+            id: format!("sig:2:{}:{program}", event_kind::PROGRAM_UPGRADED),
+            signature: "sig".to_owned(),
+            instruction_path: "2".to_owned(),
+            kind: event_kind::PROGRAM_UPGRADED.to_owned(),
+            target_type: target_type::PROGRAM.to_owned(),
+            target_address: program.clone(),
+            actor: Some(authority.clone()),
+            slot: 10,
+            block_time: Some(100),
+            indexed_at: 100,
+            summary: "Program upgraded for test".to_owned(),
+            tags: Vec::new(),
+            payload: json!({
+                "loader": "upgradeable",
+                "program": program,
+                "buffer_account": buffer,
+                "authority": authority,
+            }),
+            delivery_attempts: 0,
+            delivered_at: None,
+            last_error: None,
+            next_retry_at: 100,
+        };
+        db.insert_event(&event).await?;
+        db.upsert_program_version_for_event(&event).await?;
+        drop(db);
+
+        let db = Database::connect(&database_url, BlobStore::new(Some(blob_dir.clone()))?).await?;
+        db.migrate().await?;
+        let report = db.migrate_inline_blobs().await?;
+
+        assert_eq!(report.program_data_writes, 2);
+        assert_eq!(report.program_versions, 1);
+        assert_eq!(
+            db.program_version_bytes(
+                &event.target_address,
+                &event.id,
+                ProgramVersionByteSide::After,
+            )
+            .await?
+            .as_deref(),
+            Some(&b"abcdef"[..])
+        );
+
+        let inline_write_bytes: i64 =
+            sqlx::query_scalar("SELECT COALESCE(SUM(length(bytes)), 0) FROM program_data_writes")
+                .fetch_one(&db.pool)
+                .await?;
+        let inline_version_bytes: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(length(program_bytes)), 0) FROM program_versions",
+        )
+        .fetch_one(&db.pool)
+        .await?;
+        let blob_key_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT
+                (SELECT COUNT(*) FROM program_data_writes WHERE bytes_blob_key IS NOT NULL)
+              + (SELECT COUNT(*) FROM program_versions WHERE program_bytes_blob_key IS NOT NULL);
+            "#,
+        )
+        .fetch_one(&db.pool)
+        .await?;
+
+        assert_eq!(inline_write_bytes, 0);
+        assert_eq!(inline_version_bytes, 0);
+        assert_eq!(blob_key_count, 3);
+
+        let _ = std::fs::remove_file(db_path);
+        let _ = std::fs::remove_dir_all(blob_dir);
         Ok(())
     }
 }

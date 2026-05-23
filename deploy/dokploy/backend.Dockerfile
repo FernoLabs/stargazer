@@ -15,17 +15,18 @@ RUN apt-get update \
 	&& apt-get install -y --no-install-recommends ca-certificates curl \
 	&& rm -rf /var/lib/apt/lists/* \
 	&& useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin firewatch \
-	&& mkdir -p /app /data \
-	&& chown -R firewatch:firewatch /app /data
+	&& mkdir -p /app /data /blobs \
+	&& chown -R firewatch:firewatch /app /data /blobs
 
 WORKDIR /app
 ENV HTTP_BIND=0.0.0.0:8080
 ENV DATABASE_URL=sqlite:///data/indexer.db
+ENV BLOB_STORE_DIR=/blobs
 
 COPY --from=builder /app/backend/target/release/firewatch-backend /usr/local/bin/firewatch-backend
 
 USER firewatch
 EXPOSE 8080
-VOLUME ["/data"]
+VOLUME ["/data", "/blobs"]
 
 ENTRYPOINT ["firewatch-backend"]

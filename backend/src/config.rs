@@ -7,6 +7,7 @@ use std::{env, fs, path::PathBuf};
 pub struct Config {
     pub http_bind: String,
     pub database_url: String,
+    pub blob_store_dir: Option<PathBuf>,
     pub solana_grpc_endpoint: String,
     pub solana_grpc_x_token: Option<String>,
     pub solana_rpc_http_url: String,
@@ -47,6 +48,11 @@ impl Config {
             http_bind: env::var("HTTP_BIND").unwrap_or_else(|_| "0.0.0.0:8080".to_owned()),
             database_url: env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "sqlite://data/indexer.db".to_owned()),
+            blob_store_dir: env::var("BLOB_STORE_DIR")
+                .ok()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from),
             solana_grpc_endpoint,
             solana_grpc_x_token,
             solana_rpc_http_url,
@@ -79,6 +85,9 @@ impl Config {
             if let Some(parent) = database_path.parent() {
                 fs::create_dir_all(parent)?;
             }
+        }
+        if let Some(blob_store_dir) = self.blob_store_dir.as_ref() {
+            fs::create_dir_all(blob_store_dir)?;
         }
         Ok(())
     }

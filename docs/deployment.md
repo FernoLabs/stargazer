@@ -102,7 +102,7 @@ Provision one EU VM first, install Dokploy there, and deploy the indexer as a Do
 - Provider: Git repository
 - Compose file: `docker-compose.dokploy.yml`
 - Domain target: none when using Cloudflare Tunnel
-- Data persistence: keep the `firewatch-indexer-data` Docker named volume
+- Data persistence: keep the `firewatch-indexer-data` and `firewatch-blob-data` Docker named volumes
 - Environment: paste values from `deploy/dokploy/.env.example` into the Environment editor
 - Origin API token: set `ORIGIN_API_TOKEN` to match the Cloudflare Pages `BACKEND_ORIGIN_TOKEN`
 - Tunnel profile: set `COMPOSE_PROFILES=tunnel`
@@ -128,13 +128,14 @@ The compose volume maps that to the Docker named volume:
 
 ```text
 firewatch-indexer-data
+firewatch-blob-data
 ```
 
 This is the right default for Dokploy because named volumes are portable and can be used with Dokploy Volume Backups.
 
 ### Dokploy R2 Backups
 
-For platform-managed backups, enable Dokploy Volume Backups on the `firewatch-indexer-data` named volume.
+For platform-managed backups, enable Dokploy Volume Backups on both named volumes.
 
 For SQLite-consistent R2 backups, use the optional backup profile. Fill the R2 variables in Dokploy's Environment editor, then create a Dokploy Schedule that runs:
 
@@ -143,6 +144,12 @@ docker compose --profile backup run --rm firewatch-r2-backup
 ```
 
 The backup service runs SQLite's `.backup`, compresses the snapshot with `zstd`, uploads it to R2, and uploads a SHA-256 manifest next to it.
+
+After blobs are enabled, also schedule:
+
+```bash
+docker compose --profile backup run --rm firewatch-r2-blob-sync
+```
 
 ### Dokploy Backfills
 
@@ -231,20 +238,31 @@ journalctl -u firewatch-backup.service -n 80
 
 ## Next Cost Lever
 
-The current backend DB can grow quickly because program and IDL bytes live in SQLite. The next implementation step is to move these byte fields to R2 and keep only object keys, hashes, sizes, and metadata in SQLite:
+Large immutable payloads are stored outside SQLite when `BLOB_STORE_DIR` is set. Dokploy mounts `firewatch-blob-data` at `/blobs`; SQLite keeps object keys, hashes, sizes, and metadata.
 
-- `program_data_writes.bytes`
-- `program_versions.program_bytes`
-- IDL bytes and text
-- large disassembly artifacts
-
-Suggested object layout:
+Current blob layout:
 
 ```text
+program-data-writes/{write_account}/{sha256}.bin
 program-bytes/{program}/{sha256}.bin
-idl/{program}/{sha256}.json.zst
-disassembly/{program}/{version_id}/{side}.json.zst
-sqlite-backups/YYYY/MM/DD/indexer-TIMESTAMP.db.zst
+program-idl-writes/{program}/{source_account}/{sha256}.bin
+idl-bytes/{program}/{sha256}.bin
+idl-text/{program}/{sha256}.json
+disassembly/{program}/{program_sha256}/{asm_sha256}.asm
+```
+
+The R2 bucket for off-machine copies is `firewatch-blobs`. Keep the local volume as the hot store for the indexer; sync/copy the blob tree to R2 for backups instead of FUSE-mounting R2 as a live filesystem.
+
+After enabling the volume on an existing SQLite DB, pause the live indexer and run:
+
+```text
+firewatch-backend migrate-blobs --vacuum
+```
+
+Then schedule the blob copy profile:
+
+```text
+docker compose --profile backup run --rm firewatch-r2-blob-sync
 ```
 
 ## First Upgrade Path

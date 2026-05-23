@@ -1,4 +1,5 @@
 mod anchor_idl;
+mod blob_store;
 mod block_backfill;
 mod config;
 mod context;
@@ -16,6 +17,7 @@ mod solana;
 mod telegram;
 
 use anyhow::{Context, Result, bail};
+use blob_store::BlobStore;
 use block_backfill::{
     BlockBackfillRangeReport, GrpcBackfillReport, backfill_ferno_block, backfill_ferno_blocks,
     backfill_grpc_transactions, backfill_rpc_blocks,
@@ -43,7 +45,8 @@ async fn main() -> Result<()> {
     let config = Config::from_env()?;
     config.prepare_dirs()?;
 
-    let db = Database::connect(&config.database_url).await?;
+    let blob_store = BlobStore::new(config.blob_store_dir.clone())?;
+    let db = Database::connect(&config.database_url, blob_store).await?;
     db.migrate().await?;
 
     let state = AppState::shared(config.clone(), db, reqwest::Client::new());
@@ -148,6 +151,28 @@ async fn main() -> Result<()> {
             print_range_report(&report, enqueue_deliveries);
             return Ok(());
         }
+        Command::MigrateBlobs { vacuum } => {
+            let report = state.db.migrate_inline_blobs().await?;
+            println!("Migrated inline blobs to {}", blob_store_label(&config));
+            println!("Program data writes: {}", report.program_data_writes);
+            println!("Program versions: {}", report.program_versions);
+            println!("Program IDL writes: {}", report.program_idl_writes);
+            println!(
+                "Program IDL version bytes: {}",
+                report.program_idl_version_bytes
+            );
+            println!(
+                "Program IDL version texts: {}",
+                report.program_idl_version_texts
+            );
+            println!("Program disassemblies: {}", report.disassemblies);
+            println!("Inline bytes moved: {}", report.bytes_moved);
+            if vacuum {
+                state.db.vacuum().await?;
+                println!("Vacuumed SQLite database");
+            }
+            return Ok(());
+        }
     }
 
     let router = http::router(state.clone())?;
@@ -192,6 +217,9 @@ enum Command {
         concurrency: usize,
         retries: usize,
         enqueue_deliveries: bool,
+    },
+    MigrateBlobs {
+        vacuum: bool,
     },
 }
 
@@ -364,6 +392,16 @@ fn parse_command() -> Result<Command> {
                 enqueue_deliveries,
             })
         }
+        "migrate-blobs" | "--migrate-blobs" => {
+            let mut vacuum = false;
+            for arg in args.iter().skip(1) {
+                match arg.as_str() {
+                    "--vacuum" => vacuum = true,
+                    unknown => bail!("unknown migrate-blobs option {unknown:?}"),
+                }
+            }
+            Ok(Command::MigrateBlobs { vacuum })
+        }
         "--help" | "-h" | "help" => {
             println!("Usage:");
             println!("  firewatch-backend");
@@ -375,12 +413,21 @@ fn parse_command() -> Result<Command> {
                 "  firewatch-backend backfill-rpc <start-slot> <end-slot> [--concurrency N] [--retries N] [--deliver]"
             );
             println!("  firewatch-backend backfill-grpc <start-slot> <end-slot> [--deliver]");
+            println!("  firewatch-backend migrate-blobs [--vacuum]");
             std::process::exit(0);
         }
         unknown => bail!(
-            "unknown command {unknown:?}; use `backfill-block <slot>`, `backfill-blocks <start> <end>`, `backfill-rpc <start> <end>`, `backfill-grpc <start> <end>`, or no command"
+            "unknown command {unknown:?}; use `backfill-block <slot>`, `backfill-blocks <start> <end>`, `backfill-rpc <start> <end>`, `backfill-grpc <start> <end>`, `migrate-blobs`, or no command"
         ),
     }
+}
+
+fn blob_store_label(config: &Config) -> String {
+    config
+        .blob_store_dir
+        .as_ref()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "disabled blob store".to_owned())
 }
 
 fn print_range_report(report: &BlockBackfillRangeReport, enqueue_deliveries: bool) {
