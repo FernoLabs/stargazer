@@ -15,8 +15,7 @@ FireWatch can also send Telegram alerts for watched programs, multisigs, DeFi pr
 backend/        Rust indexer, API, SQLite models
 frontend/       SvelteKit dashboard and Cloudflare Pages proxy
 deploy/         Dokploy, Docker, backup, and systemd helpers
-docs/           Deployment notes
-backlog/        Product planning notes
+docs/           Deployment notes and product backlog
 ```
 
 ## Local Development
