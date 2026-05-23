@@ -1,5 +1,6 @@
 /target
-/data
+/data/*
+!/data/platform_registry_snapshot.json
 *.db
 *.db-shm
 *.db-wal
