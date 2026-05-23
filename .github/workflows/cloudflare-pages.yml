@@ -1,0 +1,77 @@
+name: Cloudflare Pages
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy:
+    name: Check and deploy frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: frontend/.node-version
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+
+      - name: Check
+        working-directory: frontend
+        run: npm run check
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Resolve Pages branch
+        id: pages_branch
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            echo "name=pr-${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+          else
+            branch="${GITHUB_REF_NAME//\//-}"
+            echo "name=$branch" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check Cloudflare deploy secrets
+        id: cloudflare_secrets
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [[ -n "$CLOUDFLARE_API_TOKEN" && -n "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy
+        if: steps.cloudflare_secrets.outputs.present == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: frontend
+          command: pages deploy .svelte-kit/cloudflare --project-name firewatch-frontend --branch ${{ steps.pages_branch.outputs.name }}
+
+      - name: Skip deploy
+        if: steps.cloudflare_secrets.outputs.present != 'true'
+        run: echo "Cloudflare deploy skipped because CLOUDFLARE_API_TOKEN is not configured."

@@ -8,26 +8,32 @@ This setup keeps the expensive, stateful work on one low-cost origin and pushes 
 users
   -> Cloudflare Pages / Worker frontend
   -> /api/backend/* same-origin proxy with edge cache
-  -> Dokploy on Hetzner running firewatch-indexer
+  -> Dokploy on a low-cost VPS running firewatch-indexer
   -> SQLite on a Docker named volume backed by local NVMe
   -> R2 for database backups and, later, large immutable blobs
 ```
 
 ## Cloudflare Pages Frontend
 
-The frontend now uses `@sveltejs/adapter-cloudflare` and `frontend/wrangler.toml`.
+The frontend uses `@sveltejs/adapter-cloudflare`, `frontend/wrangler.toml`, and a GitHub Actions Direct Upload workflow.
 
-Use Cloudflare Pages Git integration for the normal deployment path:
+Current project:
 
-- Repository: `FernoLabs/firewatch`
 - Production branch: `main`
-- Root directory: `frontend`
-- Install command: `npm ci`
-- Build command: `npm run check && npm run build`
-- Build output directory: `.svelte-kit/cloudflare`
 - Project name: `firewatch-frontend`
+- Pages URL: `https://firewatch-frontend-5rr.pages.dev`
+- Custom domain: `https://watch.ferno.ag`
 
-Cloudflare Pages will deploy `main` to production and create preview deployments for pull requests and non-production branches. Branch previews are public by default, so enable a Cloudflare Access policy for previews if production data is sensitive.
+GitHub Actions runs `npm ci`, `npm run check`, `npm run build`, and then deploys `.svelte-kit/cloudflare` to Cloudflare Pages. Pushes to `main` deploy production. Other branches and pull requests deploy preview branches.
+
+Required GitHub Actions secrets:
+
+| Name | Value |
+| --- | --- |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account id for the Pages project |
+| `CLOUDFLARE_API_TOKEN` | Scoped token with Pages write access |
+
+The repo already has `CLOUDFLARE_ACCOUNT_ID` configured. Add `CLOUDFLARE_API_TOKEN` before relying on automatic deploys. The workflow still runs checks when the token is missing and skips only the deploy step.
 
 ### Pages Environment
 
@@ -64,7 +70,7 @@ The browser calls same-origin paths such as `/api/backend/api/events`. The Pages
 
 ### Manual Pages Deploy
 
-Use this only for a one-off smoke test or if you intentionally choose Direct Upload instead of Git integration:
+Use this for a one-off smoke test or when bootstrapping the project locally:
 
 ```bash
 cd frontend
@@ -73,8 +79,6 @@ npm run check
 npm run build
 npx wrangler pages deploy .svelte-kit/cloudflare --project-name firewatch-frontend
 ```
-
-Do not mix routine Direct Upload deploys with Git integration unless automatic branch deployments are disabled in Cloudflare Pages.
 
 ## Dokploy Origin
 
