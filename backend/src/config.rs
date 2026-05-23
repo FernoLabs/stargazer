@@ -14,6 +14,7 @@ pub struct Config {
     pub solana_explorer_cluster: String,
     pub telegram_bot_token: Option<String>,
     pub telegram_api_base: String,
+    pub origin_api_token: Option<String>,
     pub cors_allowed_origin: String,
     pub delivery_poll_seconds: u64,
     pub reconnect_delay_seconds: u64,
@@ -57,6 +58,9 @@ impl Config {
                 .filter(|value| !value.trim().is_empty()),
             telegram_api_base: env::var("TELEGRAM_API_BASE")
                 .unwrap_or_else(|_| "https://api.telegram.org".to_owned()),
+            origin_api_token: env::var("ORIGIN_API_TOKEN")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
             cors_allowed_origin: env::var("CORS_ALLOWED_ORIGIN")
                 .unwrap_or_else(|_| "http://127.0.0.1:5173".to_owned()),
             delivery_poll_seconds: env_u64("DELIVERY_POLL_SECONDS", 5),

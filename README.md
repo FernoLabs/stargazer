@@ -76,6 +76,8 @@ Fill in at least:
   - `CRITICAL_SOL_DOMAINS` if some root domains should always be treated as sensitive reviews
 - `frontend/.env`
   - `BACKEND_BASE_URL`
+  - `ADMIN_PASSWORD` if you want to use `/admin` locally
+  - `BACKEND_ORIGIN_TOKEN` if backend `ORIGIN_API_TOKEN` is set
 
 For Triton specifically, the backend accepts either of these forms:
 
@@ -124,8 +126,12 @@ Backend:
 - `GET /api/programs/:address/versions/:version_id/bytes?side=after|before`
 - `GET /api/programs/:address/versions/:version_id/disassembly?side=after|before`
 - `GET /api/telegram-subscriptions`
+- `GET /api/telegram-subscriptions/summary`
 - `POST /api/telegram-subscriptions`
 - `DELETE /api/telegram-subscriptions/:id`
+- `GET /api/metric-alerts`
+- `POST /api/metric-alert-rules`
+- `DELETE /api/metric-alert-rules/:id`
 
 Frontend:
 

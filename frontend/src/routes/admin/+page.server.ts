@@ -1,22 +1,35 @@
 import { fail } from '@sveltejs/kit';
-import type { MetricAlertsResponse } from '$lib/types';
-import { backendRequest, readBackendError } from '$lib/server/backend';
+import type { MetricAlertsResponse, TelegramSubscriptionsResponse } from '$lib/types';
+import { backendOriginRequest, readBackendError } from '$lib/server/backend';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load = (async ({ fetch }) => {
 	let metricAlertPresets: MetricAlertsResponse['presets'] = [];
 	let metricAlertRules: MetricAlertsResponse['rules'] = [];
+	let telegramSubscriptions: TelegramSubscriptionsResponse['items'] = [];
+	let telegramEnabled = false;
 	let metricBackendError: string | null = null;
 
 	try {
-		const metricAlertsResponse = await backendRequest(fetch, '/api/metric-alerts');
+		const [metricAlertsResponse, telegramResponse] = await Promise.all([
+			backendOriginRequest(fetch, '/api/metric-alerts'),
+			backendOriginRequest(fetch, '/api/telegram-subscriptions')
+		]);
+
 		if (!metricAlertsResponse.ok) {
 			throw new Error(await readBackendError(metricAlertsResponse));
+		}
+		if (!telegramResponse.ok) {
+			throw new Error(await readBackendError(telegramResponse));
 		}
 
 		const metricAlertsPayload = (await metricAlertsResponse.json()) as MetricAlertsResponse;
 		metricAlertPresets = metricAlertsPayload.presets;
 		metricAlertRules = metricAlertsPayload.rules;
+
+		const telegramPayload = (await telegramResponse.json()) as TelegramSubscriptionsResponse;
+		telegramSubscriptions = telegramPayload.items;
+		telegramEnabled = telegramPayload.telegram_enabled;
 	} catch (error) {
 		metricBackendError = error instanceof Error ? error.message : 'Unknown backend error';
 	}
@@ -24,6 +37,8 @@ export const load = (async ({ fetch }) => {
 	return {
 		metricAlertPresets,
 		metricAlertRules,
+		telegramSubscriptions,
+		telegramEnabled,
 		metricBackendError
 	};
 }) satisfies PageServerLoad;
@@ -60,7 +75,7 @@ export const actions = {
 			});
 		}
 
-		const response = await backendRequest(fetch, '/api/telegram-subscriptions', {
+		const response = await backendOriginRequest(fetch, '/api/telegram-subscriptions', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({
@@ -113,7 +128,7 @@ export const actions = {
 			});
 		}
 
-		const response = await backendRequest(fetch, '/api/metric-alert-rules', {
+		const response = await backendOriginRequest(fetch, '/api/metric-alert-rules', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({
@@ -147,7 +162,7 @@ export const actions = {
 			});
 		}
 
-		const response = await backendRequest(fetch, `/api/telegram-subscriptions/${id}`, {
+		const response = await backendOriginRequest(fetch, `/api/telegram-subscriptions/${id}`, {
 			method: 'DELETE'
 		});
 
@@ -171,7 +186,7 @@ export const actions = {
 			});
 		}
 
-		const response = await backendRequest(fetch, `/api/metric-alert-rules/${id}`, {
+		const response = await backendOriginRequest(fetch, `/api/metric-alert-rules/${id}`, {
 			method: 'DELETE'
 		});
 

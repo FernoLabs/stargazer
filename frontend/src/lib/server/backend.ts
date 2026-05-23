@@ -4,7 +4,7 @@ import type {
 	DefiProtocolDescriptor,
 	DefiProtocolsResponse,
 	LiveStatusResponse,
-	TelegramSubscriptionsResponse
+	TelegramSubscriptionSummaryResponse
 } from '$lib/types';
 
 export const DEFAULT_BACKEND_ORIGIN_URL = 'http://127.0.0.1:8080';
@@ -18,7 +18,6 @@ export interface AppShellLoadData {
 	liveStatus: LiveStatusResponse | null;
 	defiProtocols: DefiProtocolDescriptor[];
 	telegramEnabled: boolean;
-	telegramSubscriptions: TelegramSubscriptionsResponse['items'];
 	telegramSubscriptionCount: number;
 	protocolCount: number;
 	trackedProgramCount: number;
@@ -44,6 +43,15 @@ export function backendUrl(path: string) {
 	return `${baseUrl}${normalizedPath}`;
 }
 
+export function backendOriginHeaders(headers?: HeadersInit) {
+	const nextHeaders = new Headers(headers);
+	const originToken = privateEnv.BACKEND_ORIGIN_TOKEN;
+	if (originToken) {
+		nextHeaders.set('x-firewatch-origin-token', originToken);
+	}
+	return nextHeaders;
+}
+
 export function publicBackendUrl(path: string) {
 	const baseUrl = publicBackendBaseUrl().replace(/\/+$/, '');
 	const normalizedPath = path.startsWith('/') ? path : `/${path}`;
@@ -58,6 +66,17 @@ export function backendRequest(
 	return fetch(publicBackendUrl(path), init);
 }
 
+export function backendOriginRequest(
+	fetch: typeof globalThis.fetch,
+	path: string,
+	init: RequestInit = {}
+) {
+	return fetch(backendUrl(path), {
+		...init,
+		headers: backendOriginHeaders(init.headers)
+	});
+}
+
 export async function loadAppShell(fetch: typeof globalThis.fetch): Promise<AppShellLoadData> {
 	const backendBaseUrl = publicBackendBaseUrl();
 	const explorerCluster =
@@ -68,14 +87,14 @@ export async function loadAppShell(fetch: typeof globalThis.fetch): Promise<AppS
 	let liveStatus: LiveStatusResponse | null = null;
 	let defiProtocols: DefiProtocolDescriptor[] = [];
 	let telegramEnabled = false;
-	let telegramSubscriptions: TelegramSubscriptionsResponse['items'] = [];
+	let telegramSubscriptionCount = 0;
 	let backendError: string | null = null;
 
 	try {
 		const [statusResponse, protocolsResponse, telegramResponse] = await Promise.all([
 			backendRequest(fetch, '/api/live-status'),
 			backendRequest(fetch, '/api/protocols'),
-			backendRequest(fetch, '/api/telegram-subscriptions')
+			backendOriginRequest(fetch, '/api/telegram-subscriptions/summary')
 		]);
 
 		if (!statusResponse.ok) throw new Error(await readBackendError(statusResponse));
@@ -84,8 +103,8 @@ export async function loadAppShell(fetch: typeof globalThis.fetch): Promise<AppS
 
 		liveStatus = (await statusResponse.json()) as LiveStatusResponse;
 		defiProtocols = ((await protocolsResponse.json()) as DefiProtocolsResponse).items;
-		const telegramPayload = (await telegramResponse.json()) as TelegramSubscriptionsResponse;
-		telegramSubscriptions = telegramPayload.items;
+		const telegramPayload = (await telegramResponse.json()) as TelegramSubscriptionSummaryResponse;
+		telegramSubscriptionCount = telegramPayload.subscription_count;
 		telegramEnabled = liveStatus.telegram_enabled && telegramPayload.telegram_enabled;
 	} catch (error) {
 		backendError = error instanceof Error ? error.message : 'Unknown backend error';
@@ -98,8 +117,7 @@ export async function loadAppShell(fetch: typeof globalThis.fetch): Promise<AppS
 		liveStatus,
 		defiProtocols,
 		telegramEnabled,
-		telegramSubscriptions,
-		telegramSubscriptionCount: telegramSubscriptions.length,
+		telegramSubscriptionCount,
 		protocolCount: defiProtocols.length,
 		trackedProgramCount: defiProtocols.reduce((count, protocol) => count + protocol.programs.length, 0),
 		idlTrackedProgramCount: defiProtocols.reduce(

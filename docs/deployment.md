@@ -13,24 +13,58 @@ users
   -> R2 for database backups and, later, large immutable blobs
 ```
 
-## Cloudflare Frontend
+## Cloudflare Pages Frontend
 
 The frontend now uses `@sveltejs/adapter-cloudflare` and `frontend/wrangler.toml`.
 
-Configure the private origin URL as a Cloudflare Pages secret or environment variable:
+Use Cloudflare Pages Git integration for the normal deployment path:
 
-```bash
-cd frontend
-npx wrangler pages secret put BACKEND_ORIGIN_URL --project-name firewatch-frontend
-```
+- Repository: `FernoLabs/firewatch`
+- Production branch: `main`
+- Root directory: `frontend`
+- Install command: `npm ci`
+- Build command: `npm run check && npm run build`
+- Build output directory: `.svelte-kit/cloudflare`
+- Project name: `firewatch-frontend`
 
-Use the public API base from `wrangler.toml`:
+Cloudflare Pages will deploy `main` to production and create preview deployments for pull requests and non-production branches. Branch previews are public by default, so enable a Cloudflare Access policy for previews if production data is sensitive.
+
+### Pages Environment
+
+Keep non-secret public defaults in `frontend/wrangler.toml`:
 
 ```toml
 PUBLIC_BACKEND_BASE_URL = "/api/backend"
+PUBLIC_SOLANA_EXPLORER_CLUSTER = "mainnet-beta"
 ```
 
-Build and deploy:
+Set these Cloudflare Pages variables/secrets for both Production and Preview environments:
+
+| Name | Value |
+| --- | --- |
+| `BACKEND_ORIGIN_URL` | `https://origin.watch.example.com` or your Dokploy origin URL |
+| `BACKEND_ORIGIN_TOKEN` | Same value as backend `ORIGIN_API_TOKEN` |
+| `ADMIN_USERNAME` | Usually `admin` |
+| `ADMIN_PASSWORD` | Strong private password for `/admin` |
+| `NODE_VERSION` | Optional when `frontend/.node-version` is present, but `22.16.0` is safe |
+
+Use a staging Dokploy origin for Preview when possible. If previews point at production, keep preview access restricted because the admin page can read and mutate production alert rules after authentication.
+
+### Origin Protection
+
+Set the same random token on the Dokploy backend:
+
+```bash
+ORIGIN_API_TOKEN=<same-value-as-BACKEND_ORIGIN_TOKEN>
+```
+
+When `ORIGIN_API_TOKEN` is set, the backend rejects direct `/api/*` requests unless they include `x-firewatch-origin-token`. `/healthz` stays public for Dokploy, Caddy, and load balancer health checks.
+
+The browser calls same-origin paths such as `/api/backend/api/events`. The Pages function injects the origin token, applies small edge-cache windows to public reads, and blocks protected admin API paths unless `/admin` Basic Auth has already succeeded.
+
+### Manual Pages Deploy
+
+Use this only for a one-off smoke test or if you intentionally choose Direct Upload instead of Git integration:
 
 ```bash
 cd frontend
@@ -40,7 +74,7 @@ npm run build
 npx wrangler pages deploy .svelte-kit/cloudflare --project-name firewatch-frontend
 ```
 
-The browser and server-side page loads call paths such as `/api/backend/api/events`; that same-origin proxy is the only frontend code path that reaches `BACKEND_ORIGIN_URL`.
+Do not mix routine Direct Upload deploys with Git integration unless automatic branch deployments are disabled in Cloudflare Pages.
 
 ## Dokploy Origin
 
@@ -51,6 +85,7 @@ Provision one EU VM first, install Dokploy there, and deploy the indexer as a Do
 - Domain target: service `firewatch-indexer`, port `8080`
 - Data persistence: keep the `firewatch-indexer-data` Docker named volume
 - Environment: paste values from `deploy/dokploy/.env.example` into the Environment editor
+- Origin API token: set `ORIGIN_API_TOKEN` to match the Cloudflare Pages `BACKEND_ORIGIN_TOKEN`
 
 The compose file uses `env_file: .env` because Dokploy writes Environment editor values to a `.env` file next to the compose deployment.
 

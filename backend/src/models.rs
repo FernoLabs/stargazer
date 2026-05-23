@@ -191,6 +191,12 @@ pub struct TelegramSubscriptionsResponse {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TelegramSubscriptionSummaryResponse {
+    pub subscription_count: i64,
+    pub telegram_enabled: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CreateTelegramSubscriptionRequest {
     pub label: String,
     pub chat_id: String,

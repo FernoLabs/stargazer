@@ -1,4 +1,5 @@
-import { backendUrl } from '$lib/server/backend';
+import { adminUnauthorizedResponse, isAdminAuthorized } from '$lib/server/admin-auth';
+import { backendOriginHeaders, backendUrl } from '$lib/server/backend';
 import type { RequestHandler } from './$types';
 
 type EdgePlatform = {
@@ -24,7 +25,6 @@ const HOP_BY_HOP_HEADERS = new Set([
 const FORWARDED_HEADERS = new Set([
 	'accept',
 	'accept-language',
-	'authorization',
 	'content-type',
 	'if-modified-since',
 	'if-none-match',
@@ -83,6 +83,16 @@ function cachePolicyFor(path: string): CachePolicy | null {
 	return null;
 }
 
+function isProtectedBackendPath(path: string) {
+	return (
+		path === 'api/metric-alerts' ||
+		path === 'api/metric-alert-rules' ||
+		path.startsWith('api/metric-alert-rules/') ||
+		path === 'api/telegram-subscriptions' ||
+		path.startsWith('api/telegram-subscriptions/')
+	);
+}
+
 function cacheForPlatform(platform: App.Platform | undefined) {
 	const edgePlatform = platform as EdgePlatform | undefined;
 	return edgePlatform?.caches?.default;
@@ -118,6 +128,10 @@ const proxy: RequestHandler = async (event) => {
 		return new Response('Not found', { status: 404 });
 	}
 
+	if (isProtectedBackendPath(normalizedPath) && !isAdminAuthorized(event.request)) {
+		return adminUnauthorizedResponse();
+	}
+
 	const method = event.request.method.toUpperCase();
 	const cachePolicy = method === 'GET' ? cachePolicyFor(normalizedPath) : null;
 	const cache = cachePolicy ? cacheForPlatform(event.platform) : undefined;
@@ -133,7 +147,7 @@ const proxy: RequestHandler = async (event) => {
 		method === 'GET' || method === 'HEAD' ? undefined : await event.request.arrayBuffer();
 	const originResponse = await event.fetch(targetUrl, {
 		method,
-		headers: forwardHeaders(event.request),
+		headers: backendOriginHeaders(forwardHeaders(event.request)),
 		body
 	});
 	const response = new Response(originResponse.body, {

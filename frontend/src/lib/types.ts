@@ -64,6 +64,11 @@ export interface TelegramSubscriptionsResponse {
 	telegram_enabled: boolean;
 }
 
+export interface TelegramSubscriptionSummaryResponse {
+	subscription_count: number;
+	telegram_enabled: boolean;
+}
+
 export interface TelegramBotProfile {
 	id: number;
 	first_name: string;

@@ -3396,6 +3396,19 @@ impl Database {
         rows.into_iter().map(row_to_telegram_subscription).collect()
     }
 
+    pub async fn telegram_subscription_count(&self) -> Result<i64> {
+        let count = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*)
+            FROM telegram_subscriptions;
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(count)
+    }
+
     pub async fn create_telegram_subscription(
         &self,
         id: &str,

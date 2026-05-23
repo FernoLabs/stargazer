@@ -6,15 +6,16 @@ use crate::{
         EventScopeCounts, EventsResponse, EventsSummary, LiveStatusResponse, MetricAlertRule,
         MetricAlertsResponse, ProgramDisassemblyResponse, ProgramIdlVersionsResponse,
         ProgramSignerStatsResponse, ProgramVersionsResponse, TelegramSubscription,
-        TelegramSubscriptionsResponse,
+        TelegramSubscriptionSummaryResponse, TelegramSubscriptionsResponse,
     },
     name_service, protocols, telegram,
 };
 use axum::{
     Json, Router,
-    extract::{Path, Query, State},
-    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
-    response::IntoResponse,
+    extract::{Path, Query, Request, State},
+    http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header},
+    middleware::{Next, from_fn_with_state},
+    response::{IntoResponse, Response},
     routing::{delete, get},
 };
 use serde::Deserialize;
@@ -30,10 +31,12 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
     let cors = CorsLayer::new()
         .allow_origin(HeaderValue::from_str(&state.config.cors_allowed_origin)?)
         .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
-        .allow_headers([axum::http::header::CONTENT_TYPE]);
+        .allow_headers([
+            axum::http::header::CONTENT_TYPE,
+            HeaderName::from_static("x-firewatch-origin-token"),
+        ]);
 
-    Ok(Router::new()
-        .route("/healthz", get(health))
+    let api_router = Router::new()
         .route("/api/events", get(list_events))
         .route("/api/status", get(status))
         .route("/api/live-status", get(live_status))
@@ -74,9 +77,19 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
             get(list_telegram_subscriptions).post(create_telegram_subscription),
         )
         .route(
+            "/api/telegram-subscriptions/summary",
+            get(telegram_subscriptions_summary),
+        )
+        .route(
             "/api/telegram-subscriptions/{id}",
             delete(delete_telegram_subscription),
         )
+        .with_state(state.clone())
+        .layer(from_fn_with_state(state.clone(), require_origin_token));
+
+    Ok(Router::new()
+        .route("/healthz", get(health))
+        .merge(api_router)
         .with_state(state)
         .layer(cors)
         .layer(TraceLayer::new_for_http()))
@@ -239,6 +252,21 @@ async fn list_telegram_subscriptions(
 
     Ok(Json(TelegramSubscriptionsResponse {
         items,
+        telegram_enabled: state.config.telegram_bot_token.is_some(),
+    }))
+}
+
+async fn telegram_subscriptions_summary(
+    State(state): State<SharedState>,
+) -> ApiResult<TelegramSubscriptionSummaryResponse> {
+    let subscription_count = state
+        .db
+        .telegram_subscription_count()
+        .await
+        .map_err(internal_error)?;
+
+    Ok(Json(TelegramSubscriptionSummaryResponse {
+        subscription_count,
         telegram_enabled: state.config.telegram_bot_token.is_some(),
     }))
 }
@@ -712,6 +740,44 @@ async fn live_status(State(state): State<SharedState>) -> ApiResult<LiveStatusRe
         sampled_at_ms: crate::models::now_ts_ms(),
         estimated_slot_time_ms: ESTIMATED_SLOT_TIME_MS,
     }))
+}
+
+async fn require_origin_token(
+    State(state): State<SharedState>,
+    request: Request,
+    next: Next,
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
+    let Some(expected_token) = state.config.origin_api_token.as_deref() else {
+        return Ok(next.run(request).await);
+    };
+
+    let provided_token = request
+        .headers()
+        .get("x-firewatch-origin-token")
+        .and_then(|value| value.to_str().ok());
+
+    if provided_token.is_some_and(|token| secure_eq(token, expected_token)) {
+        return Ok(next.run(request).await);
+    }
+
+    Err(error_response(
+        StatusCode::UNAUTHORIZED,
+        "Provide a valid FireWatch origin token.",
+    ))
+}
+
+fn secure_eq(left: &str, right: &str) -> bool {
+    let left = left.as_bytes();
+    let right = right.as_bytes();
+    let mut diff = left.len() ^ right.len();
+    let len = left.len().max(right.len());
+
+    for index in 0..len {
+        diff |= left.get(index).copied().unwrap_or(0) as usize
+            ^ right.get(index).copied().unwrap_or(0) as usize;
+    }
+
+    diff == 0
 }
 
 fn error_response(status: StatusCode, message: &str) -> (StatusCode, Json<serde_json::Value>) {
