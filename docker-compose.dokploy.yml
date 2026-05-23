@@ -1,0 +1,46 @@
+name: firewatch-indexers
+
+services:
+  firewatch-indexer:
+    build:
+      context: .
+      dockerfile: deploy/dokploy/backend.Dockerfile
+      args:
+        RUST_VERSION: ${RUST_VERSION:-1.95.0}
+    image: ${FIREWATCH_BACKEND_IMAGE:-firewatch-backend:local}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      HTTP_BIND: 0.0.0.0:8080
+      DATABASE_URL: sqlite:///data/indexer.db
+    volumes:
+      - firewatch-indexer-data:/data
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 45s
+
+  firewatch-r2-backup:
+    profiles:
+      - backup
+    build:
+      context: .
+      dockerfile: deploy/dokploy/backup.Dockerfile
+    image: ${FIREWATCH_BACKUP_IMAGE:-firewatch-sqlite-r2-backup:local}
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /data/indexer.db
+      BACKUP_TMP_DIR: /tmp/firewatch-backups
+    volumes:
+      - firewatch-indexer-data:/data
+    restart: "no"
+
+volumes:
+  firewatch-indexer-data:

@@ -1,0 +1,188 @@
+# FireWatch Deployment Runbook
+
+This setup keeps the expensive, stateful work on one low-cost origin and pushes global reads through Cloudflare.
+
+## Target Topology
+
+```text
+users
+  -> Cloudflare Pages / Worker frontend
+  -> /api/backend/* same-origin proxy with edge cache
+  -> Dokploy on Hetzner running firewatch-indexer
+  -> SQLite on a Docker named volume backed by local NVMe
+  -> R2 for database backups and, later, large immutable blobs
+```
+
+## Cloudflare Frontend
+
+The frontend now uses `@sveltejs/adapter-cloudflare` and `frontend/wrangler.toml`.
+
+Configure the private origin URL as a Cloudflare Pages secret or environment variable:
+
+```bash
+cd frontend
+npx wrangler pages secret put BACKEND_ORIGIN_URL --project-name firewatch-frontend
+```
+
+Use the public API base from `wrangler.toml`:
+
+```toml
+PUBLIC_BACKEND_BASE_URL = "/api/backend"
+```
+
+Build and deploy:
+
+```bash
+cd frontend
+npm ci
+npm run check
+npm run build
+npx wrangler pages deploy .svelte-kit/cloudflare --project-name firewatch-frontend
+```
+
+The browser and server-side page loads call paths such as `/api/backend/api/events`; that same-origin proxy is the only frontend code path that reaches `BACKEND_ORIGIN_URL`.
+
+## Dokploy Origin
+
+Provision one EU VM first, install Dokploy there, and deploy the indexer as a Docker Compose app. In Dokploy:
+
+- Provider: Git repository
+- Compose file: `docker-compose.dokploy.yml`
+- Domain target: service `firewatch-indexer`, port `8080`
+- Data persistence: keep the `firewatch-indexer-data` Docker named volume
+- Environment: paste values from `deploy/dokploy/.env.example` into the Environment editor
+
+The compose file uses `env_file: .env` because Dokploy writes Environment editor values to a `.env` file next to the compose deployment.
+
+The backend container is built from `deploy/dokploy/backend.Dockerfile` and stores SQLite at:
+
+```text
+/data/indexer.db
+```
+
+The compose volume maps that to the Docker named volume:
+
+```text
+firewatch-indexer-data
+```
+
+This is the right default for Dokploy because named volumes are portable and can be used with Dokploy Volume Backups.
+
+### Dokploy R2 Backups
+
+For platform-managed backups, enable Dokploy Volume Backups on the `firewatch-indexer-data` named volume.
+
+For SQLite-consistent R2 backups, use the optional backup profile. Fill the R2 variables in Dokploy's Environment editor, then create a Dokploy Schedule that runs:
+
+```bash
+docker compose --profile backup run --rm firewatch-r2-backup
+```
+
+The backup service runs SQLite's `.backup`, compresses the snapshot with `zstd`, uploads it to R2, and uploads a SHA-256 manifest next to it.
+
+### Dokploy Backfills
+
+Run one-off backfills against the same volume:
+
+```bash
+docker compose run --rm firewatch-indexer backfill-blocks 400000000 400001000 --concurrency 4 --retries 2
+```
+
+For a small VM, pause the live indexer or run the backfill during a quiet window if CPU or disk I/O gets tight.
+
+## Manual Systemd Origin
+
+Use this if you decide not to use Dokploy for an indexer host.
+
+Provision one EU VM first. Use Debian or Ubuntu LTS, local NVMe storage, and a dedicated service user.
+
+Install runtime tools:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl sqlite3 zstd awscli caddy
+sudo useradd --system --home /var/lib/firewatch --create-home --shell /usr/sbin/nologin firewatch
+sudo install -d -o firewatch -g firewatch /opt/firewatch/bin /etc/firewatch /var/lib/firewatch
+```
+
+Build the backend on the VM or in CI:
+
+```bash
+cd backend
+cargo build --release
+sudo install -o root -g root -m 0755 target/release/firewatch-backend /opt/firewatch/bin/firewatch-backend
+```
+
+Install service config:
+
+```bash
+sudo install -o root -g root -m 0644 deploy/backend/firewatch-backend.service /etc/systemd/system/firewatch-backend.service
+sudo install -o root -g firewatch -m 0640 deploy/backend/backend.env.example /etc/firewatch/backend.env
+sudo editor /etc/firewatch/backend.env
+sudo systemctl daemon-reload
+sudo systemctl enable --now firewatch-backend
+```
+
+Watch it:
+
+```bash
+journalctl -u firewatch-backend -f
+curl -fsS http://127.0.0.1:8080/healthz
+```
+
+## Origin HTTPS
+
+If you expose the origin with Caddy, start from `deploy/backend/Caddyfile.example`:
+
+```bash
+sudo install -o root -g root -m 0644 deploy/backend/Caddyfile.example /etc/caddy/Caddyfile
+sudo editor /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+Prefer a dedicated hostname such as `origin.watch.example.com`. Keep it unlisted, firewall SSH tightly, and only expose ports 80/443 publicly. If you use Cloudflare Tunnel instead, Caddy is optional.
+
+## R2 Backups
+
+Create an R2 bucket such as `firewatch-backups` and an R2 API token with object read/write access to that bucket.
+
+Install backup files:
+
+```bash
+sudo install -o root -g root -m 0755 deploy/backend/backup-sqlite-to-r2.sh /opt/firewatch/bin/backup-sqlite-to-r2.sh
+sudo install -o root -g root -m 0644 deploy/backend/firewatch-backup.service /etc/systemd/system/firewatch-backup.service
+sudo install -o root -g root -m 0644 deploy/backend/firewatch-backup.timer /etc/systemd/system/firewatch-backup.timer
+sudo install -o root -g firewatch -m 0640 deploy/backend/r2-backup.env.example /etc/firewatch/r2-backup.env
+sudo editor /etc/firewatch/r2-backup.env
+sudo systemctl daemon-reload
+sudo systemctl enable --now firewatch-backup.timer
+```
+
+Test once:
+
+```bash
+sudo systemctl start firewatch-backup.service
+journalctl -u firewatch-backup.service -n 80
+```
+
+## Next Cost Lever
+
+The current backend DB can grow quickly because program and IDL bytes live in SQLite. The next implementation step is to move these byte fields to R2 and keep only object keys, hashes, sizes, and metadata in SQLite:
+
+- `program_data_writes.bytes`
+- `program_versions.program_bytes`
+- IDL bytes and text
+- large disassembly artifacts
+
+Suggested object layout:
+
+```text
+program-bytes/{program}/{sha256}.bin
+idl/{program}/{sha256}.json.zst
+disassembly/{program}/{version_id}/{side}.json.zst
+sqlite-backups/YYYY/MM/DD/indexer-TIMESTAMP.db.zst
+```
+
+## First Upgrade Path
+
+Start with one EU writer. Add a US read replica only after traffic proves the need. The cheap version is periodic SQLite snapshot replication from R2 to a US VM; the more robust version is a materialized read database fed from exported event/blob metadata.

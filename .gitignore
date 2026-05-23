@@ -1,0 +1,15 @@
+backend/target/
+backend/data/
+data/
+frontend/build/
+frontend/.svelte-kit/
+frontend/.wrangler/
+frontend/node_modules/
+frontend/data/
+.DS_Store
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
+!.env.example

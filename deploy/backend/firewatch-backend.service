@@ -1,0 +1,32 @@
+[Unit]
+Description=FireWatch backend and Solana indexer
+Documentation=https://github.com/ferno-ag/firewatch
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=firewatch
+Group=firewatch
+WorkingDirectory=/var/lib/firewatch
+Environment=RUST_LOG=firewatch_backend=info,backend=info,tower_http=info
+EnvironmentFile=/etc/firewatch/backend.env
+ExecStart=/opt/firewatch/bin/firewatch-backend
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=20
+LimitNOFILE=65536
+
+StateDirectory=firewatch
+LogsDirectory=firewatch
+RuntimeDirectory=firewatch
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/firewatch /var/log/firewatch /run/firewatch
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

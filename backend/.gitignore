@@ -1,0 +1,10 @@
+/target
+/data
+*.db
+*.db-shm
+*.db-wal
+*.log
+*.pid
+.env
+.env.*
+!.env.example
