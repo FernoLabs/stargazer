@@ -7,6 +7,10 @@
 	import type { LiveStatusResponse } from '$lib/types';
 
 	let { data, children } = $props();
+	type PreviewMeta = {
+		imageUrl?: string;
+		alertLabel?: string;
+	};
 
 	const SLOT_TICK_MS = 400;
 
@@ -60,6 +64,22 @@
 		return new Intl.NumberFormat('en-US').format(value ?? 0);
 	}
 
+	function defaultPreviewImageUrl() {
+		return `${page.url.origin}/brand/firewatch-preview-standard.png`;
+	}
+
+	function previewMeta() {
+		return page.data.preview as PreviewMeta | undefined;
+	}
+
+	function previewImageUrl() {
+		return previewMeta()?.imageUrl ?? defaultPreviewImageUrl();
+	}
+
+	function previewImageAlt() {
+		return previewMeta()?.alertLabel ? `${previewMeta()?.alertLabel} from FireWatch` : 'FireWatch logo';
+	}
+
 	onMount(() => {
 		let cancelled = false;
 
@@ -97,6 +117,14 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
+	<meta property="og:site_name" content="FireWatch" />
+	<meta property="og:image" content={previewImageUrl()} />
+	<meta property="og:image:alt" content={previewImageAlt()} />
+	<meta property="og:image:type" content="image/png" />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:image" content={previewImageUrl()} />
 </svelte:head>
 
 <div class="shell">
