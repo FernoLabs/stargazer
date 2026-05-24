@@ -3,7 +3,6 @@
 	import { MergeView } from '@codemirror/merge';
 	import { EditorState } from '@codemirror/state';
 	import { EditorView, lineNumbers } from '@codemirror/view';
-	import { diffArrays, type ArrayChange } from 'diff';
 
 	type AssemblyLine = {
 		number: number | null;
@@ -87,78 +86,21 @@
 			});
 	}
 
-	function pairAssemblyRows(before: AssemblyLine[], after: AssemblyLine[]) {
+	function allAssemblyRows() {
+		const before = parseAssembly(beforeText);
+		const after = parseAssembly(afterText);
 		const rows: AssemblyRow[] = [];
-		const count = Math.max(before.length, after.length);
-		for (let index = 0; index < count; index += 1) {
+
+		for (let index = 0; index < Math.max(before.length, after.length); index += 1) {
 			const beforeLine = before[index];
 			const afterLine = after[index];
 			rows.push({
-				kind: beforeLine && afterLine ? 'changed' : beforeLine ? 'removed' : 'added',
+				kind: beforeLine && afterLine ? (beforeLine.body === afterLine.body ? 'context' : 'changed') : beforeLine ? 'removed' : 'added',
 				beforeNumber: beforeLine?.number ?? null,
 				afterNumber: afterLine?.number ?? null,
 				beforeText: beforeLine?.body ?? '',
 				afterText: afterLine?.body ?? ''
 			});
-		}
-		return rows;
-	}
-
-	function allAssemblyRows() {
-		const before = parseAssembly(beforeText);
-		const after = parseAssembly(afterText);
-		const changes = diffArrays(
-			before.map((line) => line.body),
-			after.map((line) => line.body)
-		) as ArrayChange<string>[];
-		const rows: AssemblyRow[] = [];
-		let beforeIndex = 0;
-		let afterIndex = 0;
-
-		for (let index = 0; index < changes.length; index += 1) {
-			const change = changes[index];
-			const next = changes[index + 1];
-
-			if (!change.added && !change.removed) {
-				for (let offset = 0; offset < change.value.length; offset += 1) {
-					const beforeLine = before[beforeIndex + offset];
-					const afterLine = after[afterIndex + offset];
-					rows.push({
-						kind: 'context',
-						beforeNumber: beforeLine?.number ?? null,
-						afterNumber: afterLine?.number ?? null,
-						beforeText: beforeLine?.body ?? '',
-						afterText: afterLine?.body ?? ''
-					});
-				}
-				beforeIndex += change.value.length;
-				afterIndex += change.value.length;
-				continue;
-			}
-
-			if (change.removed && next?.added) {
-				rows.push(
-					...pairAssemblyRows(
-						before.slice(beforeIndex, beforeIndex + change.value.length),
-						after.slice(afterIndex, afterIndex + next.value.length)
-					)
-				);
-				beforeIndex += change.value.length;
-				afterIndex += next.value.length;
-				index += 1;
-				continue;
-			}
-
-			if (change.removed) {
-				rows.push(...pairAssemblyRows(before.slice(beforeIndex, beforeIndex + change.value.length), []));
-				beforeIndex += change.value.length;
-				continue;
-			}
-
-			if (change.added) {
-				rows.push(...pairAssemblyRows([], after.slice(afterIndex, afterIndex + change.value.length)));
-				afterIndex += change.value.length;
-			}
 		}
 
 		return rows;
