@@ -6,13 +6,14 @@ WORKDIR /app/backend
 COPY backend/Cargo.toml backend/Cargo.lock ./
 COPY backend/src ./src
 COPY backend/data/platform_registry_snapshot.json ./data/platform_registry_snapshot.json
+COPY frontend/static/brand /app/frontend/static/brand
 
 RUN cargo build --locked --release
 
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update \
-	&& apt-get install -y --no-install-recommends ca-certificates curl \
+	&& apt-get install -y --no-install-recommends ca-certificates curl fonts-dejavu-core \
 	&& rm -rf /var/lib/apt/lists/* \
 	&& useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin firewatch \
 	&& mkdir -p /app /data /blobs \

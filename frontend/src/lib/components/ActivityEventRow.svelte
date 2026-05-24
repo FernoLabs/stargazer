@@ -664,4 +664,83 @@
 			justify-content: flex-start;
 		}
 	}
+
+	@media (max-width: 640px) {
+		.event-row {
+			padding: 0.84rem 0.78rem;
+			gap: 0.72rem;
+		}
+
+		.event-content,
+		.title-stack {
+			gap: 0.5rem;
+		}
+
+		.event-top {
+			display: grid;
+			gap: 0.52rem;
+		}
+
+		.label-row {
+			gap: 0.36rem 0.46rem;
+		}
+
+		h3 {
+			font-size: 1rem;
+			line-height: 1.28;
+		}
+
+		.meta-row {
+			gap: 0.22rem 0.58rem;
+			font-size: 0.72rem;
+		}
+
+		.meta-row span {
+			overflow-wrap: anywhere;
+		}
+
+		.detail-strip {
+			display: grid;
+			gap: 0;
+			border-top: 1px solid rgba(23, 32, 42, 0.08);
+		}
+
+		.detail-token {
+			display: grid;
+			grid-template-columns: minmax(4.8rem, max-content) minmax(0, 1fr);
+			align-items: start;
+			gap: 0.16rem 0.5rem;
+			padding: 0.48rem 0;
+			border-bottom: 1px solid rgba(23, 32, 42, 0.08);
+		}
+
+		.detail-token strong,
+		.detail-token code {
+			min-width: 0;
+			overflow-wrap: anywhere;
+		}
+
+		.detail-token code {
+			grid-column: 2;
+		}
+
+		.footer-row {
+			display: grid;
+			gap: 0.52rem;
+		}
+
+		.tx-group {
+			width: 100%;
+			justify-content: flex-start;
+		}
+
+		.signature-chip {
+			min-width: 0;
+		}
+
+		.tag-button,
+		.tag-static {
+			font-size: 0.75rem;
+		}
+	}
 </style>

@@ -1009,6 +1009,7 @@ mod tests {
             http_bind: "0.0.0.0:8080".to_owned(),
             database_url: "sqlite::memory:".to_owned(),
             blob_store_dir: None::<PathBuf>,
+            blob_store_s3: None,
             solana_grpc_endpoint: "https://example.invalid".to_owned(),
             solana_grpc_x_token: None,
             solana_rpc_http_url: "https://example.invalid".to_owned(),

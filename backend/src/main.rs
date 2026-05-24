@@ -6,6 +6,7 @@ mod context;
 mod database;
 mod delivery;
 mod http;
+mod link_preview;
 mod models;
 mod name_service;
 mod program_bytes;
@@ -45,7 +46,7 @@ async fn main() -> Result<()> {
     let config = Config::from_env()?;
     config.prepare_dirs()?;
 
-    let blob_store = BlobStore::new(config.blob_store_dir.clone())?;
+    let blob_store = BlobStore::new(config.blob_store_dir.clone(), config.blob_store_s3.clone())?;
     let db = Database::connect(&config.database_url, blob_store).await?;
     db.migrate().await?;
 
@@ -421,11 +422,12 @@ fn parse_command() -> Result<Command> {
 }
 
 fn blob_store_label(config: &Config) -> String {
-    config
-        .blob_store_dir
-        .as_ref()
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|| "disabled blob store".to_owned())
+    match (&config.blob_store_dir, &config.blob_store_s3) {
+        (Some(path), Some(s3)) => format!("{} and s3://{}", path.display(), s3.bucket),
+        (Some(path), None) => path.display().to_string(),
+        (None, Some(s3)) => format!("s3://{}", s3.bucket),
+        (None, None) => "disabled blob store".to_owned(),
+    }
 }
 
 fn print_range_report(report: &BlockBackfillRangeReport, enqueue_deliveries: bool) {

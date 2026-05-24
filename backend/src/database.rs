@@ -4893,7 +4893,7 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         let database_url = format!("sqlite://{}", db_path.display());
-        let db = Database::connect(&database_url, BlobStore::new(None)?).await?;
+        let db = Database::connect(&database_url, BlobStore::new(None, None)?).await?;
         db.migrate().await?;
 
         let buffer = "Buffer111111111111111111111111111111111111".to_owned();
@@ -4991,7 +4991,7 @@ mod tests {
         let db_path = std::env::temp_dir().join(format!("firewatch-blob-migration-{suffix}.db"));
         let blob_dir = std::env::temp_dir().join(format!("firewatch-blob-migration-{suffix}"));
         let database_url = format!("sqlite://{}", db_path.display());
-        let db = Database::connect(&database_url, BlobStore::new(None)?).await?;
+        let db = Database::connect(&database_url, BlobStore::new(None, None)?).await?;
         db.migrate().await?;
 
         let buffer = "Buffer111111111111111111111111111111111111".to_owned();
@@ -5045,7 +5045,8 @@ mod tests {
         db.upsert_program_version_for_event(&event).await?;
         drop(db);
 
-        let db = Database::connect(&database_url, BlobStore::new(Some(blob_dir.clone()))?).await?;
+        let db =
+            Database::connect(&database_url, BlobStore::new(Some(blob_dir.clone()), None)?).await?;
         db.migrate().await?;
         let report = db.migrate_inline_blobs().await?;
 

@@ -1,6 +1,7 @@
 use crate::{
     context::SharedState,
     database::{EventListFilters, ProgramVersionByteSide},
+    link_preview,
     models::{
         ChainEvent, CreateMetricAlertRuleRequest, CreateTelegramSubscriptionRequest,
         DefiProtocolsResponse, EventScopeCounts, EventsResponse, EventsSummary, LiveStatusResponse,
@@ -38,6 +39,7 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
 
     let api_router = Router::new()
         .route("/api/events", get(list_events))
+        .route("/api/events/{id}/preview-card.png", get(event_preview_card))
         .route("/api/events/{id}", get(get_event))
         .route("/api/status", get(status))
         .route("/api/live-status", get(live_status))
@@ -259,6 +261,49 @@ async fn get_event(
             Json(json!({ "error": "Event not found" })),
         )),
     }
+}
+
+async fn event_preview_card(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Event not found" })),
+        ));
+    }
+
+    let event = state.db.event_by_id(id).await.map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "Could not load event" })),
+        )
+    })?;
+
+    let Some(event) = event else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Event not found" })),
+        ));
+    };
+
+    let event = name_service::hydrate_event_cached(&state, event).await;
+    let png = link_preview::render_event_preview_card(&state, &event)
+        .await
+        .map_err(internal_error)?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(
+            "public, max-age=300, s-maxage=86400, stale-while-revalidate=604800",
+        ),
+    );
+
+    Ok((headers, png))
 }
 
 fn count_for_scope(scope: Option<&str>, counts: &EventScopeCounts) -> i64 {

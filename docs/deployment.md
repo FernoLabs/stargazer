@@ -171,7 +171,7 @@ Install runtime tools:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y ca-certificates curl sqlite3 zstd awscli caddy
+sudo apt-get install -y ca-certificates curl fonts-dejavu-core sqlite3 zstd awscli caddy
 sudo useradd --system --home /var/lib/firewatch --create-home --shell /usr/sbin/nologin firewatch
 sudo install -d -o firewatch -g firewatch /opt/firewatch/bin /etc/firewatch /var/lib/firewatch
 ```
@@ -240,6 +240,8 @@ journalctl -u firewatch-backup.service -n 80
 
 Large immutable payloads are stored outside SQLite when `BLOB_STORE_DIR` is set. Dokploy mounts `firewatch-blob-data` at `/blobs`; SQLite keeps object keys, hashes, sizes, and metadata. Raw write chunks stay in SQLite for now because storing hundreds of thousands of tiny chunks as individual filesystem objects wastes disk blocks and makes R2 sync noisy.
 
+For live S3/R2 blob storage, set `R2_BLOB_BUCKET` plus credentials, or set the more specific `BLOB_STORE_S3_BUCKET` vars. The backend writes generated program bytes, IDLs, and split-view disassemblies to S3/R2 as soon as they are produced, while keeping `/blobs` as the hot local cache when `BLOB_STORE_DIR` is also set. For Cloudflare R2, use `R2_BLOB_PREFIX=blobs`, set `R2_ACCOUNT_ID` or `BLOB_STORE_S3_ENDPOINT_URL`, and use `AWS_DEFAULT_REGION=auto`.
+
 Current blob layout:
 
 ```text
@@ -249,7 +251,7 @@ idl-text/{program}/{sha256}.json
 disassembly/{program}/{program_sha256}/{asm_sha256}.asm
 ```
 
-The R2 bucket for off-machine copies is `firewatch-blobs`. Keep the local volume as the hot store for the indexer; sync/copy the blob tree to R2 for backups instead of FUSE-mounting R2 as a live filesystem.
+The R2 bucket for off-machine copies is `firewatch-blobs`. If live S3/R2 storage is not enabled, keep the local volume as the hot store for the indexer and sync/copy the blob tree to R2 for backups instead of FUSE-mounting R2 as a live filesystem.
 
 After enabling the volume on an existing SQLite DB, pause the live indexer and run:
 

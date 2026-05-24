@@ -855,8 +855,14 @@
 
 	@media (max-width: 720px) {
 		.page-shell {
-			width: min(100vw - 1rem, var(--fw-page-max));
-			padding-top: 0.8rem;
+			width: min(100vw - 1.25rem, var(--fw-page-max));
+			padding-top: 0.62rem;
+			gap: 0.72rem;
+		}
+
+		.panel {
+			border-radius: 8px;
+			padding: 0.8rem;
 		}
 
 		.header-row {
@@ -865,7 +871,27 @@
 		}
 
 		.header-stats {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 1px;
 			width: 100%;
+			overflow: hidden;
+			border: 1px solid rgba(23, 32, 42, 0.07);
+			border-radius: 8px;
+			background: rgba(23, 32, 42, 0.07);
+		}
+
+		.header-stats span {
+			display: grid;
+			margin: 0;
+			padding: 0.54rem 0.62rem;
+			border-right: 0;
+			background: #fbfaf8;
+			line-height: 1.25;
+		}
+
+		.header-stats span:last-child {
+			padding-right: 0.62rem;
 		}
 
 		.quick-search {
@@ -877,11 +903,55 @@
 		}
 
 		.toolbar-actions {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			align-items: center;
 			width: 100%;
 		}
 
+		.toolbar-top {
+			gap: 0.62rem;
+		}
+
+		.tab-row {
+			flex-wrap: nowrap;
+			width: 100%;
+			overflow-x: auto;
+			padding-bottom: 0.05rem;
+			scrollbar-width: none;
+		}
+
+		.tab-row::-webkit-scrollbar,
+		.shortcut-row::-webkit-scrollbar {
+			display: none;
+		}
+
+		.tab-button {
+			flex: 0 0 auto;
+		}
+
+		.quick-search {
+			grid-column: 1 / -1;
+		}
+
 		.filter-toggle {
-			margin-left: auto;
+			margin-left: 0;
+		}
+
+		.filter-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.shortcut-row {
+			flex-wrap: nowrap;
+			overflow-x: auto;
+			padding-bottom: 0.05rem;
+			scrollbar-width: none;
+		}
+
+		.shortcut-button {
+			flex: 0 0 auto;
+			white-space: nowrap;
 		}
 	}
 </style>

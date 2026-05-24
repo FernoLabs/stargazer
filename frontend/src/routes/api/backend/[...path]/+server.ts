@@ -59,6 +59,13 @@ function cachePolicyFor(path: string): CachePolicy | null {
 		};
 	}
 
+	if (/^api\/events\/[^/]+\/preview-card\.png$/.test(path)) {
+		return {
+			header: 'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
+			edgeTtlSeconds: 86400
+		};
+	}
+
 	if (path === 'api/protocols') {
 		return {
 			header: 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400',

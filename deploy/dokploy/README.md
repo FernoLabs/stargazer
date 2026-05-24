@@ -17,7 +17,11 @@ The tunnel profile runs `firewatch-cloudflared` and forwards `firewatch-origin.f
 
 ## Blob Store
 
-The backend stores large assembled program bytes, IDLs, and disassemblies in `BLOB_STORE_DIR=/blobs`. Raw write chunks remain in SQLite for now to avoid hundreds of thousands of tiny filesystem objects. For an existing database, pause the live indexer, then run this once after the blob volume is mounted:
+The backend stores large assembled program bytes, IDLs, and disassemblies in `BLOB_STORE_DIR=/blobs`. If `BLOB_STORE_S3_BUCKET` is set, it also writes those generated blobs to S3/R2 immediately, which keeps split-view disassembly artifacts available outside SQLite and off the VM volume. Raw write chunks remain in SQLite for now to avoid hundreds of thousands of tiny objects.
+
+For Cloudflare R2 live blob storage, set `R2_BLOB_BUCKET=firewatch-blobs`, `R2_BLOB_PREFIX=blobs`, `AWS_DEFAULT_REGION=auto`, `R2_ACCOUNT_ID`, and the R2 `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` pair. `BLOB_STORE_S3_BUCKET`, `BLOB_STORE_S3_PREFIX`, `BLOB_STORE_S3_ENDPOINT_URL`, and `BLOB_STORE_S3_REGION` can override those backup-oriented vars when the live blob store needs a separate bucket or endpoint.
+
+For an existing database, pause the live indexer, then run this once after the blob volume or S3 store is configured:
 
 ```bash
 docker compose run --rm firewatch-indexer migrate-blobs --vacuum

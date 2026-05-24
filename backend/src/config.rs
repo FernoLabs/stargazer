@@ -1,4 +1,4 @@
-use crate::protocols;
+use crate::{blob_store::S3BlobStoreConfig, protocols};
 use anyhow::{Context, Result};
 use reqwest::Url;
 use std::{env, fs, path::PathBuf};
@@ -8,6 +8,7 @@ pub struct Config {
     pub http_bind: String,
     pub database_url: String,
     pub blob_store_dir: Option<PathBuf>,
+    pub blob_store_s3: Option<S3BlobStoreConfig>,
     pub solana_grpc_endpoint: String,
     pub solana_grpc_x_token: Option<String>,
     pub solana_rpc_http_url: String,
@@ -54,6 +55,7 @@ impl Config {
                 .map(|value| value.trim().to_owned())
                 .filter(|value| !value.is_empty())
                 .map(PathBuf::from),
+            blob_store_s3: s3_blob_store_config_from_env()?,
             solana_grpc_endpoint,
             solana_grpc_x_token,
             solana_rpc_http_url,
@@ -185,4 +187,60 @@ fn env_csv(key: &str, defaults: &[&str]) -> Vec<String> {
     values.sort();
     values.dedup();
     values
+}
+
+fn s3_blob_store_config_from_env() -> Result<Option<S3BlobStoreConfig>> {
+    let Some(bucket) = first_env([
+        "BLOB_STORE_S3_BUCKET",
+        "S3_BLOB_BUCKET",
+        "AWS_S3_BLOB_BUCKET",
+        "R2_BLOB_BUCKET",
+    ]) else {
+        return Ok(None);
+    };
+
+    let endpoint_url = first_env(["BLOB_STORE_S3_ENDPOINT_URL", "S3_BLOB_ENDPOINT_URL"])
+        .or_else(|| env::var("R2_ENDPOINT_URL").ok().filter(|value| !is_blank(value)))
+        .or_else(|| {
+            env::var("R2_ACCOUNT_ID")
+                .ok()
+                .filter(|value| !is_blank(value))
+                .map(|account_id| {
+                    format!(
+                        "https://{}.r2.cloudflarestorage.com",
+                        account_id.trim()
+                    )
+                })
+        })
+        .context(
+            "BLOB_STORE_S3_ENDPOINT_URL or R2_ACCOUNT_ID is required when BLOB_STORE_S3_BUCKET is set",
+        )?;
+    let access_key_id = first_env(["BLOB_STORE_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"])
+        .context("BLOB_STORE_S3_ACCESS_KEY_ID or AWS_ACCESS_KEY_ID is required when BLOB_STORE_S3_BUCKET is set")?;
+    let secret_access_key =
+        first_env(["BLOB_STORE_S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"]).context(
+            "BLOB_STORE_S3_SECRET_ACCESS_KEY or AWS_SECRET_ACCESS_KEY is required when BLOB_STORE_S3_BUCKET is set",
+        )?;
+    let region = first_env(["BLOB_STORE_S3_REGION", "AWS_DEFAULT_REGION"])
+        .unwrap_or_else(|| "auto".to_owned());
+    let prefix = first_env(["BLOB_STORE_S3_PREFIX", "S3_BLOB_PREFIX", "R2_BLOB_PREFIX"]);
+
+    Ok(Some(S3BlobStoreConfig {
+        endpoint_url,
+        bucket,
+        prefix,
+        access_key_id,
+        secret_access_key,
+        region,
+    }))
+}
+
+fn first_env<const N: usize>(keys: [&str; N]) -> Option<String> {
+    keys.into_iter()
+        .find_map(|key| env::var(key).ok().filter(|value| !is_blank(value)))
+        .map(|value| value.trim().to_owned())
+}
+
+fn is_blank(value: &str) -> bool {
+    value.trim().is_empty()
 }
