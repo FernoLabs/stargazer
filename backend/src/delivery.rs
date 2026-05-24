@@ -1,7 +1,7 @@
 use crate::{
     config::Config,
     context::SharedState,
-    models::{ChainEvent, PendingTelegramDelivery, event_kind, now_ts},
+    models::{ChainEvent, PendingTelegramDelivery, event_kind, now_ts, target_type},
     name_service, protocols,
 };
 use anyhow::{Result, anyhow};
@@ -24,8 +24,12 @@ struct TelegramSendMessageRequest<'a> {
     text: &'a str,
     disable_web_page_preview: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    parse_mode: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     message_thread_id: Option<i64>,
 }
+
+const TELEGRAM_DIGEST_LINE_LIMIT: usize = 6;
 
 pub async fn run_retry_loop(state: SharedState) -> Result<()> {
     loop {
@@ -79,7 +83,7 @@ async fn deliver_telegram_event(
 ) -> Result<()> {
     let hydrated_event = name_service::hydrate_event(state, delivery.event.clone()).await;
     let message = format_telegram_message(&state.config, &hydrated_event);
-    match send_telegram_text(
+    match send_telegram_html(
         state,
         &delivery.subscription.chat_id,
         delivery.subscription.thread_id,
@@ -107,6 +111,25 @@ pub async fn send_telegram_text(
     thread_id: Option<i64>,
     text: &str,
 ) -> Result<()> {
+    send_telegram_message(state, chat_id, thread_id, text, None).await
+}
+
+async fn send_telegram_html(
+    state: &SharedState,
+    chat_id: &str,
+    thread_id: Option<i64>,
+    text: &str,
+) -> Result<()> {
+    send_telegram_message(state, chat_id, thread_id, text, Some("HTML")).await
+}
+
+async fn send_telegram_message(
+    state: &SharedState,
+    chat_id: &str,
+    thread_id: Option<i64>,
+    text: &str,
+    parse_mode: Option<&str>,
+) -> Result<()> {
     let bot_token = state
         .config
         .telegram_bot_token
@@ -121,6 +144,7 @@ pub async fn send_telegram_text(
         chat_id,
         text,
         disable_web_page_preview: true,
+        parse_mode,
         message_thread_id: thread_id,
     };
     let response = state.http_client.post(endpoint).json(&body).send().await?;
@@ -177,72 +201,141 @@ fn retry_delay_seconds(attempts: i64) -> i64 {
 }
 
 fn format_telegram_message(config: &Config, event: &ChainEvent) -> String {
-    let transaction_url = explorer_tx_url(config, &event.signature);
-    let target_url = explorer_account_url(config, &event.target_address);
-    let mut lines = vec![format!("FireWatch alert: {}", event_title(event))];
+    let mut lines = vec![format!("<b>{}</b>", html_escape(event_title(event)))];
 
-    match event.kind.as_str() {
+    let (digest_lines, preferred_prefixes): (Vec<String>, &[&str]) = match event.kind.as_str() {
         event_kind::NAME_SERVICE_DOMAIN_CREATED
         | event_kind::NAME_SERVICE_DOMAIN_UPDATED
         | event_kind::NAME_SERVICE_DOMAIN_TRANSFERRED
         | event_kind::NAME_SERVICE_DOMAIN_DELETED
         | event_kind::NAME_SERVICE_DOMAIN_REALLOCATED => {
-            lines.extend(domain_digest_lines(config, event));
-            lines.push(format!("Domain account: {target_url}"));
+            (domain_digest_lines(config, event), DOMAIN_DIGEST_PREFIXES)
         }
         event_kind::PROGRAM_DEPLOYED
         | event_kind::PROGRAM_UPGRADED
         | event_kind::PROGRAM_FINALIZED
         | event_kind::PROGRAM_MIGRATED_TO_LOADER_V4 => {
-            lines.extend(program_digest_lines(event));
-            lines.push(format!("Program page: {target_url}"));
+            (program_digest_lines(event), PROGRAM_DIGEST_PREFIXES)
         }
         event_kind::PROGRAM_IDL_INITIALIZED
         | event_kind::PROGRAM_IDL_UPDATED
         | event_kind::PROGRAM_IDL_AUTHORITY_CHANGED
         | event_kind::PROGRAM_IDL_IMMUTABLE
         | event_kind::PROGRAM_IDL_RESIZED
-        | event_kind::PROGRAM_IDL_CLOSED => {
-            lines.extend(idl_digest_lines(config, event));
-            lines.push(format!("Program page: {target_url}"));
-        }
+        | event_kind::PROGRAM_IDL_CLOSED => (idl_digest_lines(config, event), IDL_DIGEST_PREFIXES),
         event_kind::PROGRAM_ADMIN_INSTRUCTION
         | event_kind::PROGRAM_UNKNOWN_INSTRUCTION
-        | event_kind::PROGRAM_METRIC_ALERT => {
-            lines.extend(protocol_digest_lines(config, event));
-            lines.push(format!("Program page: {target_url}"));
-        }
+        | event_kind::PROGRAM_METRIC_ALERT => (
+            protocol_digest_lines(config, event),
+            PROTOCOL_DIGEST_PREFIXES,
+        ),
         event_kind::MULTISIG_PROPOSAL_ACTIVATED
         | event_kind::MULTISIG_PROPOSAL_APPROVED
         | event_kind::MULTISIG_PROPOSAL_REJECTED
         | event_kind::MULTISIG_PROPOSAL_CANCELLED
         | event_kind::MULTISIG_VAULT_EXECUTED
         | event_kind::MULTISIG_CONFIG_EXECUTED => {
-            lines.extend(multisig_digest_lines(event));
-            lines.push(format!("Multisig page: {target_url}"));
+            (multisig_digest_lines(event), MULTISIG_DIGEST_PREFIXES)
         }
         _ => {
-            lines.push(format!("Summary: {}", event.summary));
-            lines.push(format!(
-                "Target: {} ({})",
-                event.target_address, event.target_type
-            ));
+            let mut default_lines = vec![
+                format!("Summary: {}", event.summary),
+                format!("Target: {} ({})", event.target_address, event.target_type),
+            ];
             if let Some(actor) = &event.actor {
-                lines.push(format!("Actor: {actor}"));
+                default_lines.push(format!("Actor: {actor}"));
             }
-            lines.push(format!("Target page: {target_url}"));
+            (default_lines, DEFAULT_DIGEST_PREFIXES)
         }
-    }
+    };
 
-    lines.push(format!("Slot: {}", event.slot));
-    lines.push(format!("Path: {}", event.instruction_path));
+    lines.extend(
+        selected_digest_lines(digest_lines, preferred_prefixes, TELEGRAM_DIGEST_LINE_LIMIT)
+            .into_iter()
+            .map(|line| render_telegram_line(&line)),
+    );
+
+    let mut slot_line = format!("Slot: <code>{}</code>", event.slot);
     if let Some(block_time) = format_block_time(event.block_time) {
-        lines.push(format!("Time: {block_time}"));
+        slot_line.push_str(" - ");
+        slot_line.push_str(&html_escape(&block_time));
     }
-    lines.push(format!("Tx: {transaction_url}"));
+    lines.push(slot_line);
+    lines.push(format!(
+        "Tx: <a href=\"{}\">{}</a>",
+        html_attr_escape(&explorer_tx_url(config, &event.signature)),
+        html_escape(&compact_identifier(&event.signature, 6, 6)),
+    ));
+    lines.push(format!(
+        "<a href=\"{}\">Open in FireWatch</a>",
+        html_attr_escape(&firewatch_event_url(config, event)),
+    ));
 
     lines.join("\n")
 }
+
+const DOMAIN_DIGEST_PREFIXES: &[&str] = &[
+    "Domain:",
+    "Display owner:",
+    "Owner:",
+    "New owner name:",
+    "New owner:",
+    "Review:",
+    "Updated bytes:",
+    "Space:",
+    "Level:",
+];
+
+const PROGRAM_DIGEST_PREFIXES: &[&str] = &[
+    "Protocol:",
+    "Surface:",
+    "Program:",
+    "Authority:",
+    "Program bytes:",
+    "Program SHA-256:",
+    "Loader:",
+    "Source:",
+    "Buffer:",
+];
+
+const IDL_DIGEST_PREFIXES: &[&str] = &[
+    "Protocol:",
+    "Surface:",
+    "Program:",
+    "IDL action:",
+    "Impact:",
+    "Actor:",
+    "New authority:",
+    "Via multisig:",
+    "Format:",
+];
+
+const PROTOCOL_DIGEST_PREFIXES: &[&str] = &[
+    "Protocol:",
+    "Surface:",
+    "Program:",
+    "Instruction:",
+    "Metric:",
+    "Signal:",
+    "Severity:",
+    "Impact:",
+    "Actor:",
+    "Review:",
+    "Rule:",
+    "Discriminator:",
+];
+
+const MULTISIG_DIGEST_PREFIXES: &[&str] = &[
+    "Decoded protocol:",
+    "Decoded action:",
+    "Multisig:",
+    "Member name:",
+    "Member:",
+    "Proposal:",
+    "Transaction account:",
+];
+
+const DEFAULT_DIGEST_PREFIXES: &[&str] = &["Summary:", "Target:", "Actor:"];
 
 fn event_title(event: &ChainEvent) -> &'static str {
     match event.kind.as_str() {
@@ -713,6 +806,155 @@ fn short_digest(value: &str) -> String {
     }
 }
 
+fn selected_digest_lines(
+    lines: Vec<String>,
+    preferred_prefixes: &[&str],
+    limit: usize,
+) -> Vec<String> {
+    let mut candidates = lines
+        .into_iter()
+        .filter(|line| !line.contains("://"))
+        .collect::<Vec<_>>();
+    let mut selected = Vec::new();
+
+    for prefix in preferred_prefixes {
+        if selected.len() >= limit {
+            break;
+        }
+        if let Some(position) = candidates.iter().position(|line| line.starts_with(prefix)) {
+            selected.push(candidates.remove(position));
+        }
+    }
+
+    for line in candidates {
+        if selected.len() >= limit {
+            break;
+        }
+        selected.push(line);
+    }
+
+    selected
+}
+
+fn render_telegram_line(line: &str) -> String {
+    let compact = compact_long_tokens(line);
+    html_escape(&compact)
+}
+
+fn compact_long_tokens(input: &str) -> String {
+    input
+        .split_whitespace()
+        .map(compact_token)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn compact_token(token: &str) -> String {
+    if !token.is_ascii() {
+        return token.to_owned();
+    }
+
+    let bytes = token.as_bytes();
+    let start = bytes
+        .iter()
+        .position(|byte| byte.is_ascii_alphanumeric())
+        .unwrap_or(0);
+    let end = bytes
+        .iter()
+        .rposition(|byte| byte.is_ascii_alphanumeric())
+        .map(|position| position + 1)
+        .unwrap_or(token.len());
+    let core = &token[start..end];
+
+    if core.len() < 32 || !core.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+        return token.to_owned();
+    }
+
+    format!(
+        "{}{}{}",
+        &token[..start],
+        compact_identifier(core, 6, 6),
+        &token[end..]
+    )
+}
+
+fn compact_identifier(value: &str, prefix_len: usize, suffix_len: usize) -> String {
+    let char_count = value.chars().count();
+    if char_count <= prefix_len + suffix_len + 3 {
+        return value.to_owned();
+    }
+
+    let prefix = value.chars().take(prefix_len).collect::<String>();
+    let suffix = value
+        .chars()
+        .rev()
+        .take(suffix_len)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>();
+    format!("{prefix}...{suffix}")
+}
+
+fn firewatch_event_url(config: &Config, event: &ChainEvent) -> String {
+    let base_url = config.firewatch_web_base_url.trim().trim_end_matches('/');
+
+    if event.target_type == target_type::PROGRAM {
+        let program = payload_str(event, "program").unwrap_or(&event.target_address);
+        if let Some(version_id) = payload_str(event, "program_version_id") {
+            return format!(
+                "{base_url}/programs/{}/versions/{}/compare",
+                percent_encode(program),
+                percent_encode(version_id),
+            );
+        }
+
+        return format!("{base_url}/programs/{}", percent_encode(program));
+    }
+
+    let mut params = vec![("target", event.target_address.as_str())];
+    if event.target_type == target_type::MULTISIG {
+        params.push(("scope", "multisig"));
+    } else if event.kind.starts_with("program_idl_") {
+        params.push(("scope", "idl"));
+    } else if event.has_tag("watch:defi") {
+        params.push(("scope", "defi"));
+    }
+
+    format!("{base_url}/events?{}", query_string(&params))
+}
+
+fn query_string(params: &[(&str, &str)]) -> String {
+    params
+        .iter()
+        .map(|(key, value)| format!("{}={}", percent_encode(key), percent_encode(value)))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+fn percent_encode(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
+}
+
+fn html_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn html_attr_escape(value: &str) -> String {
+    html_escape(value).replace('"', "&quot;")
+}
+
 fn format_block_time(block_time: Option<i64>) -> Option<String> {
     let timestamp = block_time?;
     let datetime = DateTime::<Utc>::from_timestamp(timestamp, 0)?;
@@ -750,4 +992,100 @@ fn derived_protocol_name(program_address: &str) -> Option<String> {
 fn derived_program_label(program_address: &str) -> Option<String> {
     let program_id = Pubkey::from_str(program_address).ok()?;
     Some(protocols::protocol_for_program(program_id)?.program_label)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::path::PathBuf;
+
+    const PROGRAM: &str = "6EF8rrecthR5DkxxxxxxxxxxxxxxxxxxxxxxxxxxwF6P";
+    const AUTHORITY: &str = "Authority111111111111111111111111111111111999999";
+    const SIGNATURE: &str =
+        "5u3QJ9mZx4V2P1aBcDeFgHiJkLmNoPqRsTuVwXyZ123456789ABCDEFGHJKLMNPQRSTUVWXYZabc";
+
+    fn test_config() -> Config {
+        Config {
+            http_bind: "0.0.0.0:8080".to_owned(),
+            database_url: "sqlite::memory:".to_owned(),
+            blob_store_dir: None::<PathBuf>,
+            solana_grpc_endpoint: "https://example.invalid".to_owned(),
+            solana_grpc_x_token: None,
+            solana_rpc_http_url: "https://example.invalid".to_owned(),
+            solana_explorer_base_url: "https://explorer.solana.com".to_owned(),
+            solana_explorer_cluster: "mainnet-beta".to_owned(),
+            telegram_bot_token: None,
+            telegram_api_base: "https://api.telegram.org".to_owned(),
+            firewatch_web_base_url: "https://watch.ferno.ag".to_owned(),
+            origin_api_token: None,
+            cors_allowed_origin: "http://127.0.0.1:5173".to_owned(),
+            delivery_poll_seconds: 5,
+            reconnect_delay_seconds: 5,
+            sns_refresh_seconds: 300,
+            critical_sol_domains: Vec::new(),
+            ferno_block_base_url: "https://block.ferno.ag/block".to_owned(),
+        }
+    }
+
+    fn sample_program_event() -> ChainEvent {
+        ChainEvent {
+            id: "test-event".to_owned(),
+            signature: SIGNATURE.to_owned(),
+            instruction_path: "0.1".to_owned(),
+            kind: event_kind::PROGRAM_UPGRADED.to_owned(),
+            target_type: target_type::PROGRAM.to_owned(),
+            target_address: PROGRAM.to_owned(),
+            actor: Some(AUTHORITY.to_owned()),
+            slot: 401_000_123,
+            block_time: Some(1_716_000_000),
+            indexed_at: 1_716_000_001,
+            summary: "Program upgraded".to_owned(),
+            tags: vec!["watch:defi".to_owned()],
+            payload: json!({
+                "protocol_name": "Pump.fun",
+                "program_label": "Launchpad",
+                "program": PROGRAM,
+                "authority": AUTHORITY,
+                "loader": "upgradeable",
+                "program_bytes_len": 201856,
+                "program_bytes_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                "program_version_id": "sig:0:program_version"
+            }),
+            delivery_attempts: 0,
+            delivered_at: None,
+            last_error: None,
+            next_retry_at: 0,
+        }
+    }
+
+    #[test]
+    fn telegram_program_message_is_short_and_links_to_firewatch() {
+        let message = format_telegram_message(&test_config(), &sample_program_event());
+
+        assert!(message.contains("<b>Program upgraded</b>"));
+        assert!(message.contains("Protocol: Pump.fun"));
+        assert!(message.contains("Surface: Launchpad"));
+        assert!(message.contains("Program: 6EF8rr...xxwF6P"));
+        assert!(message.contains("Authority: Author...999999"));
+        assert!(message.contains("Program bytes: 201856"));
+        assert!(message.contains("Program SHA-256: 01234567...89abcdef"));
+        assert!(message.contains(">Open in FireWatch</a>"));
+        assert!(message.contains(
+            "https://watch.ferno.ag/programs/6EF8rrecthR5DkxxxxxxxxxxxxxxxxxxxxxxxxxxwF6P/versions/sig%3A0%3Aprogram_version/compare"
+        ));
+        assert!(!message.contains(&format!("Program: {PROGRAM}")));
+        assert!(!message.contains(&format!("Authority: {AUTHORITY}")));
+        assert!(!message.contains("Program page:"));
+        assert!(!message.contains("/address/"));
+        assert!(message.lines().count() <= 10);
+    }
+
+    #[test]
+    fn percent_encode_handles_route_params() {
+        assert_eq!(
+            percent_encode("sig:0:program_version"),
+            "sig%3A0%3Aprogram_version"
+        );
+    }
 }

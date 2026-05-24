@@ -15,6 +15,7 @@ pub struct Config {
     pub solana_explorer_cluster: String,
     pub telegram_bot_token: Option<String>,
     pub telegram_api_base: String,
+    pub firewatch_web_base_url: String,
     pub origin_api_token: Option<String>,
     pub cors_allowed_origin: String,
     pub delivery_poll_seconds: u64,
@@ -64,6 +65,11 @@ impl Config {
                 .filter(|value| !value.trim().is_empty()),
             telegram_api_base: env::var("TELEGRAM_API_BASE")
                 .unwrap_or_else(|_| "https://api.telegram.org".to_owned()),
+            firewatch_web_base_url: env::var("FIREWATCH_WEB_BASE_URL")
+                .ok()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "https://watch.ferno.ag".to_owned()),
             origin_api_token: env::var("ORIGIN_API_TOKEN")
                 .ok()
                 .filter(|value| !value.trim().is_empty()),
