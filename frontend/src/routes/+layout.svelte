@@ -345,7 +345,7 @@
 
 	@media (max-width: 560px) {
 		.topbar {
-			padding-inline: 0.75rem;
+			padding: 0.52rem 0.75rem 0.5rem;
 		}
 
 		.topbar-row,
@@ -354,25 +354,52 @@
 		}
 
 		.primary-nav {
-			gap: 0.78rem;
+			flex-wrap: nowrap;
+			gap: 0.72rem;
+			overflow-x: auto;
+			padding-bottom: 0.02rem;
+			scrollbar-width: none;
+		}
+
+		.primary-nav::-webkit-scrollbar,
+		.live-strip::-webkit-scrollbar {
+			display: none;
+		}
+
+		.primary-nav a {
+			flex: 0 0 auto;
+			padding: 0.28rem 0 0.34rem;
+			font-size: 0.82rem;
 		}
 
 		.live-strip {
-			display: grid;
-			grid-template-columns: 1.35fr 0.9fr 0.78fr;
+			display: flex;
+			align-items: center;
+			flex-wrap: nowrap;
+			gap: 0;
 			width: 100%;
+			overflow-x: auto;
+			scrollbar-width: none;
 		}
 
 		.live-pill {
-			display: grid;
-			align-items: start;
-			gap: 0.02rem;
+			display: inline-flex;
+			align-items: baseline;
+			flex: 0 0 auto;
+			gap: 0.28rem;
 			margin-left: 0;
-			padding: 0.04rem 0.54rem;
+			padding: 0 0.62rem 0 0;
+			border-left: none;
+			border-right: 1px solid rgba(23, 32, 42, 0.1);
 		}
 
 		.live-pill:first-child {
 			padding-left: 0;
+		}
+
+		.live-pill:last-child {
+			padding-right: 0;
+			border-right: none;
 		}
 
 		.live-pill span {
@@ -383,14 +410,20 @@
 			font-size: 0.78rem;
 		}
 
+		.tip-pill,
 		.tip-main {
-			display: grid;
-			gap: 0.02rem;
+			display: inline-flex;
+			align-items: baseline;
 		}
 
 		.tip-start {
-			justify-self: start;
-			white-space: normal;
+			display: none;
+		}
+
+		.banner {
+			margin-top: 0.5rem;
+			padding: 0.58rem 0.68rem;
+			font-size: 0.82rem;
 		}
 	}
 </style>

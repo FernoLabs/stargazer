@@ -640,38 +640,65 @@
 
 	@media (max-width: 720px) {
 		.page-shell {
-			width: min(100vw - 1rem, var(--fw-page-max));
-			padding-top: 0.8rem;
+			width: min(100vw - 1.25rem, var(--fw-page-max));
+			padding-top: 0.62rem;
 			gap: 0.8rem;
 		}
 
+		.panel,
+		.protocol-row {
+			border-radius: 8px;
+		}
+
+		.panel {
+			padding: 0.86rem;
+		}
+
 		.hero-top {
-			grid-template-columns: 1fr;
-			gap: 0.68rem;
+			grid-template-columns: minmax(0, 1fr) minmax(3.8rem, 4.6rem);
+			gap: 0.7rem;
 		}
 
 		.hero-copy,
 		.hero-logo-image {
-			grid-column: 1;
+			grid-row: 1;
 		}
 
 		.hero-logo-image {
-			grid-row: 1;
-			justify-self: start;
-			max-width: 11rem;
+			grid-column: 2;
+			justify-self: end;
+			max-width: 4.6rem;
 		}
 
 		.hero-copy {
-			grid-row: 2;
+			grid-column: 1;
 		}
 
 		h1 {
-			font-size: 2rem;
-			max-width: 13ch;
+			font-size: 1.86rem;
+			line-height: 1.06;
+			max-width: none;
+		}
+
+		.hero-actions {
+			display: grid;
+			gap: 0.62rem;
+		}
+
+		.hero-cta {
+			justify-self: start;
+		}
+
+		.signal-row {
+			column-gap: 0.75rem;
 		}
 
 		.stats-strip {
 			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+
+		.stat-card {
+			padding: 0.72rem 0.76rem;
 		}
 
 		.protocol-list {
