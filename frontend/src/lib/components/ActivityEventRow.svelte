@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { explorerAddressUrl, explorerTransactionUrl } from '$lib/explorer';
+	import { eventDetailHref } from '$lib/event-preview';
 	import {
 		findProgramMatch,
 		programPageHref,
@@ -17,7 +18,8 @@
 		activeTag = '',
 		onTagSelect = null,
 		fallbackProtocolSlug = null,
-		fallbackProtocolLabel = null
+		fallbackProtocolLabel = null,
+		linkTitle = true
 	}: {
 		event: ChainEvent;
 		explorerCluster: string;
@@ -26,6 +28,7 @@
 		onTagSelect?: ((tag: string) => void) | null;
 		fallbackProtocolSlug?: string | null;
 		fallbackProtocolLabel?: string | null;
+		linkTitle?: boolean;
 	} = $props();
 
 	let copied = $state(false);
@@ -351,7 +354,13 @@
 					{/if}
 				</div>
 
-				<h3>{eventTitle()}</h3>
+				<h3>
+					{#if linkTitle}
+						<a href={eventDetailHref(event)}>{eventTitle()}</a>
+					{:else}
+						{eventTitle()}
+					{/if}
+				</h3>
 			</div>
 
 			<div class="meta-row">
@@ -452,6 +461,16 @@
 
 	.event-row.critical h3 {
 		color: #8f2418;
+	}
+
+	h3 a {
+		color: inherit;
+		text-decoration: none;
+	}
+
+	h3 a:hover {
+		text-decoration: underline;
+		text-underline-offset: 0.18em;
 	}
 
 	.event-row.event-high {

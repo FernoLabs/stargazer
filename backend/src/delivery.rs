@@ -1,7 +1,7 @@
 use crate::{
     config::Config,
     context::SharedState,
-    models::{ChainEvent, PendingTelegramDelivery, event_kind, now_ts, target_type},
+    models::{ChainEvent, PendingTelegramDelivery, event_kind, now_ts},
     name_service, protocols,
 };
 use anyhow::{Result, anyhow};
@@ -26,7 +26,17 @@ struct TelegramSendMessageRequest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     parse_mode: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    link_preview_options: Option<TelegramLinkPreviewOptions<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     message_thread_id: Option<i64>,
+}
+
+#[derive(Serialize)]
+struct TelegramLinkPreviewOptions<'a> {
+    is_disabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<&'a str>,
+    prefer_large_media: bool,
 }
 
 const TELEGRAM_DIGEST_LINE_LIMIT: usize = 6;
@@ -82,12 +92,14 @@ async fn deliver_telegram_event(
     delivery: &PendingTelegramDelivery,
 ) -> Result<()> {
     let hydrated_event = name_service::hydrate_event(state, delivery.event.clone()).await;
+    let preview_url = firewatch_event_url(&state.config, &hydrated_event);
     let message = format_telegram_message(&state.config, &hydrated_event);
     match send_telegram_html(
         state,
         &delivery.subscription.chat_id,
         delivery.subscription.thread_id,
         &message,
+        &preview_url,
     )
     .await
     {
@@ -111,7 +123,7 @@ pub async fn send_telegram_text(
     thread_id: Option<i64>,
     text: &str,
 ) -> Result<()> {
-    send_telegram_message(state, chat_id, thread_id, text, None).await
+    send_telegram_message(state, chat_id, thread_id, text, None, true, None).await
 }
 
 async fn send_telegram_html(
@@ -119,8 +131,18 @@ async fn send_telegram_html(
     chat_id: &str,
     thread_id: Option<i64>,
     text: &str,
+    preview_url: &str,
 ) -> Result<()> {
-    send_telegram_message(state, chat_id, thread_id, text, Some("HTML")).await
+    send_telegram_message(
+        state,
+        chat_id,
+        thread_id,
+        text,
+        Some("HTML"),
+        false,
+        Some(preview_url),
+    )
+    .await
 }
 
 async fn send_telegram_message(
@@ -129,6 +151,8 @@ async fn send_telegram_message(
     thread_id: Option<i64>,
     text: &str,
     parse_mode: Option<&str>,
+    disable_web_page_preview: bool,
+    link_preview_url: Option<&str>,
 ) -> Result<()> {
     let bot_token = state
         .config
@@ -143,8 +167,13 @@ async fn send_telegram_message(
     let body = TelegramSendMessageRequest {
         chat_id,
         text,
-        disable_web_page_preview: true,
+        disable_web_page_preview,
         parse_mode,
+        link_preview_options: link_preview_url.map(|url| TelegramLinkPreviewOptions {
+            is_disabled: false,
+            url: Some(url),
+            prefer_large_media: true,
+        }),
         message_thread_id: thread_id,
     };
     let response = state.http_client.post(endpoint).json(&body).send().await?;
@@ -898,38 +927,7 @@ fn compact_identifier(value: &str, prefix_len: usize, suffix_len: usize) -> Stri
 
 fn firewatch_event_url(config: &Config, event: &ChainEvent) -> String {
     let base_url = config.firewatch_web_base_url.trim().trim_end_matches('/');
-
-    if event.target_type == target_type::PROGRAM {
-        let program = payload_str(event, "program").unwrap_or(&event.target_address);
-        if let Some(version_id) = payload_str(event, "program_version_id") {
-            return format!(
-                "{base_url}/programs/{}/versions/{}/compare",
-                percent_encode(program),
-                percent_encode(version_id),
-            );
-        }
-
-        return format!("{base_url}/programs/{}", percent_encode(program));
-    }
-
-    let mut params = vec![("target", event.target_address.as_str())];
-    if event.target_type == target_type::MULTISIG {
-        params.push(("scope", "multisig"));
-    } else if event.kind.starts_with("program_idl_") {
-        params.push(("scope", "idl"));
-    } else if event.has_tag("watch:defi") {
-        params.push(("scope", "defi"));
-    }
-
-    format!("{base_url}/events?{}", query_string(&params))
-}
-
-fn query_string(params: &[(&str, &str)]) -> String {
-    params
-        .iter()
-        .map(|(key, value)| format!("{}={}", percent_encode(key), percent_encode(value)))
-        .collect::<Vec<_>>()
-        .join("&")
+    format!("{base_url}/events/{}", percent_encode(&event.id))
 }
 
 fn percent_encode(value: &str) -> String {
@@ -997,6 +995,7 @@ fn derived_program_label(program_address: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::target_type;
     use serde_json::json;
     use std::path::PathBuf;
 
@@ -1030,7 +1029,7 @@ mod tests {
 
     fn sample_program_event() -> ChainEvent {
         ChainEvent {
-            id: "test-event".to_owned(),
+            id: format!("{SIGNATURE}:0.1:program_upgraded:{PROGRAM}"),
             signature: SIGNATURE.to_owned(),
             instruction_path: "0.1".to_owned(),
             kind: event_kind::PROGRAM_UPGRADED.to_owned(),
@@ -1072,7 +1071,7 @@ mod tests {
         assert!(message.contains("Program SHA-256: 01234567...89abcdef"));
         assert!(message.contains(">Open in FireWatch</a>"));
         assert!(message.contains(
-            "https://watch.ferno.ag/programs/6EF8rrecthR5DkxxxxxxxxxxxxxxxxxxxxxxxxxxwF6P/versions/sig%3A0%3Aprogram_version/compare"
+            "https://watch.ferno.ag/events/5u3QJ9mZx4V2P1aBcDeFgHiJkLmNoPqRsTuVwXyZ123456789ABCDEFGHJKLMNPQRSTUVWXYZabc%3A0.1%3Aprogram_upgraded%3A6EF8rrecthR5DkxxxxxxxxxxxxxxxxxxxxxxxxxxwF6P"
         ));
         assert!(!message.contains(&format!("Program: {PROGRAM}")));
         assert!(!message.contains(&format!("Authority: {AUTHORITY}")));

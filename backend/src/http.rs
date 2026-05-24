@@ -2,11 +2,11 @@ use crate::{
     context::SharedState,
     database::{EventListFilters, ProgramVersionByteSide},
     models::{
-        CreateMetricAlertRuleRequest, CreateTelegramSubscriptionRequest, DefiProtocolsResponse,
-        EventScopeCounts, EventsResponse, EventsSummary, LiveStatusResponse, MetricAlertRule,
-        MetricAlertsResponse, ProgramDisassemblyResponse, ProgramIdlVersionsResponse,
-        ProgramSignerStatsResponse, ProgramVersionsResponse, TelegramSubscription,
-        TelegramSubscriptionSummaryResponse, TelegramSubscriptionsResponse,
+        ChainEvent, CreateMetricAlertRuleRequest, CreateTelegramSubscriptionRequest,
+        DefiProtocolsResponse, EventScopeCounts, EventsResponse, EventsSummary, LiveStatusResponse,
+        MetricAlertRule, MetricAlertsResponse, ProgramDisassemblyResponse,
+        ProgramIdlVersionsResponse, ProgramSignerStatsResponse, ProgramVersionsResponse,
+        TelegramSubscription, TelegramSubscriptionSummaryResponse, TelegramSubscriptionsResponse,
     },
     name_service, protocols, telegram,
 };
@@ -38,6 +38,7 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
 
     let api_router = Router::new()
         .route("/api/events", get(list_events))
+        .route("/api/events/{id}", get(get_event))
         .route("/api/status", get(status))
         .route("/api/live-status", get(live_status))
         .route("/api/protocols", get(list_protocols))
@@ -228,6 +229,36 @@ async fn list_events(
         scope_counts,
         next_offset,
     }))
+}
+
+async fn get_event(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> ApiResult<ChainEvent> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Event not found" })),
+        ));
+    }
+
+    let event = state.db.event_by_id(id).await.map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "Could not load event" })),
+        )
+    })?;
+
+    match event {
+        Some(event) => Ok(Json(
+            name_service::hydrate_event_cached(&state, event).await,
+        )),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Event not found" })),
+        )),
+    }
 }
 
 fn count_for_scope(scope: Option<&str>, counts: &EventScopeCounts) -> i64 {

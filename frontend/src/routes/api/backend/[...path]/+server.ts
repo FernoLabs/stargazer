@@ -52,6 +52,13 @@ function cachePolicyFor(path: string): CachePolicy | null {
 		};
 	}
 
+	if (/^api\/events\/[^/]+$/.test(path)) {
+		return {
+			header: 'public, max-age=30, s-maxage=300, stale-while-revalidate=3600',
+			edgeTtlSeconds: 300
+		};
+	}
+
 	if (path === 'api/protocols') {
 		return {
 			header: 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400',

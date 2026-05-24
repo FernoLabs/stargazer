@@ -2890,6 +2890,38 @@ impl Database {
         rows.into_iter().map(row_to_event).collect()
     }
 
+    pub async fn event_by_id(&self, id: &str) -> Result<Option<ChainEvent>> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                id,
+                signature,
+                instruction_path,
+                kind,
+                target_type,
+                target_address,
+                actor,
+                slot,
+                block_time,
+                indexed_at,
+                summary,
+                tags_json,
+                payload_json,
+                delivery_attempts,
+                delivered_at,
+                last_error,
+                next_retry_at
+            FROM events
+            WHERE id = ?
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(row_to_event).transpose()
+    }
+
     pub async fn event_scope_counts(
         &self,
         filters: EventListFilters<'_>,
