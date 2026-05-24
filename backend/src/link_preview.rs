@@ -32,6 +32,7 @@ pub async fn render_event_preview_card(state: &SharedState, event: &ChainEvent) 
     let mut canvas = data.level.decode_template()?;
     let font = preview_font()?;
 
+    draw_card_base(&mut canvas, &data, font);
     draw_event_panel(&mut canvas, &data, font);
 
     if let Some(protocol_name) = data.protocol_name.as_deref() {
@@ -171,58 +172,104 @@ async fn fetch_protocol_logo(client: &Client, slug: Option<&str>) -> Option<Rgba
 }
 
 fn draw_event_panel(canvas: &mut RgbaImage, data: &PreviewCardData, font: &FontArc) {
-    blend_rect(canvas, 318, 256, 790, 290, Rgba([13, 17, 21, 238]));
+    blend_rect(canvas, 318, 256, 790, 290, Rgba([14, 18, 23, 242]));
 
     draw_text_mut(
         canvas,
         data.level.accent(),
         336,
         276,
-        28.0,
+        24.0,
         font,
         data.level.label(),
     );
 
-    let title_lines = wrap_text(font, &data.title, 42.0, 720.0, 2);
+    let title_lines = wrap_text(font, &data.title, 38.0, 720.0, 2);
     for (index, line) in title_lines.iter().enumerate() {
         draw_text_mut(
             canvas,
             Rgba([248, 248, 246, 255]),
             336,
-            322 + (index as i32 * 48),
-            42.0,
+            319 + (index as i32 * 44),
+            38.0,
             font,
             line,
         );
     }
 
-    let summary_y = 322 + (title_lines.len() as i32 * 48) + 14;
-    let summary_lines = wrap_text(font, &data.summary, 24.0, 712.0, 2);
+    let summary_y = 319 + (title_lines.len() as i32 * 44) + 13;
+    let summary = dedup_summary(&data.title, &data.summary);
+    let summary_lines = wrap_text(font, &summary, 22.0, 712.0, 2);
     for (index, line) in summary_lines.iter().enumerate() {
         draw_text_mut(
             canvas,
             Rgba([181, 190, 201, 255]),
             336,
-            summary_y + (index as i32 * 31),
-            24.0,
+            summary_y + (index as i32 * 29),
+            22.0,
             font,
             line,
         );
     }
 
-    let protocol = data
-        .protocol_name
-        .as_deref()
-        .unwrap_or("Unlabeled protocol");
-    draw_pills(
+    draw_pills(canvas, font, &preview_pills(data));
+}
+
+fn draw_card_base(canvas: &mut RgbaImage, data: &PreviewCardData, font: &FontArc) {
+    fill_rect(
         canvas,
+        0,
+        0,
+        canvas.width(),
+        canvas.height(),
+        Rgba([14, 18, 23, 255]),
+    );
+
+    draw_brand_mark(canvas, font, data);
+    draw_text_mut(
+        canvas,
+        Rgba([248, 248, 246, 255]),
+        212,
+        94,
+        58.0,
         font,
-        &[
-            protocol.to_owned(),
-            data.event_type.clone(),
-            format!("Slot {}", data.slot),
-            data.target.clone(),
-        ],
+        "FireWatch",
+    );
+    draw_text_mut(
+        canvas,
+        Rgba([175, 184, 194, 255]),
+        214,
+        164,
+        26.0,
+        font,
+        "Protocol safety monitor",
+    );
+    draw_text_mut(
+        canvas,
+        Rgba([235, 238, 242, 255]),
+        72,
+        508,
+        27.0,
+        font,
+        "watch.ferno.ag",
+    );
+}
+
+fn draw_brand_mark(canvas: &mut RgbaImage, font: &FontArc, data: &PreviewCardData) {
+    let center = (136, 142);
+    draw_filled_circle_mut(canvas, center, 70, Rgba([248, 248, 246, 245]));
+    draw_filled_circle_mut(canvas, center, 48, Rgba([23, 29, 35, 245]));
+    let mark = "FW";
+    let scale = 32.0;
+    let width = text_width(font, scale, mark).ceil() as i32;
+    draw_text_mut(
+        canvas,
+        data.level.accent(),
+        center.0 - width / 2,
+        center.1 - 20,
+        scale,
+        font,
+        mark,
     );
 }
 
@@ -231,15 +278,15 @@ fn draw_pills(canvas: &mut RgbaImage, font: &FontArc, values: &[String]) {
     let y = 508;
 
     for value in values {
-        let label = truncate_to_width(font, value, 20.0, 206.0);
-        let width = (text_width(font, 20.0, &label).ceil() as u32 + 28).clamp(74, 238);
+        let label = truncate_to_width(font, value, 18.0, 184.0);
+        let width = (text_width(font, 18.0, &label).ceil() as u32 + 26).clamp(70, 214);
         blend_rect(canvas, x, y, width, 40, Rgba([34, 41, 49, 230]));
         draw_text_mut(
             canvas,
             Rgba([230, 235, 241, 255]),
             x + 14,
-            y + 9,
-            20.0,
+            y + 10,
+            18.0,
             font,
             &label,
         );
@@ -251,13 +298,13 @@ fn draw_pills(canvas: &mut RgbaImage, font: &FontArc, values: &[String]) {
 }
 
 fn draw_protocol_logo(canvas: &mut RgbaImage, logo: &RgbaImage) {
-    let x = 934;
-    let y = 86;
-    let size = 158;
+    let x = 966;
+    let y = 96;
+    let size = 118;
     let center = (x + size / 2, y + size / 2);
 
     draw_filled_circle_mut(canvas, center, size / 2, Rgba([248, 248, 246, 245]));
-    let fitted = resize_contain(logo, (size - 32) as u32, (size - 32) as u32);
+    let fitted = resize_contain(logo, (size - 28) as u32, (size - 28) as u32);
     let overlay_x = x + (size - fitted.width() as i32) / 2;
     let overlay_y = y + (size - fitted.height() as i32) / 2;
     imageops::overlay(canvas, &fitted, overlay_x.into(), overlay_y.into());
@@ -269,12 +316,12 @@ fn draw_protocol_monogram(
     data: &PreviewCardData,
     protocol_name: &str,
 ) {
-    let x = 934;
-    let y = 86;
-    let size = 158;
+    let x = 966;
+    let y = 96;
+    let size = 118;
     let center = (x + size / 2, y + size / 2);
     let monogram = protocol_monogram(data.protocol_slug.as_deref(), protocol_name);
-    let scale = 54.0;
+    let scale = 40.0;
     let width = text_width(font, scale, &monogram).ceil() as i32;
 
     draw_filled_circle_mut(canvas, center, size / 2, Rgba([248, 248, 246, 245]));
@@ -282,7 +329,7 @@ fn draw_protocol_monogram(
         canvas,
         data.level.accent(),
         center.0 - width / 2,
-        center.1 - 33,
+        center.1 - 25,
         scale,
         font,
         &monogram,
@@ -297,6 +344,19 @@ fn resize_contain(image: &RgbaImage, max_width: u32, max_height: u32) -> RgbaIma
     let next_height = ((height as f32 * scale).round() as u32).max(1);
 
     imageops::resize(image, next_width, next_height, FilterType::Lanczos3)
+}
+
+fn fill_rect(canvas: &mut RgbaImage, x: i32, y: i32, width: u32, height: u32, color: Rgba<u8>) {
+    let left = x.max(0) as u32;
+    let top = y.max(0) as u32;
+    let right = (x + width as i32).min(canvas.width() as i32).max(0) as u32;
+    let bottom = (y + height as i32).min(canvas.height() as i32).max(0) as u32;
+
+    for pixel_y in top..bottom {
+        for pixel_x in left..right {
+            *canvas.get_pixel_mut(pixel_x, pixel_y) = color;
+        }
+    }
 }
 
 fn blend_rect(canvas: &mut RgbaImage, x: i32, y: i32, width: u32, height: u32, color: Rgba<u8>) {
@@ -622,6 +682,44 @@ fn event_title(
     }
 }
 
+fn preview_pills(data: &PreviewCardData) -> Vec<String> {
+    let mut values = vec![data.event_type.clone(), format!("Slot {}", data.slot)];
+    if !contains_case_insensitive(&data.title, &data.target) {
+        values.insert(1, data.target.clone());
+    }
+    values
+}
+
+fn dedup_summary(title: &str, summary: &str) -> String {
+    let normalized_title = normalize_preview_text(title);
+    let normalized_summary = normalize_preview_text(summary);
+    if normalized_summary.is_empty()
+        || normalized_summary == normalized_title
+        || normalized_summary.contains(&normalized_title)
+    {
+        return String::new();
+    }
+    summary.to_owned()
+}
+
+fn contains_case_insensitive(haystack: &str, needle: &str) -> bool {
+    if needle.trim().is_empty() {
+        return false;
+    }
+    haystack
+        .to_ascii_lowercase()
+        .contains(&needle.to_ascii_lowercase())
+}
+
+fn normalize_preview_text(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim_matches(|character: char| !character.is_ascii_alphanumeric())
+        .to_ascii_lowercase()
+}
+
 fn protocol_event_title(protocol_name: Option<&str>, label: &str) -> String {
     match protocol_name {
         Some(protocol) => format!("{protocol} {label}"),
@@ -822,6 +920,7 @@ mod tests {
         };
         let mut canvas = data.level.decode_template().expect("template decodes");
 
+        draw_card_base(&mut canvas, &data, font);
         draw_event_panel(&mut canvas, &data, font);
         draw_protocol_monogram(&mut canvas, font, &data, "Meteora DLMM");
 
