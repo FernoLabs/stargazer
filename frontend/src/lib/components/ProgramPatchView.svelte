@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { diffArrays, type ArrayChange } from 'diff';
+	import { normalizeAssemblyRelocations } from '$lib/program-assembly';
 
 	type PatchRow = {
 		kind: 'context' | 'added' | 'removed' | 'gap' | 'file';
@@ -17,12 +18,14 @@
 		beforeText,
 		afterText,
 		beforeLabel,
-		afterLabel
+		afterLabel,
+		ignoreRelocationNoise = false
 	}: {
 		beforeText: string;
 		afterText: string;
 		beforeLabel: string;
 		afterLabel: string;
+		ignoreRelocationNoise?: boolean;
 	} = $props();
 
 	const contextLines = 4;
@@ -40,22 +43,19 @@
 			});
 	}
 
-	function normalizeBody(body: string) {
-		return body
-			.replace(/\bcall\s+0x[0-9a-f]+\b/g, 'call <target>')
-			.replace(/\bgoto\s+[+-]0x[0-9a-f]+\b/g, 'goto <offset>')
-			.replace(/\b0x[0-9a-f]{5,}\s+ll\b/g, '<addr> ll');
+	function displayBody(body: string) {
+		return ignoreRelocationNoise ? normalizeAssemblyRelocations(body) : body;
 	}
 
-	function lineNumber(line: AsmLine | undefined, fallback: number) {
-		return line?.number ?? fallback + 1;
+	function lineNumber(line: AsmLine | undefined) {
+		return line?.number ?? null;
 	}
 
 	function allRows() {
 		const before = parseAsm(beforeText);
 		const after = parseAsm(afterText);
-		const beforeBodies = before.map((line) => normalizeBody(line.body));
-		const afterBodies = after.map((line) => normalizeBody(line.body));
+		const beforeBodies = before.map((line) => displayBody(line.body));
+		const afterBodies = after.map((line) => displayBody(line.body));
 		const changes = diffArrays(beforeBodies, afterBodies) as ArrayChange<string>[];
 		const rows: PatchRow[] = [
 			{ kind: 'file', beforeNumber: null, afterNumber: null, text: `--- previous.asm ${beforeLabel}` },
@@ -71,9 +71,9 @@
 					const afterLine = after[afterIndex + offset];
 					rows.push({
 						kind: 'context',
-						beforeNumber: lineNumber(beforeLine, beforeIndex + offset),
-						afterNumber: lineNumber(afterLine, afterIndex + offset),
-						text: afterLine?.body ?? beforeLine?.body ?? ''
+						beforeNumber: lineNumber(beforeLine),
+						afterNumber: lineNumber(afterLine),
+						text: displayBody(afterLine?.body ?? beforeLine?.body ?? '')
 					});
 				}
 				beforeIndex += change.value.length;
@@ -86,9 +86,9 @@
 					const beforeLine = before[beforeIndex + offset];
 					rows.push({
 						kind: 'removed',
-						beforeNumber: lineNumber(beforeLine, beforeIndex + offset),
+						beforeNumber: lineNumber(beforeLine),
 						afterNumber: null,
-						text: beforeLine?.body ?? ''
+						text: beforeLine ? displayBody(beforeLine.body) : ''
 					});
 				}
 				beforeIndex += change.value.length;
@@ -101,8 +101,8 @@
 					rows.push({
 						kind: 'added',
 						beforeNumber: null,
-						afterNumber: lineNumber(afterLine, afterIndex + offset),
-						text: afterLine?.body ?? ''
+						afterNumber: lineNumber(afterLine),
+						text: afterLine ? displayBody(afterLine.body) : ''
 					});
 				}
 				afterIndex += change.value.length;

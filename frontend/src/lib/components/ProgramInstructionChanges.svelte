@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { diffArrays, type ArrayChange } from 'diff';
+	import { normalizeAssemblyRelocations } from '$lib/program-assembly';
 
 	type AsmLine = {
 		number: number | null;
@@ -42,12 +43,8 @@
 			});
 	}
 
-	function normalizeBody(body: string) {
-		if (!ignoreRelocationNoise) return body;
-		return body
-			.replace(/\bcall\s+0x[0-9a-f]+\b/g, 'call <target>')
-			.replace(/\bgoto\s+[+-]0x[0-9a-f]+\b/g, 'goto <offset>')
-			.replace(/\b0x[0-9a-f]{5,}\s+ll\b/g, '<addr> ll');
+	function displayBody(body: string) {
+		return ignoreRelocationNoise ? normalizeAssemblyRelocations(body) : body;
 	}
 
 	function pairChanged(
@@ -63,10 +60,10 @@
 			const afterLine = after[index];
 			rows.push({
 				kind: beforeLine && afterLine ? 'changed' : beforeLine ? 'removed' : 'added',
-				beforeNumber: beforeLine ? beforeLine.number : beforeIndex + index,
-				afterNumber: afterLine ? afterLine.number : afterIndex + index,
-				beforeText: beforeLine?.body ?? '',
-				afterText: afterLine?.body ?? ''
+				beforeNumber: beforeLine?.number ?? null,
+				afterNumber: afterLine?.number ?? null,
+				beforeText: beforeLine ? displayBody(beforeLine.body) : '',
+				afterText: afterLine ? displayBody(afterLine.body) : ''
 			});
 		}
 		return rows;
@@ -75,8 +72,8 @@
 	function allRows() {
 		const before = parseAsm(beforeText);
 		const after = parseAsm(afterText);
-		const beforeBodies = before.map((line) => normalizeBody(line.body));
-		const afterBodies = after.map((line) => normalizeBody(line.body));
+		const beforeBodies = before.map((line) => displayBody(line.body));
+		const afterBodies = after.map((line) => displayBody(line.body));
 		const changes = diffArrays(beforeBodies, afterBodies) as ArrayChange<string>[];
 		const rows: DiffRow[] = [];
 		let beforeIndex = 0;
@@ -92,10 +89,10 @@
 					const afterLine = after[afterIndex + offset];
 					rows.push({
 						kind: 'context',
-						beforeNumber: beforeLine ? beforeLine.number : beforeIndex + offset,
-						afterNumber: afterLine ? afterLine.number : afterIndex + offset,
-						beforeText: beforeLine?.body ?? '',
-						afterText: afterLine?.body ?? ''
+						beforeNumber: beforeLine?.number ?? null,
+						afterNumber: afterLine?.number ?? null,
+						beforeText: beforeLine ? displayBody(beforeLine.body) : '',
+						afterText: afterLine ? displayBody(afterLine.body) : ''
 					});
 				}
 				beforeIndex += change.value.length;

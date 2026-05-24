@@ -1,13 +1,18 @@
 use crate::program_bytes::sha256_hex;
 use anyhow::{Context, Result};
-use sbpf_common::instruction::AsmFormat;
+use either::Either;
+use sbpf_common::{
+    inst_param::Number,
+    instruction::{AsmFormat, Instruction},
+    opcode::Opcode,
+};
 use sbpf_disassembler::program::Program;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, HashMap},
     fmt::Write as _,
 };
 
-pub(crate) const DISASSEMBLY_FORMAT: &str = "llvm+anchor-labels-v1";
+pub(crate) const DISASSEMBLY_FORMAT: &str = "llvm+anchor-handler-labels-v2";
 
 #[derive(Clone, Debug)]
 pub(crate) struct KnownProgramInstruction {
@@ -34,8 +39,7 @@ pub(crate) fn disassemble_program_bytes(
 
     let mut lines = Vec::with_capacity(instructions.len());
     for (index, instruction) in instructions.iter().enumerate() {
-        let asm = instruction
-            .to_asm(AsmFormat::Llvm)
+        let asm = format_instruction_asm(instruction)
             .with_context(|| format!("format sBPF instruction {index}"))?;
         lines.push(asm);
     }
@@ -50,6 +54,52 @@ pub(crate) fn disassemble_program_bytes(
         asm_text,
         asm_sha256,
     })
+}
+
+fn format_instruction_asm(instruction: &Instruction) -> Result<String> {
+    if has_min_immediate(instruction) {
+        return Ok(fallback_instruction_asm(instruction));
+    }
+    instruction
+        .to_asm(AsmFormat::Llvm)
+        .context("format LLVM assembly")
+}
+
+fn has_min_immediate(instruction: &Instruction) -> bool {
+    matches!(
+        instruction.imm,
+        Some(Either::Right(
+            Number::Int(i64::MIN) | Number::Addr(i64::MIN)
+        ))
+    )
+}
+
+fn fallback_instruction_asm(instruction: &Instruction) -> String {
+    if instruction.opcode == Opcode::Lddw {
+        let dst = instruction
+            .dst
+            .as_ref()
+            .map(|register| register.n)
+            .unwrap_or(0);
+        let imm = instruction
+            .imm
+            .as_ref()
+            .map(format_immediate)
+            .unwrap_or_else(|| "0x0".to_owned());
+        return format!("r{dst} = {imm} ll");
+    }
+
+    format!("{instruction:?}")
+}
+
+fn format_immediate(imm: &Either<String, Number>) -> String {
+    match imm {
+        Either::Left(label) => label.clone(),
+        Either::Right(Number::Int(value) | Number::Addr(value)) if *value < 0 => {
+            format!("-0x{:x}", value.unsigned_abs())
+        }
+        Either::Right(Number::Int(value) | Number::Addr(value)) => format!("0x{value:x}"),
+    }
 }
 
 fn render_asm_text(lines: &[String], labels: &BTreeMap<usize, Vec<String>>) -> String {
@@ -111,119 +161,7 @@ fn infer_anchor_labels(
             .push(format!("handler: {name}"));
     }
 
-    let helper_labels = infer_helper_reachability(lines, &handlers);
-    for (function_start, reachable_from) in helper_labels {
-        labels
-            .entry(function_start)
-            .or_insert_with(Vec::new)
-            .push(format!(
-                "helper reachable from: {}",
-                reachable_from.join(", ")
-            ));
-    }
-
     labels
-}
-
-fn infer_helper_reachability(
-    lines: &[String],
-    handlers: &BTreeMap<usize, String>,
-) -> BTreeMap<usize, Vec<String>> {
-    let call_targets = lines
-        .iter()
-        .enumerate()
-        .filter_map(|(index, line)| parse_call_target(index, line).map(|target| (index, target)))
-        .filter(|(_, target)| *target < lines.len())
-        .collect::<Vec<_>>();
-
-    let mut function_starts = BTreeSet::new();
-    function_starts.insert(0);
-    function_starts.extend(handlers.keys().copied());
-    function_starts.extend(call_targets.iter().map(|(_, target)| *target));
-    let function_starts = function_starts.into_iter().collect::<Vec<_>>();
-    let function_start_set = function_starts.iter().copied().collect::<HashSet<_>>();
-
-    let mut edges = function_starts
-        .iter()
-        .map(|start| (*start, BTreeSet::new()))
-        .collect::<BTreeMap<_, _>>();
-    for (call_site, target) in call_targets {
-        if !function_start_set.contains(&target) {
-            continue;
-        }
-        if let Some(function_start) = containing_function_start(&function_starts, call_site) {
-            edges.entry(function_start).or_default().insert(target);
-        }
-    }
-
-    let mut reachable = BTreeMap::<usize, BTreeSet<String>>::new();
-    for (handler_start, handler_name) in handlers {
-        let mut stack = vec![*handler_start];
-        let mut seen = HashSet::new();
-
-        while let Some(function_start) = stack.pop() {
-            if !seen.insert(function_start) || seen.len() > 10_000 {
-                continue;
-            }
-
-            reachable
-                .entry(function_start)
-                .or_default()
-                .insert(handler_name.clone());
-
-            if let Some(targets) = edges.get(&function_start) {
-                for target in targets.iter().rev() {
-                    stack.push(*target);
-                }
-            }
-        }
-    }
-
-    reachable
-        .into_iter()
-        .filter_map(|(function_start, names)| {
-            if handlers.contains_key(&function_start) || names.len() < 2 {
-                return None;
-            }
-            focused_reachable_names(names).map(|names| (function_start, names))
-        })
-        .collect()
-}
-
-fn focused_reachable_names(names: BTreeSet<String>) -> Option<Vec<String>> {
-    let mut names = names.into_iter().collect::<Vec<_>>();
-    names.sort();
-
-    let trade_names = names
-        .iter()
-        .filter(|name| is_trade_instruction_name(name))
-        .cloned()
-        .collect::<Vec<_>>();
-    if trade_names.len() >= 2 {
-        return Some(trade_names);
-    }
-
-    if names.len() <= 6 {
-        return Some(names);
-    }
-
-    None
-}
-
-fn is_trade_instruction_name(name: &str) -> bool {
-    name == "buy"
-        || name == "sell"
-        || name.starts_with("buy_")
-        || name.starts_with("sell_")
-        || name.contains("_swap")
-        || name.contains("swap_")
-}
-
-fn containing_function_start(function_starts: &[usize], instruction_index: usize) -> Option<usize> {
-    let index = function_starts
-        .binary_search(&instruction_index)
-        .unwrap_or_else(|index| index.saturating_sub(1));
-    function_starts.get(index).copied()
 }
 
 fn first_call_target(lines: &[String], start: usize, search_len: usize) -> Option<usize> {
@@ -260,7 +198,11 @@ fn parse_immediate_assignment(line: &str) -> Option<u64> {
 fn parse_signed_immediate(raw: &str) -> Option<i64> {
     let raw = raw.trim();
     if let Some(hex) = raw.strip_prefix("-0x") {
-        return i64::from_str_radix(hex, 16).ok().map(|value| -value);
+        let value = u64::from_str_radix(hex, 16).ok()?;
+        if value == 1_u64 << 63 {
+            return Some(i64::MIN);
+        }
+        return i64::try_from(value).ok().map(|value| -value);
     }
     if let Some(hex) = raw.strip_prefix("+0x") {
         return i64::from_str_radix(hex, 16).ok();
@@ -274,6 +216,7 @@ fn parse_signed_immediate(raw: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sbpf_common::inst_param::Register;
 
     fn known(name: &str, discriminator: [u8; 8]) -> KnownProgramInstruction {
         KnownProgramInstruction {
@@ -283,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn labels_anchor_handlers_and_shared_helpers() {
+    fn labels_anchor_handlers() {
         let lines = vec![
             "r7 = 0x807060504030201 ll".to_owned(),
             "if r0 == r7 goto +0x1".to_owned(),
@@ -313,9 +256,31 @@ mod tests {
 
         assert_eq!(labels.get(&10), Some(&vec!["handler: first".to_owned()]));
         assert_eq!(labels.get(&13), Some(&vec!["handler: second".to_owned()]));
+        assert_eq!(labels.len(), 2);
+    }
+
+    #[test]
+    fn parses_minimum_negative_hex_immediate() {
         assert_eq!(
-            labels.get(&15),
-            Some(&vec!["helper reachable from: first, second".to_owned()])
+            parse_signed_immediate("-0x8000000000000000"),
+            Some(i64::MIN)
+        );
+    }
+
+    #[test]
+    fn formats_minimum_negative_load_immediate() {
+        let instruction = Instruction {
+            opcode: Opcode::Lddw,
+            dst: Some(Register { n: 7 }),
+            src: None,
+            off: None,
+            imm: Some(Either::Right(Number::Int(i64::MIN))),
+            span: 0..16,
+        };
+
+        assert_eq!(
+            format_instruction_asm(&instruction).expect("format fallback"),
+            "r7 = -0x8000000000000000 ll"
         );
     }
 }

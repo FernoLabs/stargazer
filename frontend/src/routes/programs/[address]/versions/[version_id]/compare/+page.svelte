@@ -5,6 +5,7 @@
 	import ProgramVersionDiff from '$lib/components/ProgramVersionDiff.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import { formatTimestamp, shortAddress } from '$lib/format';
+	import { prepareAssemblyText } from '$lib/program-assembly';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -24,6 +25,7 @@
 	let hexLoading = $state(false);
 	let hexError = $state<string | null>(null);
 	let ignoreRelocationNoise = $state(true);
+	let showAnnotations = $state(false);
 
 	function versionBytesUrl(side: 'before' | 'after') {
 		const path = `/api/programs/${data.program.program_id}/versions/${encodeURIComponent(data.version.id)}/bytes`;
@@ -56,12 +58,34 @@
 		return data.afterDisassembly?.asm_text ?? '';
 	}
 
+	function visibleAssemblyBeforeText() {
+		return prepareAssemblyText(assemblyBeforeText(), { showAnnotations, ignoreRelocationNoise });
+	}
+
+	function visibleAssemblyAfterText() {
+		return prepareAssemblyText(assemblyAfterText(), { showAnnotations, ignoreRelocationNoise });
+	}
+
+	function structuredAssemblyBeforeText() {
+		return prepareAssemblyText(assemblyBeforeText(), {
+			showAnnotations,
+			ignoreRelocationNoise: false
+		});
+	}
+
+	function structuredAssemblyAfterText() {
+		return prepareAssemblyText(assemblyAfterText(), {
+			showAnnotations,
+			ignoreRelocationNoise: false
+		});
+	}
+
 	function activeBeforeText() {
-		return mode === 'hex' ? beforeHex ?? '' : assemblyBeforeText();
+		return mode === 'hex' ? beforeHex ?? '' : visibleAssemblyBeforeText();
 	}
 
 	function activeAfterText() {
-		return mode === 'hex' ? afterHex ?? '' : assemblyAfterText();
+		return mode === 'hex' ? afterHex ?? '' : visibleAssemblyAfterText();
 	}
 
 	function printable(byte: number) {
@@ -212,10 +236,14 @@
 					<span>{data.version.program_len ?? 0} after bytes</span>
 				{/if}
 			</div>
-			{#if mode === 'changes' && !isLargeAssembly()}
+			{#if mode === 'changes' || mode === 'patch' || mode === 'assembly'}
 				<label class="toolbar-check">
 					<input type="checkbox" bind:checked={ignoreRelocationNoise} />
 					Ignore relocated targets
+				</label>
+				<label class="toolbar-check">
+					<input type="checkbox" bind:checked={showAnnotations} />
+					Show annotations
 				</label>
 			{/if}
 		</div>
@@ -234,8 +262,8 @@
 			</div>
 		{:else if mode === 'changes'}
 			<ProgramInstructionChanges
-				beforeText={assemblyBeforeText()}
-				afterText={assemblyAfterText()}
+				beforeText={structuredAssemblyBeforeText()}
+				afterText={structuredAssemblyAfterText()}
 				{ignoreRelocationNoise}
 			/>
 		{:else if mode === 'patch' && isLargeAssembly()}
@@ -244,10 +272,11 @@
 			</div>
 		{:else if mode === 'patch'}
 			<ProgramPatchView
-				beforeText={assemblyBeforeText()}
-				afterText={assemblyAfterText()}
+				beforeText={structuredAssemblyBeforeText()}
+				afterText={structuredAssemblyAfterText()}
 				beforeLabel={patchBeforeLabel()}
 				afterLabel={patchAfterLabel()}
+				{ignoreRelocationNoise}
 			/>
 		{:else}
 			<ProgramVersionDiff

@@ -80,10 +80,17 @@ function cachePolicyFor(path: string): CachePolicy | null {
 		};
 	}
 
-	if (/^api\/programs\/[^/]+\/(versions|idls)\/[^/]+\/(bytes|text|disassembly)$/.test(path)) {
+	if (/^api\/programs\/[^/]+\/(versions|idls)\/[^/]+\/(bytes|text)$/.test(path)) {
 		return {
 			header: 'public, max-age=31536000, immutable',
 			edgeTtlSeconds: 31536000
+		};
+	}
+
+	if (/^api\/programs\/[^/]+\/versions\/[^/]+\/disassembly$/.test(path)) {
+		return {
+			header: 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400',
+			edgeTtlSeconds: 3600
 		};
 	}
 

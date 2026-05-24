@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { findProgramMatch, type CatalogProgramMatch } from '$lib/catalog';
+import { DISASSEMBLY_VIEW_CACHE_VERSION } from '$lib/program-assembly';
 import { backendRequest, readBackendError } from '$lib/server/backend';
 import type {
 	ProgramDisassemblyRecord,
@@ -70,11 +71,12 @@ export const load = (async ({ fetch, params, parent }) => {
 
 	try {
 		const basePath = `/api/programs/${address}/versions/${encodeURIComponent(versionId)}/disassembly`;
+		const cacheKey = `view=${encodeURIComponent(DISASSEMBLY_VIEW_CACHE_VERSION)}`;
 		[beforeDisassembly, afterDisassembly] = await Promise.all([
 			version.previous_version_id
-				? fetchDisassembly(fetch, `${basePath}?side=before`)
+				? fetchDisassembly(fetch, `${basePath}?side=before&${cacheKey}`)
 				: Promise.resolve(null),
-			fetchDisassembly(fetch, `${basePath}?side=after`)
+			fetchDisassembly(fetch, `${basePath}?side=after&${cacheKey}`)
 		]);
 	} catch (err) {
 		disassemblyError = err instanceof Error ? err.message : 'Unknown backend error';
