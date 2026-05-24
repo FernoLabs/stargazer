@@ -2,6 +2,7 @@
 	import { protocolPageHref } from '$lib/catalog';
 	import ProtocolIdentity from '$lib/components/ProtocolIdentity.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
+	import towerIcon from '$lib/assets/firewatch-tower-icon.png';
 	import type { DefiProtocolDescriptor } from '$lib/types';
 	import type { PageData } from './$types';
 
@@ -134,13 +135,9 @@
 	<section class="masthead-shell">
 		<article class="panel hero-panel">
 			<div class="hero-top">
-				<img
-					class="hero-logo-image"
-					src="/brand/firewatch-hero-logo-01-clean.png"
-					alt="FireWatch logo"
-					width="390"
-					height="390"
-				/>
+				<div class="hero-logo-frame" aria-hidden="true">
+					<img class="hero-logo-image" src={towerIcon} alt="" width="256" height="256" />
+				</div>
 				<div class="hero-copy">
 					<p class="hero-status">Free for FireWatch members</p>
 					<h1>Exit before protocol risk reaches your funds.</h1>
@@ -318,12 +315,20 @@
 	}
 
 	.hero-logo-image {
+		display: block;
+		width: 82%;
+		height: 82%;
+		object-fit: contain;
+		object-position: center;
+	}
+
+	.hero-logo-frame {
 		grid-column: 2;
 		grid-row: 1;
-		display: block;
-		width: 100%;
-		max-width: 10.5rem;
-		height: auto;
+		display: grid;
+		place-items: center;
+		width: min(10.5rem, 100%);
+		aspect-ratio: 1;
 		justify-self: end;
 	}
 
@@ -660,11 +665,11 @@
 		}
 
 		.hero-copy,
-		.hero-logo-image {
+		.hero-logo-frame {
 			grid-row: 1;
 		}
 
-		.hero-logo-image {
+		.hero-logo-frame {
 			grid-column: 2;
 			justify-self: end;
 			max-width: 4.6rem;
