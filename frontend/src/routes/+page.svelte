@@ -226,8 +226,8 @@
 		<SectionHeader
 			title="Supported protocols"
 			description="Open a protocol for watch commands, tracked programs, and recent activity."
-			href="/events"
-			hrefLabel="Browse all activity"
+			href="/programs"
+			hrefLabel="Browse programs"
 		/>
 
 		<div class="monitor-legend" aria-label="FireWatch monitor categories">
