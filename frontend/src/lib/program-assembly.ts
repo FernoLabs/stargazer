@@ -1,4 +1,4 @@
-export const DISASSEMBLY_VIEW_CACHE_VERSION = 'handler-labels-v2';
+export const DISASSEMBLY_VIEW_CACHE_VERSION = 'handler-labels-v3';
 
 export function isAssemblyAnnotationLine(line: string) {
 	return line.startsWith('; ');
