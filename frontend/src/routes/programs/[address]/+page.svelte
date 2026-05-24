@@ -80,6 +80,14 @@
 		return version.kind === 'program_deployed' ? 'Deploy' : 'Upgrade';
 	}
 
+	function canCompareVersion(version: ProgramVersionRecord) {
+		return Boolean(version.previous_version_id && version.complete);
+	}
+
+	function diffableVersionCount() {
+		return data.versions.filter(canCompareVersion).length;
+	}
+
 	function versionBytesUrl(version: ProgramVersionRecord, side: 'before' | 'after') {
 		const path = `/api/programs/${data.program.program_id}/versions/${encodeURIComponent(version.id)}/bytes`;
 		return `${data.backendBaseUrl}${path}?side=${side}`;
@@ -208,6 +216,7 @@
 		</div>
 
 		<div class="page-actions">
+			<a class="secondary-link" href="/programs">All programs</a>
 			<a class="primary-link" href={`/events?target=${data.program.program_id}&scope=programs`}>Program activity</a>
 			<a class="secondary-link" href={programCriticalHref(data.program.program_id)}>Critical review</a>
 			{#if data.catalogedProgram}
@@ -313,7 +322,7 @@
 	<section class="panel">
 		<SectionHeader
 			title="Program versions"
-			description={`${data.versions.length} extracted versions from loader uploads.`}
+			description={`${data.versions.length} extracted versions from loader uploads, ${diffableVersionCount()} with code diffs.`}
 			compact
 		/>
 
@@ -323,11 +332,14 @@
 			<p class="empty-state">No extracted program versions for this address yet.</p>
 		{:else}
 			<div class="version-list">
-				{#each data.versions as version}
+				{#each data.versions as version, index}
 					<div class="version-row">
 						<div class="version-main">
 							<div class="version-title">
 								<strong>{versionLabel(version)}</strong>
+								{#if index === 0}
+									<span class="latest-pill">Latest</span>
+								{/if}
 								<span>slot {version.slot}</span>
 								<span>{formatTimestamp(version.block_time)}</span>
 							</div>
@@ -347,8 +359,8 @@
 							<code>{shortDigest(version.program_sha256)}</code>
 						</div>
 						<div class="version-actions">
-							{#if version.previous_version_id && version.complete}
-								<a class="secondary-link compact-link" href={versionCompareUrl(version)}>Compare</a>
+							{#if canCompareVersion(version)}
+								<a class="primary-link compact-link" href={versionCompareUrl(version)}>Code diff</a>
 							{/if}
 							{#if version.previous_version_id}
 								<a
@@ -361,7 +373,7 @@
 							{/if}
 							{#if version.complete}
 								<a
-									class="primary-link compact-link"
+									class="secondary-link compact-link"
 									href={versionBytesUrl(version, 'after')}
 									download={downloadName(version, 'after')}
 								>
@@ -620,6 +632,16 @@
 		color: #66737f;
 		font-size: 0.78rem;
 		font-weight: 600;
+	}
+
+	.version-title .latest-pill {
+		padding: 0.12rem 0.34rem;
+		border: 1px solid rgba(189, 74, 23, 0.18);
+		border-radius: 6px;
+		background: rgba(255, 123, 54, 0.12);
+		color: #8d421a;
+		font-size: 0.7rem;
+		text-transform: uppercase;
 	}
 
 	.version-title strong {

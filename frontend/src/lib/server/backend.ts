@@ -91,21 +91,32 @@ export async function loadAppShell(fetch: typeof globalThis.fetch): Promise<AppS
 	let backendError: string | null = null;
 
 	try {
-		const [statusResponse, protocolsResponse, telegramResponse] = await Promise.all([
+		const [statusResponse, protocolsResponse] = await Promise.all([
 			backendRequest(fetch, '/api/live-status'),
-			backendRequest(fetch, '/api/protocols'),
-			backendOriginRequest(fetch, '/api/telegram-subscriptions/summary')
+			backendRequest(fetch, '/api/protocols')
 		]);
 
 		if (!statusResponse.ok) throw new Error(await readBackendError(statusResponse));
 		if (!protocolsResponse.ok) throw new Error(await readBackendError(protocolsResponse));
-		if (!telegramResponse.ok) throw new Error(await readBackendError(telegramResponse));
 
 		liveStatus = (await statusResponse.json()) as LiveStatusResponse;
 		defiProtocols = ((await protocolsResponse.json()) as DefiProtocolsResponse).items;
-		const telegramPayload = (await telegramResponse.json()) as TelegramSubscriptionSummaryResponse;
-		telegramSubscriptionCount = telegramPayload.subscription_count;
-		telegramEnabled = liveStatus.telegram_enabled && telegramPayload.telegram_enabled;
+
+		try {
+			const telegramResponse = await backendOriginRequest(
+				fetch,
+				'/api/telegram-subscriptions/summary'
+			);
+			if (telegramResponse.ok) {
+				const telegramPayload =
+					(await telegramResponse.json()) as TelegramSubscriptionSummaryResponse;
+				telegramSubscriptionCount = telegramPayload.subscription_count;
+				telegramEnabled = liveStatus.telegram_enabled && telegramPayload.telegram_enabled;
+			}
+		} catch {
+			telegramSubscriptionCount = 0;
+			telegramEnabled = false;
+		}
 	} catch (error) {
 		backendError = error instanceof Error ? error.message : 'Unknown backend error';
 	}

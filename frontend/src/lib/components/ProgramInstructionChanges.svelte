@@ -130,8 +130,7 @@
 		return rows;
 	}
 
-	function visibleRows() {
-		const rows = allRows();
+	function visibleRows(rows: DiffRow[]) {
 		const changed = rows
 			.map((row, index) => (row.kind === 'context' ? -1 : index))
 			.filter((index) => index >= 0);
@@ -169,15 +168,15 @@
 		return output;
 	}
 
-	function changedCount() {
-		return allRows().filter((row) => row.kind !== 'context').length;
-	}
+	let rows = $derived(allRows());
+	let visible = $derived(visibleRows(rows));
+	let changedCount = $derived(rows.filter((row) => row.kind !== 'context').length);
 </script>
 
 <div class="changes-shell">
 	<div class="changes-head">
 		<span>Changed instruction rows</span>
-		<strong>{changedCount()}</strong>
+		<strong>{changedCount}</strong>
 	</div>
 
 	<div class="changes-table">
@@ -186,7 +185,7 @@
 			<span></span>
 			<span>After</span>
 		</div>
-		{#each visibleRows() as row}
+		{#each visible as row}
 			{#if row.kind === 'gap'}
 				<div class="gap-row">
 					<span>{row.count} unchanged instructions hidden</span>
@@ -218,6 +217,7 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+		justify-content: space-between;
 		color: #647280;
 		font-size: 0.82rem;
 		font-weight: 600;
@@ -231,15 +231,16 @@
 		display: grid;
 		border: 1px solid rgba(23, 32, 42, 0.1);
 		border-radius: 8px;
-		overflow: hidden;
+		overflow: auto;
 		background: #fff;
 	}
 
 	.table-head,
 	.change-row {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) 2rem minmax(0, 1fr);
+		grid-template-columns: minmax(440px, 1fr) 1.6rem minmax(440px, 1fr);
 		align-items: stretch;
+		min-width: 960px;
 	}
 
 	.table-head {
@@ -264,7 +265,7 @@
 
 	.change-row > div {
 		display: grid;
-		grid-template-columns: 4.9rem minmax(0, 1fr);
+		grid-template-columns: 4.9rem max-content;
 		gap: 0.5rem;
 		min-width: 0;
 		padding: 0.32rem 0.58rem;
@@ -297,9 +298,10 @@
 	code {
 		font-family: 'IBM Plex Mono', 'SFMono-Regular', monospace;
 		font-size: 0.78rem;
+		line-height: 1.45;
 		color: #2c3742;
-		white-space: pre-wrap;
-		overflow-wrap: anywhere;
+		white-space: pre;
+		overflow-wrap: normal;
 	}
 
 	.line-no {
@@ -310,23 +312,12 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		min-width: 960px;
 		padding: 0.38rem 0.58rem;
 		background: #fbfaf8;
 		color: #74818e;
 		font-size: 0.78rem;
 		font-weight: 600;
 		border-bottom: 1px solid rgba(23, 32, 42, 0.06);
-	}
-
-	@media (max-width: 820px) {
-		.table-head,
-		.change-row {
-			grid-template-columns: 1fr;
-		}
-
-		.table-head span:nth-child(2),
-		.arrow {
-			display: none;
-		}
 	}
 </style>

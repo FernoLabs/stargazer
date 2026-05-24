@@ -12,6 +12,7 @@
 
 	const primaryNav = [
 		{ href: '/', label: 'Watch' },
+		{ href: '/programs', label: 'Programs' },
 		{ href: '/events', label: 'Activity' },
 		{ href: '/docs', label: 'Reference' }
 	];
@@ -136,7 +137,7 @@
 
 		{#if data.backendError}
 			<p class="banner error">Backend unavailable: {data.backendError}</p>
-		{:else if liveStatusError}
+		{:else if liveStatusError && !currentLiveStatus()}
 			<p class="banner">Live refresh delayed: {liveStatusError}</p>
 		{/if}
 	</header>

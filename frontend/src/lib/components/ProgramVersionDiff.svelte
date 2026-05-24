@@ -7,10 +7,14 @@
 	let {
 		beforeText,
 		afterText,
+		beforeLabel = 'Before',
+		afterLabel = 'After',
 		mode
 	}: {
 		beforeText: string;
 		afterText: string;
+		beforeLabel?: string;
+		afterLabel?: string;
 		mode: 'assembly' | 'hex';
 	} = $props();
 
@@ -20,12 +24,13 @@
 
 	const editorTheme = EditorView.theme({
 		'&': {
-			height: '68vh',
-			fontSize: '12px',
+			height: '72vh',
+			fontSize: '12.5px',
 			backgroundColor: '#fff'
 		},
 		'.cm-scroller': {
-			fontFamily: "'IBM Plex Mono', 'SFMono-Regular', monospace"
+			fontFamily: "'IBM Plex Mono', 'SFMono-Regular', monospace",
+			lineHeight: '1.45'
 		},
 		'.cm-gutters': {
 			backgroundColor: '#f7f6f3',
@@ -33,10 +38,11 @@
 			borderRight: '1px solid rgba(23, 32, 42, 0.1)'
 		},
 		'.cm-line': {
-			padding: '0 0.6rem'
+			padding: '0 0.7rem'
 		},
 		'.cm-content': {
-			padding: '0.5rem 0'
+			padding: '0.5rem 0',
+			minWidth: 'max-content'
 		}
 	});
 
@@ -45,7 +51,6 @@
 			lineNumbers(),
 			EditorState.readOnly.of(true),
 			EditorView.editable.of(false),
-			EditorView.lineWrapping,
 			editorTheme
 		];
 	}
@@ -65,7 +70,7 @@
 			},
 			parent: container,
 			collapseUnchanged: {
-				margin: mode === 'hex' ? 2 : 4,
+				margin: mode === 'hex' ? 2 : 5,
 				minSize: mode === 'hex' ? 12 : 8
 			},
 			diffConfig: {
@@ -91,19 +96,52 @@
 	});
 </script>
 
-<div class="diff-host" bind:this={container}></div>
+<div class="diff-shell">
+	<div class="diff-labels" aria-hidden="true">
+		<span>{beforeLabel}</span>
+		<span>{afterLabel}</span>
+	</div>
+	<div class="diff-host" bind:this={container}></div>
+</div>
 
 <style>
-	.diff-host {
-		min-height: 68vh;
+	.diff-shell {
+		display: grid;
+		gap: 0;
+	}
+
+	.diff-labels {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 		border: 1px solid rgba(23, 32, 42, 0.1);
-		border-radius: 8px;
+		border-bottom: 0;
+		border-radius: 8px 8px 0 0;
+		overflow: hidden;
+		background: var(--fw-border);
+	}
+
+	.diff-labels span {
+		min-width: 0;
+		padding: 0.48rem 0.68rem;
+		background: #f7f6f3;
+		color: #596775;
+		font-size: 0.78rem;
+		font-weight: 800;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.diff-host {
+		min-height: 72vh;
+		border: 1px solid rgba(23, 32, 42, 0.1);
+		border-radius: 0 0 8px 8px;
 		overflow: hidden;
 		background: #fff;
 	}
 
 	:global(.cm-mergeView) {
-		height: 68vh;
+		height: 72vh;
 	}
 
 	:global(.cm-mergeViewEditors) {
@@ -118,6 +156,10 @@
 		height: 100%;
 	}
 
+	:global(.cm-scroller) {
+		overflow: auto;
+	}
+
 	:global(.cm-changedLine) {
 		background: rgba(189, 74, 23, 0.08);
 	}
@@ -128,5 +170,15 @@
 
 	:global(.cm-insertedChunk) {
 		background: rgba(61, 140, 99, 0.1);
+	}
+
+	@media (max-width: 860px) {
+		.diff-labels {
+			grid-template-columns: 1fr;
+		}
+
+		:global(.cm-mergeViewEditors) {
+			flex-direction: column;
+		}
 	}
 </style>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { explorerTransactionUrl } from '$lib/explorer';
 	import ProgramInstructionChanges from '$lib/components/ProgramInstructionChanges.svelte';
+	import ProgramPatchView from '$lib/components/ProgramPatchView.svelte';
 	import ProgramVersionDiff from '$lib/components/ProgramVersionDiff.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import { formatTimestamp, shortAddress } from '$lib/format';
@@ -15,7 +16,9 @@
 		);
 	}
 
-	let mode = $state<'changes' | 'assembly' | 'hex'>(isLargeAssembly() ? 'assembly' : 'changes');
+	let mode = $state<'changes' | 'patch' | 'assembly' | 'hex'>(
+		isLargeAssembly() ? 'assembly' : 'changes'
+	);
 	let beforeHex = $state<string | null>(null);
 	let afterHex = $state<string | null>(null);
 	let hexLoading = $state(false);
@@ -87,7 +90,22 @@
 		return hexDump(new Uint8Array(await response.arrayBuffer()));
 	}
 
-	async function setMode(nextMode: 'changes' | 'assembly' | 'hex') {
+	function downloadName(side: 'before' | 'after') {
+		const label = data.program.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+		return `${label || data.program.program_id}-${data.version.slot}-${side}.so`;
+	}
+
+	function patchBeforeLabel() {
+		return data.version.previous_version_id
+			? `${data.program.label} previous`
+			: `${data.program.label} empty`;
+	}
+
+	function patchAfterLabel() {
+		return `${data.program.label} slot ${data.version.slot}`;
+	}
+
+	async function setMode(nextMode: 'changes' | 'patch' | 'assembly' | 'hex') {
 		mode = nextMode;
 		if (nextMode !== 'hex' || (beforeHex !== null && afterHex !== null)) return;
 
@@ -130,6 +148,18 @@
 				>
 					Open tx
 				</a>
+				{#if data.version.previous_version_id}
+					<a
+						class="secondary-link"
+						href={versionBytesUrl('before')}
+						download={downloadName('before')}
+					>
+						Before bytes
+					</a>
+				{/if}
+				<a class="secondary-link" href={versionBytesUrl('after')} download={downloadName('after')}>
+					After bytes
+				</a>
 			</div>
 		</div>
 
@@ -156,10 +186,13 @@
 		<div class="viewer-toolbar">
 			<div class="mode-tabs" role="tablist" aria-label="Diff mode">
 				<button class:active={mode === 'changes'} type="button" onclick={() => setMode('changes')}>
-					Changed only
+					Changed rows
+				</button>
+				<button class:active={mode === 'patch'} type="button" onclick={() => setMode('patch')}>
+					Patch
 				</button>
 				<button class:active={mode === 'assembly'} type="button" onclick={() => setMode('assembly')}>
-					Full assembly
+					Split diff
 				</button>
 				<button class:active={mode === 'hex'} type="button" onclick={() => setMode('hex')}>
 					Hex
@@ -169,7 +202,7 @@
 				{#if isLargeAssembly()}
 					<span>Large program diff</span>
 				{/if}
-				{#if mode === 'assembly' || mode === 'changes'}
+				{#if mode === 'assembly' || mode === 'changes' || mode === 'patch'}
 					<span>{data.beforeDisassembly?.instruction_count ?? 0} before instructions</span>
 					<span>{data.afterDisassembly?.instruction_count ?? 0} after instructions</span>
 				{:else if hexLoading}
@@ -179,6 +212,12 @@
 					<span>{data.version.program_len ?? 0} after bytes</span>
 				{/if}
 			</div>
+			{#if mode === 'changes' && !isLargeAssembly()}
+				<label class="toolbar-check">
+					<input type="checkbox" bind:checked={ignoreRelocationNoise} />
+					Ignore relocated targets
+				</label>
+			{/if}
 		</div>
 
 		{#if data.disassemblyError && mode !== 'hex'}
@@ -190,34 +229,41 @@
 		{:else if mode === 'changes' && isLargeAssembly()}
 			<div class="viewer-note">
 				<p>
-					Changed-only diff is disabled for very large programs. Use full assembly or hex view for this version.
+					Changed rows are unavailable above 100,000 instructions. Use split diff or hex for this version.
 				</p>
 			</div>
 		{:else if mode === 'changes'}
-			<div class="viewer-note">
-				<p>
-					Full assembly diffs can tint an entire changed hunk even when most instructions are identical.
-					This view compares normalized instruction text and keeps only the rows that actually changed.
-				</p>
-				<label>
-					<input type="checkbox" bind:checked={ignoreRelocationNoise} />
-					Ignore relocated targets
-				</label>
-			</div>
 			<ProgramInstructionChanges
 				beforeText={assemblyBeforeText()}
 				afterText={assemblyAfterText()}
 				{ignoreRelocationNoise}
 			/>
+		{:else if mode === 'patch' && isLargeAssembly()}
+			<div class="viewer-note">
+				<p>Patch view is unavailable above 100,000 instructions. Use split diff or hex for this version.</p>
+			</div>
+		{:else if mode === 'patch'}
+			<ProgramPatchView
+				beforeText={assemblyBeforeText()}
+				afterText={assemblyAfterText()}
+				beforeLabel={patchBeforeLabel()}
+				afterLabel={patchAfterLabel()}
+			/>
 		{:else}
-			<ProgramVersionDiff beforeText={activeBeforeText()} afterText={activeAfterText()} {mode} />
+			<ProgramVersionDiff
+				beforeText={activeBeforeText()}
+				afterText={activeAfterText()}
+				beforeLabel={mode === 'hex' ? 'Before bytes' : patchBeforeLabel()}
+				afterLabel={mode === 'hex' ? 'After bytes' : patchAfterLabel()}
+				mode={mode === 'hex' ? 'hex' : 'assembly'}
+			/>
 		{/if}
 	</section>
 </div>
 
 <style>
 	.page-shell {
-		width: min(var(--fw-page-max), calc(100vw - 2rem));
+		width: min(1680px, calc(100vw - 1.25rem));
 		margin: 0 auto;
 		padding: 1rem 0 2.4rem;
 		display: grid;
@@ -242,7 +288,8 @@
 
 	.top-actions,
 	.mode-tabs,
-	.viewer-stats {
+	.viewer-stats,
+	.toolbar-check {
 		display: flex;
 		align-items: center;
 		flex-wrap: wrap;
@@ -314,6 +361,15 @@
 		gap: 0.76rem;
 	}
 
+	.viewer-toolbar {
+		position: sticky;
+		top: 4.72rem;
+		z-index: 4;
+		padding-bottom: 0.76rem;
+		background: #fff;
+		border-bottom: 1px solid rgba(23, 32, 42, 0.08);
+	}
+
 	.flash,
 	.viewer-note,
 	.empty-state {
@@ -344,9 +400,7 @@
 		max-width: 82ch;
 	}
 
-	.viewer-note label {
-		display: inline-flex;
-		align-items: center;
+	.toolbar-check {
 		gap: 0.42rem;
 		color: #4d5b68;
 		font-size: 0.82rem;
