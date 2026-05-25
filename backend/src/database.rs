@@ -1116,30 +1116,37 @@ impl Database {
     }
 
     pub async fn recent_unlabeled_addresses(&self, limit: i64) -> Result<Vec<String>> {
+        let scan_limit = (limit.max(1) * 250).clamp(1_000, 25_000);
         let rows = sqlx::query(
             r#"
-            WITH raw_candidates(address, slot) AS (
-                SELECT target_address, slot FROM events
+            WITH recent_events AS (
+                SELECT target_address, actor, payload_json, slot
+                FROM events
+                ORDER BY slot DESC, indexed_at DESC, id DESC
+                LIMIT ?
+            ),
+            raw_candidates(address, slot) AS (
+                SELECT target_address, slot FROM recent_events
                 UNION ALL
-                SELECT actor, slot FROM events WHERE actor IS NOT NULL AND actor <> ''
+                SELECT actor, slot FROM recent_events WHERE actor IS NOT NULL AND actor <> ''
                 UNION ALL
-                SELECT json_extract(payload_json, '$.member'), slot FROM events
+                SELECT json_extract(payload_json, '$.member'), slot FROM recent_events
                   WHERE json_extract(payload_json, '$.member') IS NOT NULL
                     AND json_extract(payload_json, '$.member') <> ''
                 UNION ALL
-                SELECT json_extract(payload_json, '$.multisig'), slot FROM events
+                SELECT json_extract(payload_json, '$.multisig'), slot FROM recent_events
                   WHERE json_extract(payload_json, '$.multisig') IS NOT NULL
                     AND json_extract(payload_json, '$.multisig') <> ''
                 UNION ALL
-                SELECT json_extract(payload_json, '$.owner'), slot FROM events
+                SELECT json_extract(payload_json, '$.owner'), slot FROM recent_events
                   WHERE json_extract(payload_json, '$.owner') IS NOT NULL
                     AND json_extract(payload_json, '$.owner') <> ''
                 UNION ALL
-                SELECT json_extract(payload_json, '$.new_owner'), slot FROM events
+                SELECT json_extract(payload_json, '$.new_owner'), slot FROM recent_events
                   WHERE json_extract(payload_json, '$.new_owner') IS NOT NULL
                     AND json_extract(payload_json, '$.new_owner') <> ''
                 UNION ALL
-                SELECT json_extract(payload_json, '$.refund_target'), slot FROM events
+                SELECT json_extract(payload_json, '$.refund_target'), slot FROM recent_events
                   WHERE json_extract(payload_json, '$.refund_target') IS NOT NULL
                     AND json_extract(payload_json, '$.refund_target') <> ''
             ),
@@ -1157,6 +1164,7 @@ impl Database {
             LIMIT ?;
             "#,
         )
+        .bind(scan_limit)
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;
@@ -5694,6 +5702,58 @@ mod tests {
         program_bytes::{instruction_order_key, sha256_hex},
     };
     use serde_json::json;
+
+    #[tokio::test]
+    async fn recent_unlabeled_addresses_reads_recent_event_window() -> Result<()> {
+        let db_path = std::env::temp_dir().join(format!(
+            "firewatch-recent-unlabeled-addresses-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let database_url = format!("sqlite://{}", db_path.display());
+        let db = Database::connect(&database_url, BlobStore::new(None, None)?).await?;
+        db.migrate().await?;
+
+        let labeled_target = "LabeledTarget111111111111111111111111111111".to_owned();
+        let actor = "Actor11111111111111111111111111111111111111".to_owned();
+        let member = "Member111111111111111111111111111111111111".to_owned();
+        db.upsert_address_label(
+            &labeled_target,
+            "known.sol",
+            "test",
+            "domain_account",
+            None,
+            100,
+        )
+        .await?;
+        db.insert_event(&ChainEvent {
+            id: "sig:0:test:labeled".to_owned(),
+            signature: "sig".to_owned(),
+            instruction_path: "0".to_owned(),
+            kind: event_kind::PROGRAM_UPGRADED.to_owned(),
+            target_type: target_type::PROGRAM.to_owned(),
+            target_address: labeled_target.clone(),
+            actor: Some(actor.clone()),
+            slot: 42,
+            block_time: Some(100),
+            indexed_at: 100,
+            summary: "test".to_owned(),
+            tags: Vec::new(),
+            payload: json!({ "member": member }),
+            delivery_attempts: 0,
+            delivered_at: None,
+            last_error: None,
+            next_retry_at: 100,
+        })
+        .await?;
+
+        let addresses = db.recent_unlabeled_addresses(10).await?;
+        assert!(!addresses.contains(&labeled_target));
+        assert!(addresses.contains(&actor));
+        assert!(addresses.contains(&member));
+
+        let _ = std::fs::remove_file(db_path);
+        Ok(())
+    }
 
     #[tokio::test]
     async fn assembles_program_version_from_buffer_writes() -> Result<()> {
