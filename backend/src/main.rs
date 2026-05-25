@@ -28,7 +28,7 @@ use context::AppState;
 use database::Database;
 use std::env;
 use tokio::net::TcpListener;
-use tracing::debug;
+use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -172,7 +172,26 @@ async fn main() -> Result<()> {
             }
             return Ok(());
         }
+        Command::RepairBlockTime { slot } => {
+            match solana::repair_block_time_slot(state, slot).await? {
+                Some(report) => {
+                    println!("Repaired block time for slot {slot}");
+                    print_block_time_update_report(&report);
+                }
+                None => {
+                    println!("No block time available for slot {slot}");
+                }
+            }
+            return Ok(());
+        }
+        Command::RepairRecentBlockTimes { limit } => {
+            let report = solana::repair_recent_missing_block_times(state, limit).await?;
+            print_block_time_repair_report(&report);
+            return Ok(());
+        }
     }
+
+    spawn_block_time_repair(state.clone());
 
     let router = http::router(state.clone())?;
     let listener = TcpListener::bind(&config.http_bind).await?;
@@ -219,6 +238,12 @@ enum Command {
     },
     MigrateBlobs {
         vacuum: bool,
+    },
+    RepairBlockTime {
+        slot: u64,
+    },
+    RepairRecentBlockTimes {
+        limit: i64,
     },
 }
 
@@ -401,6 +426,31 @@ fn parse_command() -> Result<Command> {
             }
             Ok(Command::MigrateBlobs { vacuum })
         }
+        "repair-block-time" | "--repair-block-time" => {
+            let slot = args
+                .get(1)
+                .context("usage: firewatch-backend repair-block-time <slot>")?
+                .parse::<u64>()
+                .context("repair block time slot must be an unsigned integer")?;
+            if args.len() > 2 {
+                bail!("unknown repair-block-time option; usage: repair-block-time <slot>");
+            }
+            Ok(Command::RepairBlockTime { slot })
+        }
+        "repair-recent-block-times" | "--repair-recent-block-times" => {
+            let limit = match args.get(1) {
+                Some(value) => value
+                    .parse::<i64>()
+                    .context("repair recent block time limit must be an integer")?,
+                None => default_block_time_repair_limit(),
+            };
+            if args.len() > 2 {
+                bail!(
+                    "unknown repair-recent-block-times option; usage: repair-recent-block-times [limit]"
+                );
+            }
+            Ok(Command::RepairRecentBlockTimes { limit })
+        }
         "--help" | "-h" | "help" => {
             println!("Usage:");
             println!("  firewatch-backend");
@@ -413,12 +463,76 @@ fn parse_command() -> Result<Command> {
             );
             println!("  firewatch-backend backfill-grpc <start-slot> <end-slot> [--deliver]");
             println!("  firewatch-backend migrate-blobs [--vacuum]");
+            println!("  firewatch-backend repair-block-time <slot>");
+            println!("  firewatch-backend repair-recent-block-times [limit]");
             std::process::exit(0);
         }
         unknown => bail!(
-            "unknown command {unknown:?}; use `backfill-block <slot>`, `backfill-blocks <start> <end>`, `backfill-rpc <start> <end>`, `backfill-grpc <start> <end>`, `migrate-blobs`, or no command"
+            "unknown command {unknown:?}; use `backfill-block <slot>`, `backfill-blocks <start> <end>`, `backfill-rpc <start> <end>`, `backfill-grpc <start> <end>`, `migrate-blobs`, `repair-block-time <slot>`, `repair-recent-block-times [limit]`, or no command"
         ),
     }
+}
+
+fn default_block_time_repair_limit() -> i64 {
+    env::var("BLOCK_TIME_REPAIR_SLOT_LIMIT")
+        .ok()
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .unwrap_or(5_000)
+        .max(0)
+}
+
+fn spawn_block_time_repair(state: context::SharedState) {
+    let limit = default_block_time_repair_limit();
+    if limit == 0 {
+        return;
+    }
+
+    tokio::spawn(async move {
+        match solana::repair_recent_missing_block_times(state, limit).await {
+            Ok(report) if report.updated_rows.total() > 0 => {
+                info!(
+                    checked_slots = report.checked_slots,
+                    repaired_slots = report.repaired_slots,
+                    missing_slots = report.missing_slots,
+                    failed_slots = report.failed_slots,
+                    updated_rows = report.updated_rows.total(),
+                    "repaired missing block times on startup",
+                );
+            }
+            Ok(report) => {
+                debug!(
+                    checked_slots = report.checked_slots,
+                    missing_slots = report.missing_slots,
+                    failed_slots = report.failed_slots,
+                    "no missing block times repaired on startup",
+                );
+            }
+            Err(error) => {
+                warn!(error = ?error, "failed to repair missing block times on startup");
+            }
+        }
+    });
+}
+
+fn print_block_time_repair_report(report: &solana::BlockTimeRepairReport) {
+    println!("Checked slots: {}", report.checked_slots);
+    println!("Repaired slots: {}", report.repaired_slots);
+    println!("Slots without block time: {}", report.missing_slots);
+    println!("Failed slots: {}", report.failed_slots);
+    print_block_time_update_report(&report.updated_rows);
+}
+
+fn print_block_time_update_report(report: &database::BlockTimeUpdateReport) {
+    println!("Updated rows: {}", report.total());
+    println!("Events: {}", report.events);
+    println!("Program versions: {}", report.program_versions);
+    println!("Program IDL versions: {}", report.program_idl_versions);
+    println!("Program data writes: {}", report.program_data_writes);
+    println!("Program IDL writes: {}", report.program_idl_writes);
+    println!(
+        "Protocol metric observations: {}",
+        report.protocol_metric_observations
+    );
 }
 
 fn blob_store_label(config: &Config) -> String {

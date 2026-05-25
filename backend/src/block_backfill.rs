@@ -278,6 +278,18 @@ pub(crate) async fn backfill_grpc_transactions(
                 if let Some(block_time) = block_meta.block_time.map(|value| value.timestamp) {
                     slot_times.insert(block_meta.slot, block_time);
                     trim_backfill_slot_times(&mut slot_times);
+                    if let Err(error) = state
+                        .db
+                        .update_block_time_for_slot(block_meta.slot, block_time)
+                        .await
+                    {
+                        debug!(
+                            slot = block_meta.slot,
+                            block_time,
+                            error = ?error,
+                            "failed to fill missing block time from gRPC backfill block meta",
+                        );
+                    }
                 }
 
                 if (start_slot..=end_slot).contains(&block_meta.slot) {

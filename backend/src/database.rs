@@ -134,6 +134,36 @@ pub struct BlobMigrationReport {
     pub bytes_moved: u64,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct BlockTimeUpdateReport {
+    pub events: u64,
+    pub program_versions: u64,
+    pub program_idl_versions: u64,
+    pub program_data_writes: u64,
+    pub program_idl_writes: u64,
+    pub protocol_metric_observations: u64,
+}
+
+impl BlockTimeUpdateReport {
+    pub fn total(&self) -> u64 {
+        self.events
+            + self.program_versions
+            + self.program_idl_versions
+            + self.program_data_writes
+            + self.program_idl_writes
+            + self.protocol_metric_observations
+    }
+
+    pub fn merge(&mut self, other: &Self) {
+        self.events += other.events;
+        self.program_versions += other.program_versions;
+        self.program_idl_versions += other.program_idl_versions;
+        self.program_data_writes += other.program_data_writes;
+        self.program_idl_writes += other.program_idl_writes;
+        self.protocol_metric_observations += other.protocol_metric_observations;
+    }
+}
+
 impl Database {
     pub async fn connect(database_url: &str, blob_store: BlobStore) -> Result<Self> {
         let connect_options = SqliteConnectOptions::from_str(database_url)?
@@ -4662,6 +4692,67 @@ impl Database {
         Ok(())
     }
 
+    pub async fn missing_block_time_slots(&self, limit: i64) -> Result<Vec<u64>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT DISTINCT slot
+            FROM (
+                SELECT slot FROM events WHERE block_time IS NULL
+                UNION
+                SELECT slot FROM program_versions WHERE block_time IS NULL
+                UNION
+                SELECT slot FROM program_idl_versions WHERE block_time IS NULL
+                UNION
+                SELECT slot FROM program_data_writes WHERE block_time IS NULL
+                UNION
+                SELECT slot FROM program_idl_writes WHERE block_time IS NULL
+                UNION
+                SELECT slot FROM protocol_metric_observations WHERE block_time IS NULL
+            )
+            ORDER BY slot DESC
+            LIMIT ?;
+            "#,
+        )
+        .bind(limit.max(0))
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| row.try_get::<i64, _>("slot").ok())
+            .filter_map(|slot| u64::try_from(slot).ok())
+            .collect())
+    }
+
+    pub async fn update_block_time_for_slot(
+        &self,
+        slot: u64,
+        block_time: i64,
+    ) -> Result<BlockTimeUpdateReport> {
+        let slot = i64::try_from(slot).context("slot exceeds SQLite integer range")?;
+        let events = update_missing_block_time(&self.pool, "events", slot, block_time).await?;
+        let program_versions =
+            update_missing_block_time(&self.pool, "program_versions", slot, block_time).await?;
+        let program_idl_versions =
+            update_missing_block_time(&self.pool, "program_idl_versions", slot, block_time).await?;
+        let program_data_writes =
+            update_missing_block_time(&self.pool, "program_data_writes", slot, block_time).await?;
+        let program_idl_writes =
+            update_missing_block_time(&self.pool, "program_idl_writes", slot, block_time).await?;
+        let protocol_metric_observations =
+            update_missing_block_time(&self.pool, "protocol_metric_observations", slot, block_time)
+                .await?;
+
+        Ok(BlockTimeUpdateReport {
+            events,
+            program_versions,
+            program_idl_versions,
+            program_data_writes,
+            program_idl_writes,
+            protocol_metric_observations,
+        })
+    }
+
     pub async fn summary(&self) -> Result<EventsSummary> {
         let row = sqlx::query(
             r#"
@@ -6080,6 +6171,24 @@ fn push_critical_condition(builder: &mut QueryBuilder<'_, Sqlite>) {
 fn push_not_critical_condition(builder: &mut QueryBuilder<'_, Sqlite>) {
     builder.push("NOT ");
     push_critical_condition(builder);
+}
+
+async fn update_missing_block_time(
+    pool: &SqlitePool,
+    table: &str,
+    slot: i64,
+    block_time: i64,
+) -> Result<u64> {
+    let mut builder = QueryBuilder::<Sqlite>::new("UPDATE ");
+    builder.push(table);
+    builder.push(" SET block_time = ");
+    builder.push_bind(block_time);
+    builder.push(" WHERE slot = ");
+    builder.push_bind(slot);
+    builder.push(" AND block_time IS NULL;");
+
+    let result = builder.build().execute(pool).await?;
+    Ok(result.rows_affected())
 }
 
 fn push_high_condition(builder: &mut QueryBuilder<'_, Sqlite>) {

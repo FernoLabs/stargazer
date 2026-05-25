@@ -1,7 +1,7 @@
 use crate::{
     anchor_idl::{self, AnchorIdlInstructionKind, ParsedAnchorIdlInstruction},
     context::SharedState,
-    database::{apply_idl_version_payload, apply_program_version_payload},
+    database::{BlockTimeUpdateReport, apply_idl_version_payload, apply_program_version_payload},
     delivery,
     models::{
         ChainEvent, MetricAlertRule, ProgramDataWrite, ProgramIdlDataWrite,
@@ -14,7 +14,8 @@ use crate::{
     protocols::{self, ProtocolInstructionSignal, ProtocolSignalKind},
 };
 use anyhow::{Context, Result, anyhow};
-use futures::{SinkExt, StreamExt};
+use futures::{SinkExt, StreamExt, stream};
+use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{
@@ -44,6 +45,7 @@ const FILTER_LABEL: &str = "firewatch";
 const BLOCK_META_FILTER_LABEL: &str = "firewatch-block-meta";
 const KAMINO_LEND_SLUG: &str = "kamino_lend";
 const ORCA_WHIRLPOOLS_SLUG: &str = "orca_whirlpools";
+const BLOCK_TIME_REPAIR_CONCURRENCY: usize = 8;
 const ORCA_OFFICIAL_WHIRLPOOLS_CONFIGS: &[(&str, &str)] = &[
     (
         "2LecshUwdy9xi7meFgHtFJQNSKk4KdTrcpvaB56dP2NQ",
@@ -75,6 +77,27 @@ pub(crate) struct ResolvedInstruction {
 pub(crate) struct ResolvedInnerInstructionSet {
     pub(crate) index: usize,
     pub(crate) instructions: Vec<ResolvedInstruction>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct BlockTimeRepairReport {
+    pub(crate) checked_slots: usize,
+    pub(crate) repaired_slots: usize,
+    pub(crate) missing_slots: usize,
+    pub(crate) failed_slots: usize,
+    pub(crate) updated_rows: BlockTimeUpdateReport,
+}
+
+#[derive(Debug, Deserialize)]
+struct RpcBlockTimeResponse {
+    result: Option<i64>,
+    error: Option<RpcBlockTimeError>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RpcBlockTimeError {
+    code: i64,
+    message: String,
 }
 
 #[derive(Clone, Debug)]
@@ -183,6 +206,104 @@ struct DomainProjectLink {
 struct DomainRiskContext {
     explicit_watch: bool,
     project_links: Vec<DomainProjectLink>,
+}
+
+pub(crate) async fn repair_recent_missing_block_times(
+    state: SharedState,
+    limit: i64,
+) -> Result<BlockTimeRepairReport> {
+    let slots = state
+        .db
+        .missing_block_time_slots(limit)
+        .await
+        .context("load slots with missing block times")?;
+    let checked_slots = slots.len();
+    let outcomes = stream::iter(slots)
+        .map(|slot| {
+            let state = state.clone();
+            async move { (slot, repair_block_time_slot(state, slot).await) }
+        })
+        .buffer_unordered(BLOCK_TIME_REPAIR_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await;
+
+    let mut report = BlockTimeRepairReport {
+        checked_slots,
+        ..Default::default()
+    };
+
+    for (slot, outcome) in outcomes {
+        match outcome {
+            Ok(Some(update)) => {
+                if update.total() > 0 {
+                    report.repaired_slots += 1;
+                    report.updated_rows.merge(&update);
+                }
+            }
+            Ok(None) => {
+                report.missing_slots += 1;
+            }
+            Err(error) => {
+                report.failed_slots += 1;
+                warn!(slot, error = ?error, "failed to repair missing block time");
+            }
+        }
+    }
+
+    Ok(report)
+}
+
+pub(crate) async fn repair_block_time_slot(
+    state: SharedState,
+    slot: u64,
+) -> Result<Option<BlockTimeUpdateReport>> {
+    let Some(block_time) = fetch_rpc_block_time(&state, slot)
+        .await
+        .with_context(|| format!("fetch block time for slot {slot}"))?
+    else {
+        return Ok(None);
+    };
+
+    let report = state
+        .db
+        .update_block_time_for_slot(slot, block_time)
+        .await
+        .with_context(|| format!("update missing block times for slot {slot}"))?;
+    Ok(Some(report))
+}
+
+async fn fetch_rpc_block_time(state: &SharedState, slot: u64) -> Result<Option<i64>> {
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": slot,
+        "method": "getBlockTime",
+        "params": [slot]
+    });
+    let response = state
+        .http_client
+        .post(&state.config.solana_rpc_http_url)
+        .json(&request)
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await
+        .with_context(|| format!("fetch RPC block time for slot {slot}"))?
+        .error_for_status()
+        .with_context(|| format!("RPC getBlockTime endpoint returned an HTTP error for {slot}"))?
+        .json::<RpcBlockTimeResponse>()
+        .await
+        .with_context(|| format!("decode RPC getBlockTime JSON for slot {slot}"))?;
+
+    if let Some(error) = response.error {
+        debug!(
+            slot,
+            code = error.code,
+            message = %error.message,
+            "RPC getBlockTime returned no timestamp",
+        );
+        return Ok(None);
+    }
+
+    Ok(response.result)
 }
 
 pub async fn run_indexer(state: SharedState) -> Result<()> {
@@ -294,6 +415,29 @@ async fn connect_and_stream(
                 if let Some(block_time) = block_meta.block_time.map(|value| value.timestamp) {
                     slot_times.insert(block_meta.slot, block_time);
                     trim_slot_times(slot_times);
+                    match state
+                        .db
+                        .update_block_time_for_slot(block_meta.slot, block_time)
+                        .await
+                    {
+                        Ok(report) if report.total() > 0 => {
+                            info!(
+                                slot = block_meta.slot,
+                                block_time,
+                                updated_rows = report.total(),
+                                "filled missing block time from yellowstone block meta",
+                            );
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            warn!(
+                                slot = block_meta.slot,
+                                block_time,
+                                error = ?error,
+                                "failed to fill missing block time from yellowstone block meta",
+                            );
+                        }
+                    }
                 }
 
                 state
