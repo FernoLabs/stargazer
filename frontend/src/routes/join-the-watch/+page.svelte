@@ -22,13 +22,15 @@
 	<section class="panel hero-panel">
 		<SectionHeader
 			title="Join the Watch"
-			description="Watch members help review sensitive alerts, share context, and escalate credible protocol threats before they spread."
+			description="Free users can subscribe to the unfiltered DeFi feed. Custom Plan access unlocks filtered watch setup for paid users, Ferno members, and approved Superteam promos."
 			level="1"
+			href="/pricing"
+			hrefLabel="Pricing"
 		/>
 
 		<div class="hero-grid">
 			<div class="hero-copy">
-				<p class="meta-line">Free for FireWatch members · Invite-only review group</p>
+				<p class="meta-line">Free DeFi feed · Custom Plan for filtered watches · Superteam promo is 12 months</p>
 				<p>
 					This page summarizes the community discussion around FireWatch and how the review
 					layer works. FireWatch members do not replace the indexer. They add human triage on
@@ -81,10 +83,10 @@
 			</article>
 
 			<article class="faq-item">
-				<h3>Is FireWatch free for members?</h3>
+				<h3>Who gets FireWatch free?</h3>
 				<p>
-					Yes. FireWatch is free for members, and that is called out directly in the
-					product because the review layer is designed to support operator safety.
+					Everyone can use the unfiltered DeFi alert feed. Ferno members get Custom Plan
+					access for free, and Superteam members can use an approved promo code for 12 months.
 				</p>
 			</article>
 
@@ -102,6 +104,14 @@
 				<p>
 					Because moderation matters. The current direction is a narrow review group with
 					accountability, not an open popularity system.
+				</p>
+			</article>
+
+			<article class="faq-item">
+				<h3>What is Pro Response?</h3>
+				<p>
+					Pro Response is on-demand access to reviewed signals and a preauthorized Smart
+					Account flow for withdrawal and redeployment after team review.
 				</p>
 			</article>
 		</div>

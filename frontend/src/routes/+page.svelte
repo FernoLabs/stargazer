@@ -3,6 +3,7 @@
 	import ProtocolIdentity from '$lib/components/ProtocolIdentity.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import towerIcon from '$lib/assets/firewatch-tower-icon.png';
+	import { firewatchPlans, planPriceLine } from '$lib/monetization';
 	import type { DefiProtocolDescriptor } from '$lib/types';
 	import type { PageData } from './$types';
 
@@ -139,7 +140,7 @@
 					<img class="hero-logo-image" src={towerIcon} alt="" width="256" height="256" />
 				</div>
 				<div class="hero-copy">
-					<p class="hero-status">Free for FireWatch members</p>
+					<p class="hero-status">Free DeFi alerts. Custom watch setup for paid users and eligible members.</p>
 					<h1>Exit before protocol risk reaches your funds.</h1>
 					<p class="lede">
 						Dashboards are too late. FireWatch monitors upgrades, governance, IDLs, signer
@@ -148,6 +149,7 @@
 					</p>
 					<div class="hero-actions">
 						<a class="hero-cta" href="/join-the-watch">Join the Watch</a>
+						<a class="secondary-cta" href="/pricing">Pricing</a>
 						<p class="hero-note">
 							Watch members help triage alerts and can escalate credible threats to
 							<strong>Level Fire</strong>.
@@ -167,7 +169,7 @@
 			<div class="setup-head">
 				<div>
 					<h2>Telegram setup</h2>
-					<p class="setup-copy">Add the bot, confirm it is listening, then start the DeFi watch.</p>
+					<p class="setup-copy">Add the bot, confirm it is listening, then start the free DeFi watch.</p>
 				</div>
 				<a class="command-link" href="/docs#commands">All commands</a>
 			</div>
@@ -201,7 +203,7 @@
 					<div>
 						<strong>Watch</strong>
 						<p>
-							Build a focused command on
+							Copy the free DeFi command or plan Custom setup on
 							<a class="docs-inline-link" href="/join-the-watch#command-builder">Join the Watch</a>.
 						</p>
 					</div>
@@ -215,6 +217,19 @@
 			<article class="stat-card">
 				<span>{stat.label}</span>
 				<strong>{stat.value}</strong>
+			</article>
+		{/each}
+	</section>
+
+	<section class="access-grid" aria-label="FireWatch access">
+		{#each firewatchPlans as plan}
+			<article class="panel access-panel">
+				<div>
+					<h2>{plan.name}</h2>
+					<p>{plan.description}</p>
+				</div>
+				<strong>{planPriceLine(plan)}</strong>
+				<a href={plan.ctaHref}>{plan.ctaLabel}</a>
 			</article>
 		{/each}
 	</section>
@@ -391,6 +406,21 @@
 		text-decoration: none;
 	}
 
+	.secondary-cta {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 2.45rem;
+		padding: 0 0.84rem;
+		border-radius: 8px;
+		border: 1px solid rgba(23, 32, 42, 0.14);
+		background: #fff;
+		color: #6d5a4a;
+		font-size: 0.88rem;
+		font-weight: 700;
+		text-decoration: none;
+	}
+
 	.hero-note {
 		flex: 1 1 16rem;
 		max-width: 34ch;
@@ -537,6 +567,43 @@
 		background: var(--fw-panel);
 	}
 
+	.access-grid {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 1rem;
+	}
+
+	.access-panel {
+		display: grid;
+		align-content: start;
+		gap: 0.66rem;
+		min-width: 0;
+	}
+
+	.access-panel h2 {
+		margin-bottom: 0.22rem;
+	}
+
+	.access-panel p {
+		color: #5f6c79;
+		font-size: 0.88rem;
+		line-height: 1.5;
+	}
+
+	.access-panel > strong {
+		color: #7d3a18;
+		font-size: 0.92rem;
+	}
+
+	.access-panel a {
+		width: fit-content;
+		color: #6d5a4a;
+		font-size: 0.82rem;
+		font-weight: 700;
+		text-decoration: underline;
+		text-underline-offset: 0.12em;
+	}
+
 	.catalog-panel {
 		display: grid;
 		gap: 0.82rem;
@@ -641,6 +708,10 @@
 		.masthead-shell {
 			grid-template-columns: 1fr;
 		}
+
+		.access-grid {
+			grid-template-columns: 1fr;
+		}
 	}
 
 	@media (max-width: 720px) {
@@ -691,6 +762,10 @@
 		}
 
 		.hero-cta {
+			justify-self: start;
+		}
+
+		.secondary-cta {
 			justify-self: start;
 		}
 
