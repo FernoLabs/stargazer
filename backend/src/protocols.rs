@@ -382,7 +382,6 @@ const KAMINO_ADMIN_INSTRUCTIONS: &[&str] = &[
 
 const KAMINO_HIGH_IMPACT_INSTRUCTIONS: &[&str] = &[
     "updateLendingMarketOwner",
-    "updateReserveConfig",
     "withdrawProtocolFee",
     "socializeLoss",
     "socializeLossV2",
@@ -2759,6 +2758,23 @@ mod tests {
             signal.instruction_name.as_deref(),
             Some("update_lending_market_owner")
         );
+    }
+
+    #[test]
+    fn keeps_kamino_reserve_config_update_as_standard_admin() {
+        let program_id = Pubkey::from_str("KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD").unwrap();
+        let signal = resolve_protocol_instruction(
+            program_id,
+            &discriminator_for_name("updateReserveConfig", InstructionNameStyle::CamelCase),
+        )
+        .expect("kamino reserve config update should be classified");
+
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("update_reserve_config")
+        );
+        assert!(!signal.high_impact);
     }
 
     #[test]

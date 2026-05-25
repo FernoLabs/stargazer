@@ -1,23 +1,41 @@
 import { fail } from '@sveltejs/kit';
-import type { MetricAlertsResponse, TelegramSubscriptionsResponse } from '$lib/types';
+import type {
+	AdminUsersResponse,
+	MetricAlertsResponse,
+	PaymentLinksResponse,
+	PromoCodesResponse,
+	TelegramSubscriptionsResponse
+} from '$lib/types';
 import { backendOriginRequest, readBackendError } from '$lib/server/backend';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load = (async ({ fetch }) => {
 	let metricAlertPresets: MetricAlertsResponse['presets'] = [];
 	let metricAlertRules: MetricAlertsResponse['rules'] = [];
+	let firewatchUsers: AdminUsersResponse['users'] = [];
+	let userEntitlements: AdminUsersResponse['entitlements'] = [];
+	let paymentLinks: PaymentLinksResponse['items'] = [];
+	let promoCodes: PromoCodesResponse['items'] = [];
 	let telegramSubscriptions: TelegramSubscriptionsResponse['items'] = [];
 	let telegramEnabled = false;
-	let metricBackendError: string | null = null;
+	let adminBackendError: string | null = null;
 
 	try {
-		const [metricAlertsResponse, telegramResponse] = await Promise.all([
+		const [metricAlertsResponse, usersResponse, promoCodesResponse, telegramResponse] = await Promise.all([
 			backendOriginRequest(fetch, '/api/metric-alerts'),
+			backendOriginRequest(fetch, '/api/users'),
+			backendOriginRequest(fetch, '/api/promo-codes'),
 			backendOriginRequest(fetch, '/api/telegram-subscriptions')
 		]);
 
 		if (!metricAlertsResponse.ok) {
 			throw new Error(await readBackendError(metricAlertsResponse));
+		}
+		if (!usersResponse.ok) {
+			throw new Error(await readBackendError(usersResponse));
+		}
+		if (!promoCodesResponse.ok) {
+			throw new Error(await readBackendError(promoCodesResponse));
 		}
 		if (!telegramResponse.ok) {
 			throw new Error(await readBackendError(telegramResponse));
@@ -27,19 +45,31 @@ export const load = (async ({ fetch }) => {
 		metricAlertPresets = metricAlertsPayload.presets;
 		metricAlertRules = metricAlertsPayload.rules;
 
+		const usersPayload = (await usersResponse.json()) as AdminUsersResponse;
+		firewatchUsers = usersPayload.users;
+		userEntitlements = usersPayload.entitlements;
+		paymentLinks = usersPayload.payment_links;
+
+		const promoCodesPayload = (await promoCodesResponse.json()) as PromoCodesResponse;
+		promoCodes = promoCodesPayload.items;
+
 		const telegramPayload = (await telegramResponse.json()) as TelegramSubscriptionsResponse;
 		telegramSubscriptions = telegramPayload.items;
 		telegramEnabled = telegramPayload.telegram_enabled;
 	} catch (error) {
-		metricBackendError = error instanceof Error ? error.message : 'Unknown backend error';
+		adminBackendError = error instanceof Error ? error.message : 'Unknown backend error';
 	}
 
 	return {
 		metricAlertPresets,
 		metricAlertRules,
+		firewatchUsers,
+		userEntitlements,
+		paymentLinks,
+		promoCodes,
 		telegramSubscriptions,
 		telegramEnabled,
-		metricBackendError
+		adminBackendError
 	};
 }) satisfies PageServerLoad;
 
@@ -152,6 +182,172 @@ export const actions = {
 			message: 'Metric rule saved.'
 		};
 	},
+	create_promo_code: async ({ request, fetch }) => {
+		const form = await request.formData();
+		const code = String(form.get('promo_code') ?? '').trim();
+		const label = String(form.get('promo_label') ?? '').trim();
+		const audience = String(form.get('promo_audience') ?? '').trim();
+		const planId = String(form.get('promo_plan_id') ?? '').trim();
+		const durationMonthsRaw = String(form.get('promo_duration_months') ?? '').trim();
+		const maxRedemptionsRaw = String(form.get('promo_max_redemptions') ?? '').trim();
+		const durationMonths = Number(durationMonthsRaw);
+		const maxRedemptions = maxRedemptionsRaw ? Number(maxRedemptionsRaw) : null;
+
+		if (!label || !audience || !planId) {
+			return fail(400, {
+				error: 'Promo label, audience, and plan are required.'
+			});
+		}
+
+		if (!Number.isInteger(durationMonths) || durationMonths < 1) {
+			return fail(400, {
+				error: 'Promo duration must be a positive number of months.'
+			});
+		}
+
+		if (maxRedemptionsRaw && (!Number.isInteger(maxRedemptions) || maxRedemptions === null || maxRedemptions < 1)) {
+			return fail(400, {
+				error: 'Promo max redemptions must be a positive integer when provided.'
+			});
+		}
+
+		const response = await backendOriginRequest(fetch, '/api/promo-codes', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				code: code || null,
+				label,
+				audience,
+				plan_id: planId,
+				duration_months: durationMonths,
+				max_redemptions: maxRedemptions,
+				starts_at: null,
+				expires_at: null
+			})
+		});
+
+		if (!response.ok) {
+			return fail(response.status, {
+				error: await readBackendError(response)
+			});
+		}
+
+		return {
+			message: 'Promo code created.'
+		};
+	},
+	create_user: async ({ request, fetch }) => {
+		const form = await request.formData();
+		const telegramUsername = String(form.get('user_telegram_username') ?? '').trim();
+		const telegramUserIdRaw = String(form.get('user_telegram_user_id') ?? '').trim();
+		const label = String(form.get('user_label') ?? '').trim();
+		const telegramUserId = telegramUserIdRaw ? Number(telegramUserIdRaw) : null;
+
+		if (!telegramUsername && !telegramUserIdRaw && !label) {
+			return fail(400, {
+				error: 'Add a Telegram handle, Telegram user id, or label.'
+			});
+		}
+
+		if (telegramUserIdRaw && (!Number.isInteger(telegramUserId) || telegramUserId === null)) {
+			return fail(400, {
+				error: 'Telegram user id must be an integer.'
+			});
+		}
+
+		const response = await backendOriginRequest(fetch, '/api/users', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				telegram_user_id: telegramUserId,
+				telegram_username: telegramUsername || null,
+				label: label || null
+			})
+		});
+
+		if (!response.ok) {
+			return fail(response.status, {
+				error: await readBackendError(response)
+			});
+		}
+
+		return {
+			message: 'User saved.'
+		};
+	},
+	grant_user_entitlement: async ({ request, fetch }) => {
+		const form = await request.formData();
+		const userId = String(form.get('entitlement_user_id') ?? '').trim();
+		const planId = String(form.get('entitlement_plan_id') ?? '').trim();
+		const source = String(form.get('entitlement_source') ?? '').trim();
+		const durationMonthsRaw = String(form.get('entitlement_duration_months') ?? '').trim();
+		const durationMonths = durationMonthsRaw ? Number(durationMonthsRaw) : null;
+
+		if (!userId || !planId || !source) {
+			return fail(400, {
+				error: 'User, plan, and source are required.'
+			});
+		}
+
+		if (durationMonthsRaw && (!Number.isInteger(durationMonths) || durationMonths === null || durationMonths < 1)) {
+			return fail(400, {
+				error: 'Entitlement duration must be a positive integer.'
+			});
+		}
+
+		const response = await backendOriginRequest(fetch, '/api/users/entitlements', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				user_id: userId,
+				plan_id: planId,
+				source,
+				duration_months: durationMonths,
+				expires_at: null
+			})
+		});
+
+		if (!response.ok) {
+			return fail(response.status, {
+				error: await readBackendError(response)
+			});
+		}
+
+		return {
+			message: 'User entitlement activated.'
+		};
+	},
+	create_payment_link: async ({ request, fetch }) => {
+		const form = await request.formData();
+		const userId = String(form.get('payment_user_id') ?? '').trim();
+		const amount = String(form.get('payment_amount') ?? '').trim();
+
+		if (!userId) {
+			return fail(400, {
+				error: 'Select a user for the payment link.'
+			});
+		}
+
+		const response = await backendOriginRequest(fetch, '/api/payment-links', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				user_id: userId,
+				plan_id: 'paid',
+				amount: amount || null
+			})
+		});
+
+		if (!response.ok) {
+			return fail(response.status, {
+				error: await readBackendError(response)
+			});
+		}
+
+		return {
+			message: 'Solana Pay link generated.'
+		};
+	},
 	delete_telegram_subscription: async ({ request, fetch }) => {
 		const form = await request.formData();
 		const id = String(form.get('id') ?? '').trim();
@@ -174,6 +370,30 @@ export const actions = {
 
 		return {
 			message: 'Telegram rule removed.'
+		};
+	},
+	delete_promo_code: async ({ request, fetch }) => {
+		const form = await request.formData();
+		const id = String(form.get('id') ?? '').trim();
+
+		if (!id) {
+			return fail(400, {
+				error: 'Missing promo code id.'
+			});
+		}
+
+		const response = await backendOriginRequest(fetch, `/api/promo-codes/${id}`, {
+			method: 'DELETE'
+		});
+
+		if (!response.ok) {
+			return fail(response.status, {
+				error: await readBackendError(response)
+			});
+		}
+
+		return {
+			message: 'Promo code removed.'
 		};
 	},
 	delete_metric_alert_rule: async ({ request, fetch }) => {

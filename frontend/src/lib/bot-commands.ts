@@ -1,3 +1,7 @@
+export function watchDefiCommand() {
+	return '/watch defi';
+}
+
 export function watchProtocolCommand(slug: string) {
 	return `/watch protocol ${slug}`;
 }

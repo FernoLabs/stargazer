@@ -1,12 +1,18 @@
 <script lang="ts">
-	import { watchProgramCommand, watchProtocolCommand } from '$lib/bot-commands';
+	import { watchDefiCommand, watchProgramCommand, watchProtocolCommand } from '$lib/bot-commands';
 	import { shortAddress } from '$lib/format';
+	import {
+		firewatchPlanById,
+		firewatchPlans,
+		planPriceLine,
+		type FireWatchPlanId
+	} from '$lib/monetization';
 	import type { DefiProtocolDescriptor, ProtocolProgramSurface } from '$lib/types';
 	import ProtocolIdentity from './ProtocolIdentity.svelte';
 
-	type BuilderMode = 'program' | 'protocol' | 'wallet';
+	type BuilderMode = 'defi' | 'program' | 'protocol' | 'wallet';
 	type CopiedState = 'idle' | 'copied' | 'error';
-	type PlanTier = 'shared' | 'dedicated' | 'pro';
+	type PlanTier = FireWatchPlanId;
 	type WalletTrigger = 'any' | 'amount' | 'ratio';
 
 	type ProgramOption = {
@@ -15,41 +21,7 @@
 		program: ProtocolProgramSurface;
 	};
 
-	type DeploymentPlan = {
-		id: PlanTier;
-		name: string;
-		price: string;
-		priceNote: string;
-		description: string;
-		details: string[];
-	};
-
-	const deploymentPlans: DeploymentPlan[] = [
-		{
-			id: 'shared',
-			name: 'Shared FireWatch',
-			price: '$0',
-			priceNote: 'per month',
-			description: 'Use the current shared bot and shared FireWatch infrastructure.',
-			details: ['Current FireWatch bot', 'Shared indexer', 'Curated protocol catalog']
-		},
-		{
-			id: 'dedicated',
-			name: 'Dedicated VPS + Bot',
-			price: '$750',
-			priceNote: 'per month',
-			description: 'Private bot and watcher instance for teams that bring their own gRPC path.',
-			details: ['Dedicated VPS', 'Dedicated Telegram bot', 'User validator gRPC', 'Fumarole, Laserbeam, and Shredstream ready']
-		},
-		{
-			id: 'pro',
-			name: 'FireWatch Pro Network',
-			price: '$5,000',
-			priceNote: 'per month',
-			description: 'Distributed low-latency FireWatch network close to validator infrastructure.',
-			details: ['Regional watcher cluster', 'DoubleZero Shredstream', 'Fumarole and Laserbeam feeds', 'Own validator gRPC path']
-		}
-	];
+	const deploymentPlans = firewatchPlans;
 
 	let {
 		protocols,
@@ -59,7 +31,7 @@
 		botUsername?: string | null;
 	} = $props();
 
-	let mode = $state<BuilderMode>('program');
+	let mode = $state<BuilderMode>('defi');
 	let programQuery = $state('');
 	let selectedProgramId = $state('');
 	let selectedProtocolSlug = $state('');
@@ -70,7 +42,7 @@
 	let walletToken = $state('USDC');
 	let walletRatio = $state('20');
 	let copiedState = $state<CopiedState>('idle');
-	let selectedPlan = $state<PlanTier>('shared');
+	let selectedPlan = $state<PlanTier>('watch');
 
 	function programOptions(): ProgramOption[] {
 		return protocols.flatMap((protocol) =>
@@ -100,11 +72,35 @@
 	}
 
 	function selectedDeploymentPlan() {
-		return deploymentPlans.find((plan) => plan.id === selectedPlan) ?? deploymentPlans[0];
+		return firewatchPlanById(selectedPlan);
+	}
+
+	function hasCustomAccess() {
+		return selectedPlan !== 'watch';
+	}
+
+	function effectiveMode(): BuilderMode {
+		return hasCustomAccess() ? mode : 'defi';
+	}
+
+	function accessNote() {
+		if (selectedPlan === 'watch') {
+			return 'Free users can copy only the unfiltered DeFi alert. Program, protocol, wallet, and filtered rules require the Custom Plan.';
+		}
+
+		if (selectedPlan === 'paid') {
+			return 'Custom Plan unlocks program, protocol, wallet, and filtered alert setup with a custom bot. Ferno members are included; Superteam promo codes cover 12 months free.';
+		}
+
+		return 'Pro Response adds reviewed signal access and an authorized Smart Account action path after policy review.';
+	}
+
+	function canCopyCommand() {
+		return Boolean(command());
 	}
 
 	function currentProtocol() {
-		if (mode === 'wallet') return null;
+		if (effectiveMode() === 'defi' || effectiveMode() === 'wallet') return null;
 		return mode === 'protocol' ? selectedProtocol() : selectedProgram()?.protocol ?? null;
 	}
 
@@ -136,6 +132,10 @@
 	}
 
 	function command() {
+		if (effectiveMode() === 'defi') {
+			return watchDefiCommand();
+		}
+
 		if (mode === 'wallet') {
 			return walletDraftCommand();
 		}
@@ -168,6 +168,10 @@
 	}
 
 	function previewTitle() {
+		if (effectiveMode() === 'defi') {
+			return 'DeFi alert';
+		}
+
 		const domain = normalizedSolDomain();
 		if (domain) return domain;
 
@@ -184,6 +188,10 @@
 	}
 
 	function previewSubtitle() {
+		if (effectiveMode() === 'defi') {
+			return 'Unfiltered FireWatch DeFi feed';
+		}
+
 		if (mode === 'wallet') {
 			if (walletTrigger === 'amount') {
 				return `Token transfers at or above ${walletAmount || '0'} ${(walletToken || 'TOKEN').toUpperCase()}`;
@@ -216,6 +224,7 @@
 	}
 
 	function chooseProgram(option: ProgramOption) {
+		if (!hasCustomAccess()) return;
 		mode = 'program';
 		selectedProgramId = option.program.program_id;
 		selectedProtocolSlug = option.protocol.slug;
@@ -223,6 +232,7 @@
 	}
 
 	function chooseProtocol(slug: string) {
+		if (!hasCustomAccess()) return;
 		mode = 'protocol';
 		selectedProtocolSlug = slug;
 		copiedState = 'idle';
@@ -230,7 +240,7 @@
 
 	async function copyCommand() {
 		const text = command();
-		if (!text) return;
+		if (!text || !canCopyCommand()) return;
 
 		try {
 			await navigator.clipboard.writeText(text);
@@ -241,6 +251,10 @@
 	}
 
 	$effect(() => {
+		if (!hasCustomAccess() && mode !== 'defi') {
+			mode = 'defi';
+		}
+
 		const programs = programOptions();
 		if (!selectedProgramId && programs.length > 0) {
 			selectedProgramId = programs[0].program.program_id;
@@ -273,8 +287,8 @@
 	<section class="plan-panel" aria-label="Choose your FireWatch plan">
 		<div class="builder-head">
 			<div>
-				<h2>Choose your plan</h2>
-				<p>Start on the shared bot, or run FireWatch on faster private infrastructure.</p>
+				<h2>Choose access</h2>
+				<p>Free users get the unfiltered DeFi feed. Custom Plan access unlocks watch customization.</p>
 			</div>
 		</div>
 
@@ -300,7 +314,7 @@
 					</span>
 
 					<span class="plan-details">
-						{#each plan.details as detail}
+						{#each plan.features as detail}
 							<span>{detail}</span>
 						{/each}
 					</span>
@@ -313,7 +327,7 @@
 		<div class="builder-head">
 			<div>
 				<h2>Telegram command builder</h2>
-				<p>Pick the alert target, then copy the command into Telegram.</p>
+				<p>Copy the free DeFi command, or choose Custom Plan to configure filtered watches.</p>
 			</div>
 			{#if botUsername}
 				<a class="bot-link" href={`https://t.me/${botUsername}`} rel="noreferrer" target="_blank">
@@ -323,18 +337,50 @@
 		</div>
 
 		<div class="mode-row" role="tablist" aria-label="Command target">
-			<button class:active={mode === 'program'} type="button" onclick={() => (mode = 'program')}>
+			<button class:active={effectiveMode() === 'defi'} type="button" onclick={() => (mode = 'defi')}>
+				DeFi alert
+			</button>
+			<button
+				class:active={hasCustomAccess() && mode === 'program'}
+				type="button"
+				disabled={!hasCustomAccess()}
+				title={!hasCustomAccess() ? 'Custom Plan required' : undefined}
+				onclick={() => (mode = 'program')}
+			>
 				Program
 			</button>
-			<button class:active={mode === 'protocol'} type="button" onclick={() => (mode = 'protocol')}>
+			<button
+				class:active={hasCustomAccess() && mode === 'protocol'}
+				type="button"
+				disabled={!hasCustomAccess()}
+				title={!hasCustomAccess() ? 'Custom Plan required' : undefined}
+				onclick={() => (mode = 'protocol')}
+			>
 				Protocol bundle
 			</button>
-			<button class:active={mode === 'wallet'} type="button" onclick={() => (mode = 'wallet')}>
+			<button
+				class:active={hasCustomAccess() && mode === 'wallet'}
+				type="button"
+				disabled={!hasCustomAccess()}
+				title={!hasCustomAccess() ? 'Custom Plan required' : undefined}
+				onclick={() => (mode = 'wallet')}
+			>
 				Wallet
 			</button>
 		</div>
 
-		{#if mode === 'program'}
+		<p class="access-note">{accessNote()}</p>
+
+		{#if effectiveMode() === 'defi'}
+			<div class="free-feed">
+				<strong>Unfiltered DeFi alert</strong>
+				<p>
+					Free access subscribes the chat to FireWatch DeFi alerts without protocol, program,
+					wallet, or threshold filters.
+				</p>
+				<code>{watchDefiCommand()}</code>
+			</div>
+		{:else if effectiveMode() === 'program'}
 			<label class="search-field">
 				<span>Program</span>
 				<input bind:value={programQuery} type="search" placeholder="Search protocol, label, or address" />
@@ -356,7 +402,7 @@
 					</button>
 				{/each}
 			</div>
-		{:else if mode === 'protocol'}
+		{:else if effectiveMode() === 'protocol'}
 			<div class="protocol-list" role="list" aria-label="Protocols">
 				{#each protocolOptions() as protocol}
 					<button
@@ -435,26 +481,31 @@
 			</div>
 		{/if}
 
-		<label class="search-field">
-			<span>{mode === 'wallet' ? 'Wallet label' : '.sol label'}</span>
-			<input bind:value={solDomainLabel} type="text" placeholder="Optional: your-name.sol" />
-		</label>
+		{#if effectiveMode() !== 'defi'}
+			<label class="search-field">
+				<span>{effectiveMode() === 'wallet' ? 'Wallet label' : '.sol label'}</span>
+				<input bind:value={solDomainLabel} type="text" placeholder="Optional: your-name.sol" />
+			</label>
 
-		{#if catalogDomains().length > 0}
-			<div class="domain-row" aria-label="Catalog domains">
-				{#each catalogDomains() as domain}
-					<button type="button" onclick={() => (solDomainLabel = domain)}>{domain}</button>
-				{/each}
-			</div>
+			{#if catalogDomains().length > 0}
+				<div class="domain-row" aria-label="Catalog domains">
+					{#each catalogDomains() as domain}
+						<button type="button" onclick={() => (solDomainLabel = domain)}>{domain}</button>
+					{/each}
+				</div>
+			{/if}
 		{/if}
 	</div>
 
 	<aside class="preview-panel" aria-label="Command preview">
 		<div class="preview-copy">
-			<span>{mode === 'wallet' ? 'Draft command' : 'Send to bot'}</span>
+			<span>{effectiveMode() === 'defi' ? 'Send to bot' : 'Setup draft'}</span>
 			<strong>{previewTitle()}</strong>
 			<p>{previewSubtitle()}</p>
-			<p class="plan-summary">{selectedDeploymentPlan().name} · {selectedDeploymentPlan().price}/mo</p>
+			<p class="plan-summary">
+				{selectedDeploymentPlan().name} · {planPriceLine(selectedDeploymentPlan())}
+			</p>
+			<p>{accessNote()}</p>
 		</div>
 
 		<div class="command-box">
@@ -462,11 +513,14 @@
 		</div>
 
 		<div class="preview-actions">
-			<button class="copy-button" type="button" onclick={copyCommand} disabled={!command()}>
-				{mode === 'wallet' ? 'Copy draft' : 'Copy'}
+			<button class="copy-button" type="button" onclick={copyCommand} disabled={!canCopyCommand()}>
+				{effectiveMode() === 'defi' ? 'Copy' : 'Copy draft'}
 			</button>
+			<a class="setup-link" href={selectedDeploymentPlan().ctaHref}>
+				{selectedDeploymentPlan().ctaLabel}
+			</a>
 			{#if copiedState === 'copied'}
-				<p class="copy-state success">{mode === 'wallet' ? 'Draft copied.' : 'Copied.'}</p>
+				<p class="copy-state success">{effectiveMode() === 'defi' ? 'Copied.' : 'Draft copied.'}</p>
 			{:else if copiedState === 'error'}
 				<p class="copy-state error">Copy failed.</p>
 			{/if}
@@ -492,7 +546,8 @@
 	.builder-head,
 	.program-copy,
 	.preview-copy,
-	.wallet-form {
+	.wallet-form,
+	.free-feed {
 		display: grid;
 		gap: 0.68rem;
 		min-width: 0;
@@ -519,6 +574,8 @@
 	.preview-copy p,
 	.protocol-option span,
 	.copy-state,
+	.access-note,
+	.free-feed p,
 	.plan-card,
 	.plan-details span {
 		color: #5f6c79;
@@ -651,6 +708,37 @@
 		border-color: #bd4a17;
 		background: #bd4a17;
 		color: white;
+	}
+
+	.mode-row button:disabled {
+		cursor: not-allowed;
+		opacity: 0.52;
+	}
+
+	.access-note {
+		margin: -0.1rem 0 0;
+		padding: 0.64rem 0.72rem;
+		border-radius: 8px;
+		border: 1px solid rgba(23, 32, 42, 0.08);
+		background: #fbfaf8;
+		font-size: 0.84rem;
+		line-height: 1.45;
+	}
+
+	.free-feed {
+		padding: 0.78rem 0.82rem;
+		border-radius: 8px;
+		border: 1px solid rgba(23, 32, 42, 0.08);
+		background: #fff;
+	}
+
+	.free-feed strong {
+		font-size: 0.92rem;
+	}
+
+	.free-feed p {
+		font-size: 0.86rem;
+		line-height: 1.5;
 	}
 
 	.search-field {
@@ -837,6 +925,17 @@
 
 	.copy-button {
 		padding: 0 0.9rem;
+	}
+
+	.setup-link {
+		display: inline-flex;
+		align-items: center;
+		min-height: 2.2rem;
+		color: #6d5a4a;
+		font-size: 0.84rem;
+		font-weight: 700;
+		text-decoration: underline;
+		text-underline-offset: 0.12em;
 	}
 
 	.copy-button:disabled {

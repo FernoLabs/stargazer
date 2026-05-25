@@ -16,6 +16,8 @@ const HIGH_TEMPLATE: &[u8] =
     include_bytes!("../../frontend/static/brand/firewatch-preview-high.png");
 const CRITICAL_TEMPLATE: &[u8] =
     include_bytes!("../../frontend/static/brand/firewatch-preview-critical.png");
+const FIREWATCH_MARK: &[u8] =
+    include_bytes!("../../frontend/static/brand/firewatch-hero-logo-01-clean.png");
 const LOGO_FETCH_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_LOGO_BYTES: usize = 2_000_000;
 
@@ -172,17 +174,7 @@ async fn fetch_protocol_logo(client: &Client, slug: Option<&str>) -> Option<Rgba
 }
 
 fn draw_event_panel(canvas: &mut RgbaImage, data: &PreviewCardData, font: &FontArc) {
-    blend_rect(canvas, 318, 256, 790, 290, Rgba([14, 18, 23, 242]));
-
-    draw_text_mut(
-        canvas,
-        data.level.accent(),
-        336,
-        276,
-        24.0,
-        font,
-        data.level.label(),
-    );
+    blend_rect(canvas, 318, 270, 790, 258, Rgba([14, 18, 23, 242]));
 
     let title_lines = wrap_text(font, &data.title, 38.0, 720.0, 2);
     for (index, line) in title_lines.iter().enumerate() {
@@ -190,14 +182,14 @@ fn draw_event_panel(canvas: &mut RgbaImage, data: &PreviewCardData, font: &FontA
             canvas,
             Rgba([248, 248, 246, 255]),
             336,
-            319 + (index as i32 * 44),
+            292 + (index as i32 * 44),
             38.0,
             font,
             line,
         );
     }
 
-    let summary_y = 319 + (title_lines.len() as i32 * 44) + 13;
+    let summary_y = 292 + (title_lines.len() as i32 * 44) + 14;
     let summary = dedup_summary(&data.title, &data.summary);
     let summary_lines = wrap_text(font, &summary, 22.0, 712.0, 2);
     for (index, line) in summary_lines.iter().enumerate() {
@@ -225,24 +217,33 @@ fn draw_card_base(canvas: &mut RgbaImage, data: &PreviewCardData, font: &FontArc
         Rgba([14, 18, 23, 255]),
     );
 
-    draw_brand_mark(canvas, font, data);
+    draw_brand_mark(canvas, font);
     draw_text_mut(
         canvas,
         Rgba([248, 248, 246, 255]),
-        212,
-        94,
+        232,
+        82,
         58.0,
         font,
         "FireWatch",
     );
     draw_text_mut(
         canvas,
+        data.level.accent(),
+        234,
+        150,
+        28.0,
+        font,
+        data.level.label(),
+    );
+    draw_text_mut(
+        canvas,
         Rgba([175, 184, 194, 255]),
-        214,
-        164,
+        234,
+        190,
         26.0,
         font,
-        "Protocol safety monitor",
+        "Solana program and governance monitoring",
     );
     draw_text_mut(
         canvas,
@@ -255,22 +256,28 @@ fn draw_card_base(canvas: &mut RgbaImage, data: &PreviewCardData, font: &FontArc
     );
 }
 
-fn draw_brand_mark(canvas: &mut RgbaImage, font: &FontArc, data: &PreviewCardData) {
-    let center = (136, 142);
-    draw_filled_circle_mut(canvas, center, 70, Rgba([248, 248, 246, 245]));
-    draw_filled_circle_mut(canvas, center, 48, Rgba([23, 29, 35, 245]));
-    let mark = "FW";
-    let scale = 32.0;
-    let width = text_width(font, scale, mark).ceil() as i32;
-    draw_text_mut(
-        canvas,
-        data.level.accent(),
-        center.0 - width / 2,
-        center.1 - 20,
-        scale,
-        font,
-        mark,
-    );
+fn draw_brand_mark(canvas: &mut RgbaImage, font: &FontArc) {
+    match image::load_from_memory(FIREWATCH_MARK).map(DynamicImage::into_rgba8) {
+        Ok(mark) => {
+            draw_centered_image(canvas, &mark, 72, 78, 132, 132);
+        }
+        Err(_) => {
+            let center = (138, 144);
+            draw_filled_circle_mut(canvas, center, 66, Rgba([248, 248, 246, 245]));
+            draw_filled_circle_mut(canvas, center, 46, Rgba([23, 29, 35, 245]));
+            let scale = 32.0;
+            let width = text_width(font, scale, "FW").ceil() as i32;
+            draw_text_mut(
+                canvas,
+                Rgba([238, 169, 79, 255]),
+                center.0 - width / 2,
+                center.1 - 20,
+                scale,
+                font,
+                "FW",
+            );
+        }
+    }
 }
 
 fn draw_pills(canvas: &mut RgbaImage, font: &FontArc, values: &[String]) {
@@ -304,10 +311,9 @@ fn draw_protocol_logo(canvas: &mut RgbaImage, logo: &RgbaImage) {
     let center = (x + size / 2, y + size / 2);
 
     draw_filled_circle_mut(canvas, center, size / 2, Rgba([248, 248, 246, 245]));
-    let fitted = resize_contain(logo, (size - 28) as u32, (size - 28) as u32);
-    let overlay_x = x + (size - fitted.width() as i32) / 2;
-    let overlay_y = y + (size - fitted.height() as i32) / 2;
-    imageops::overlay(canvas, &fitted, overlay_x.into(), overlay_y.into());
+    let logo = trim_image_to_content(logo);
+    let fitted = resize_contain(&logo, (size - 32) as u32, (size - 32) as u32);
+    overlay_centered_clipped(canvas, &fitted, center, (size / 2) - 8);
 }
 
 fn draw_protocol_monogram(
@@ -344,6 +350,113 @@ fn resize_contain(image: &RgbaImage, max_width: u32, max_height: u32) -> RgbaIma
     let next_height = ((height as f32 * scale).round() as u32).max(1);
 
     imageops::resize(image, next_width, next_height, FilterType::Lanczos3)
+}
+
+fn draw_centered_image(
+    canvas: &mut RgbaImage,
+    image: &RgbaImage,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) {
+    fill_rect(canvas, x, y, width, height, Rgba([248, 248, 246, 255]));
+
+    let content = trim_image_to_content(image);
+    let fitted = resize_contain(
+        &content,
+        width.saturating_sub(18),
+        height.saturating_sub(18),
+    );
+    let overlay_x = x + (width as i32 - fitted.width() as i32) / 2;
+    let overlay_y = y + (height as i32 - fitted.height() as i32) / 2;
+    overlay_image(canvas, &fitted, overlay_x, overlay_y);
+}
+
+fn overlay_centered_clipped(
+    canvas: &mut RgbaImage,
+    image: &RgbaImage,
+    center: (i32, i32),
+    clip_radius: i32,
+) {
+    let x = center.0 - image.width() as i32 / 2;
+    let y = center.1 - image.height() as i32 / 2;
+    let radius_squared = clip_radius as i64 * clip_radius as i64;
+
+    for source_y in 0..image.height() {
+        for source_x in 0..image.width() {
+            let target_x = x + source_x as i32;
+            let target_y = y + source_y as i32;
+
+            if target_x < 0
+                || target_y < 0
+                || target_x >= canvas.width() as i32
+                || target_y >= canvas.height() as i32
+            {
+                continue;
+            }
+
+            let dx = (target_x - center.0) as i64;
+            let dy = (target_y - center.1) as i64;
+            if dx * dx + dy * dy > radius_squared {
+                continue;
+            }
+
+            let source = image.get_pixel(source_x, source_y);
+            let target = canvas.get_pixel_mut(target_x as u32, target_y as u32);
+            *target = alpha_blend(*target, *source);
+        }
+    }
+}
+
+fn overlay_image(canvas: &mut RgbaImage, image: &RgbaImage, x: i32, y: i32) {
+    for source_y in 0..image.height() {
+        for source_x in 0..image.width() {
+            let target_x = x + source_x as i32;
+            let target_y = y + source_y as i32;
+
+            if target_x < 0
+                || target_y < 0
+                || target_x >= canvas.width() as i32
+                || target_y >= canvas.height() as i32
+            {
+                continue;
+            }
+
+            let source = image.get_pixel(source_x, source_y);
+            let target = canvas.get_pixel_mut(target_x as u32, target_y as u32);
+            *target = alpha_blend(*target, *source);
+        }
+    }
+}
+
+fn trim_image_to_content(image: &RgbaImage) -> RgbaImage {
+    let has_transparency = image.pixels().any(|pixel| pixel[3] < 245);
+    let mut left = image.width();
+    let mut top = image.height();
+    let mut right = 0;
+    let mut bottom = 0;
+
+    for (x, y, pixel) in image.enumerate_pixels() {
+        let visible = if has_transparency {
+            pixel[3] > 16
+        } else {
+            !(pixel[0] > 244 && pixel[1] > 244 && pixel[2] > 244)
+        };
+
+        if visible {
+            left = left.min(x);
+            top = top.min(y);
+            right = right.max(x);
+            bottom = bottom.max(y);
+        }
+    }
+
+    if left > right || top > bottom {
+        return image.clone();
+    }
+
+    imageops::crop_imm(image, left, top, right - left + 1, bottom - top + 1).to_image()
 }
 
 fn fill_rect(canvas: &mut RgbaImage, x: i32, y: i32, width: u32, height: u32, color: Rgba<u8>) {
@@ -699,7 +812,25 @@ fn dedup_summary(title: &str, summary: &str) -> String {
     {
         return String::new();
     }
+
+    let lower_summary = summary.to_ascii_lowercase();
+    if let Some(index) = lower_summary.find(" via ") {
+        return capitalize_first(summary[index + 1..].trim());
+    }
+
+    if let Some(stripped) = summary.strip_prefix("High-impact ") {
+        return stripped.to_owned();
+    }
+
     summary.to_owned()
+}
+
+fn capitalize_first(value: &str) -> String {
+    let mut chars = value.chars();
+    match chars.next() {
+        Some(first) => format!("{}{}", first.to_ascii_uppercase(), chars.as_str()),
+        None => String::new(),
+    }
 }
 
 fn contains_case_insensitive(haystack: &str, needle: &str) -> bool {

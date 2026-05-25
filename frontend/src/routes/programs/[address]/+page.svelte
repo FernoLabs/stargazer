@@ -241,8 +241,8 @@
 	<section class="overview-grid">
 		<article class="panel">
 			<SectionHeader
-				title="Telegram command"
-				description="Track only this program in the bot."
+				title="Custom Plan draft"
+				description="Use this when a Custom Plan user or eligible member wants to track only this program."
 				compact
 			/>
 
@@ -252,11 +252,11 @@
 					<code>{shortAddress(data.program.program_id)}</code>
 					<code class="command-code">{command()}</code>
 				</div>
-				<button class="ghost-button" type="button" onclick={() => copyText(command())}>Copy</button>
+				<button class="ghost-button" type="button" onclick={() => copyText(command())}>Copy draft</button>
 			</div>
 
 			{#if copiedState === 'copied'}
-				<p class="flash success">Command copied.</p>
+				<p class="flash success">Setup draft copied.</p>
 			{:else if copiedState === 'error'}
 				<p class="flash error">Clipboard access failed. Copy the command manually.</p>
 			{/if}

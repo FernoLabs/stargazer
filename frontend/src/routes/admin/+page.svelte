@@ -2,11 +2,11 @@
 	import { explorerAddressUrl, explorerIdlUrl } from '$lib/explorer';
 	import { formatMetricValue, formatTimestamp, readableInstructionName, shortAddress } from '$lib/format';
 	import type { ActionData, PageData } from './$types';
-	import type { DefiProtocolDescriptor, MetricAlertPreset } from '$lib/types';
+	import type { DefiProtocolDescriptor, FirewatchUser, MetricAlertPreset } from '$lib/types';
 
 	let { data, form }: { data: PageData; form?: ActionData } = $props();
 
-	let activeTab = $state<'builder' | 'rules' | 'catalog'>('builder');
+	let activeTab = $state<'builder' | 'rules' | 'users' | 'promos' | 'catalog'>('builder');
 	let telegramScope = $state<'defi_watch' | 'program_updates' | 'multisig_activity'>('defi_watch');
 	let telegramProtocolSlug = $state('');
 	let telegramKnownProgramId = $state('');
@@ -34,6 +34,47 @@
 		if (scope === 'program_updates') return 'Program updates';
 		if (scope === 'multisig_activity') return 'Multisig activity';
 		return 'DeFi watch';
+	}
+
+	function promoPlanLabel(planId: string) {
+		if (planId === 'ferno-member') return 'Ferno member';
+		if (planId === 'paid') return 'Custom Plan';
+		if (planId === 'pro') return 'Pro response';
+		return planId;
+	}
+
+	function redemptionCopy(maxRedemptions: number | null, redeemedCount: number) {
+		if (maxRedemptions == null) return `${redeemedCount} redeemed`;
+		return `${redeemedCount}/${maxRedemptions} redeemed`;
+	}
+
+	function userDisplay(user: FirewatchUser) {
+		if (user.telegram_username) return `@${user.telegram_username}`;
+		if (user.telegram_user_id) return String(user.telegram_user_id);
+		return user.label ?? 'Unnamed user';
+	}
+
+	function activeEntitlementForUser(userId: string) {
+		const now = Math.floor(Date.now() / 1000);
+		return (
+			data.userEntitlements.find(
+				(entitlement) =>
+					entitlement.user_id === userId &&
+					entitlement.status === 'active' &&
+					entitlement.starts_at <= now &&
+					(entitlement.expires_at === null || entitlement.expires_at > now)
+			) ?? null
+		);
+	}
+
+	function paymentLinksForUser(userId: string) {
+		return data.paymentLinks.filter((link) => link.user_id === userId);
+	}
+
+	function pendingRulesForUser(userId: string) {
+		return data.telegramSubscriptions.filter(
+			(subscription) => subscription.user_id === userId && subscription.status === 'pending_payment'
+		);
 	}
 
 	function metricPresetKey(preset: MetricAlertPreset) {
@@ -96,7 +137,7 @@
 				<h1>Build lean Telegram alerts around the protocols you actually use.</h1>
 			<p class="lede">
 				Start with one DeFi protocol rule. Add program update, IDL-only, multisig, or metric guards
-				when you need more precision.
+				when a user has Custom Plan access. Ferno members are included; Superteam promos cover 12 months.
 			</p>
 
 			{#if form?.message}
@@ -105,8 +146,8 @@
 			{#if form?.error}
 				<p class="flash error">{form.error}</p>
 			{/if}
-			{#if data.metricBackendError}
-				<p class="flash error">Metric presets unavailable: {data.metricBackendError}</p>
+			{#if data.adminBackendError}
+				<p class="flash error">Admin data unavailable: {data.adminBackendError}</p>
 			{/if}
 			{#if !data.telegramEnabled}
 				<p class="flash error">Telegram is disabled until <code>TELEGRAM_BOT_TOKEN</code> is configured on the backend.</p>
@@ -123,12 +164,12 @@
 				<strong>{data.metricAlertRules.length}</strong>
 			</article>
 			<article class="stat-card">
-				<span>Protocols</span>
-				<strong>{data.protocolCount}</strong>
+				<span>Users</span>
+				<strong>{data.firewatchUsers.length}</strong>
 			</article>
 			<article class="stat-card">
-				<span>IDL tracked</span>
-				<strong>{data.idlTrackedProgramCount}</strong>
+				<span>Promo codes</span>
+				<strong>{data.promoCodes.length}</strong>
 			</article>
 		</div>
 	</section>
@@ -140,6 +181,12 @@
 			</button>
 			<button class:active={activeTab === 'rules'} class="tab-button" type="button" onclick={() => (activeTab = 'rules')}>
 				Current rules
+			</button>
+			<button class:active={activeTab === 'users'} class="tab-button" type="button" onclick={() => (activeTab = 'users')}>
+				Users
+			</button>
+			<button class:active={activeTab === 'promos'} class="tab-button" type="button" onclick={() => (activeTab = 'promos')}>
+				Promo codes
 			</button>
 			<button class:active={activeTab === 'catalog'} class="tab-button" type="button" onclick={() => (activeTab = 'catalog')}>
 				Catalog
@@ -523,6 +570,282 @@
 		</section>
 	{/if}
 
+	{#if activeTab === 'users'}
+		<section class="builder-grid">
+			<article class="panel">
+				<div class="panel-head">
+					<h2>Add paid user</h2>
+					<p>Create the user from a Telegram handle, then grant access or generate a Solana Pay link.</p>
+				</div>
+
+				<form class="rule-form" method="POST" action="?/create_user">
+					<div class="field-grid">
+						<label>
+							<span>Telegram handle</span>
+							<input name="user_telegram_username" type="text" placeholder="@founder" />
+						</label>
+
+						<label>
+							<span>Telegram user id</span>
+							<input name="user_telegram_user_id" type="text" placeholder="Optional numeric id" />
+						</label>
+					</div>
+
+					<label>
+						<span>Label</span>
+						<input name="user_label" type="text" placeholder="Team or contact name" />
+					</label>
+
+					<div class="form-actions">
+						<button class="primary-button" type="submit">Save user</button>
+						<p>Telegram handle is for lookup. Numeric Telegram id is stronger when the bot has seen the user.</p>
+					</div>
+				</form>
+			</article>
+
+			<aside class="side-stack">
+				<article class="panel compact-panel">
+					<div class="panel-head">
+						<h2>Grant access</h2>
+						<p>Use this after a manual payment, Ferno membership check, or Solana Pay confirmation fallback.</p>
+					</div>
+
+					<form class="rule-form" method="POST" action="?/grant_user_entitlement">
+						<label>
+							<span>User</span>
+							<select name="entitlement_user_id" required>
+								<option value="">Select user</option>
+								{#each data.firewatchUsers as user}
+									<option value={user.id}>{userDisplay(user)}</option>
+								{/each}
+							</select>
+						</label>
+
+						<div class="field-grid">
+							<label>
+								<span>Plan</span>
+								<select name="entitlement_plan_id">
+									<option value="paid">Custom Plan</option>
+									<option value="pro">Pro response</option>
+									<option value="ferno-member">Ferno member</option>
+								</select>
+							</label>
+
+							<label>
+								<span>Source</span>
+								<select name="entitlement_source">
+									<option value="solana_pay">Solana Pay</option>
+									<option value="admin">Admin</option>
+									<option value="ferno">Ferno</option>
+									<option value="promo">Promo</option>
+								</select>
+							</label>
+						</div>
+
+						<label>
+							<span>Duration months</span>
+							<input name="entitlement_duration_months" type="number" min="1" max="36" value="1" />
+						</label>
+
+						<div class="form-actions">
+							<button class="primary-button" type="submit">Activate access</button>
+						</div>
+					</form>
+				</article>
+
+				<article class="panel compact-panel">
+					<div class="panel-head">
+						<h2>Generate Solana Pay</h2>
+						<p>The backend creates a unique reference and checkout link for the selected user.</p>
+					</div>
+
+					<form class="rule-form" method="POST" action="?/create_payment_link">
+						<label>
+							<span>User</span>
+							<select name="payment_user_id" required>
+								<option value="">Select user</option>
+								{#each data.firewatchUsers as user}
+									<option value={user.id}>{userDisplay(user)}</option>
+								{/each}
+							</select>
+						</label>
+
+						<label>
+							<span>Amount</span>
+							<input name="payment_amount" type="text" placeholder="Uses backend default" />
+						</label>
+
+						<div class="form-actions">
+							<button class="primary-button" type="submit">Generate link</button>
+						</div>
+					</form>
+				</article>
+			</aside>
+		</section>
+
+		<section class="panel">
+			<div class="panel-head">
+				<h2>Users</h2>
+				<p>Paid access activates pending custom rules. Free DeFi rules keep running without an entitlement.</p>
+			</div>
+
+			{#if data.firewatchUsers.length === 0}
+				<p class="empty-state">No users yet.</p>
+			{:else}
+				<div class="list-grid">
+					{#each data.firewatchUsers as user}
+						{@const entitlement = activeEntitlementForUser(user.id)}
+						{@const links = paymentLinksForUser(user.id)}
+						{@const pendingRules = pendingRulesForUser(user.id)}
+						<article class="list-card">
+							<div class="list-head">
+								<div>
+									<strong>{userDisplay(user)}</strong>
+									<p>{user.label ?? 'No label'} · {formatTimestamp(user.created_at)}</p>
+								</div>
+								<span class="coverage">{entitlement ? promoPlanLabel(entitlement.plan_id) : 'Free only'}</span>
+							</div>
+
+							<ul class="meta-list">
+								<li><strong>Telegram id</strong><span>{user.telegram_user_id ?? 'Unknown'}</span></li>
+								<li><strong>Pending rules</strong><span>{pendingRules.length}</span></li>
+								<li>
+									<strong>Access</strong>
+									<span>
+										{#if entitlement}
+											{entitlement.source} · expires {entitlement.expires_at ? formatTimestamp(entitlement.expires_at) : 'never'}
+										{:else}
+											No Custom Plan entitlement
+										{/if}
+									</span>
+								</li>
+								<li>
+									<strong>Latest pay link</strong>
+									<span>
+										{#if links[0]}
+											<a href={links[0].public_url} target="_blank" rel="noreferrer">{links[0].status} · {links[0].amount} SOL</a>
+										{:else}
+											None
+										{/if}
+									</span>
+								</li>
+							</ul>
+						</article>
+					{/each}
+				</div>
+			{/if}
+		</section>
+	{/if}
+
+	{#if activeTab === 'promos'}
+		<section class="builder-grid">
+			<article class="panel">
+				<div class="panel-head">
+					<h2>Create promo code</h2>
+					<p>Use this for Superteam members who should receive FireWatch free for 12 months.</p>
+				</div>
+
+				<form class="rule-form" method="POST" action="?/create_promo_code">
+					<div class="field-grid">
+						<label>
+							<span>Code</span>
+							<input name="promo_code" type="text" placeholder="SUPERTEAM-2026" />
+						</label>
+
+						<label>
+							<span>Label</span>
+							<input name="promo_label" type="text" value="Superteam member 12 months" required />
+						</label>
+					</div>
+
+					<div class="field-grid">
+						<label>
+							<span>Audience</span>
+							<input name="promo_audience" type="text" value="Superteam member" required />
+						</label>
+
+						<label>
+							<span>Plan</span>
+							<select name="promo_plan_id">
+								<option value="paid">Custom Plan</option>
+								<option value="ferno-member">Ferno member</option>
+								<option value="pro">Pro response</option>
+							</select>
+						</label>
+					</div>
+
+					<div class="field-grid">
+						<label>
+							<span>Free duration</span>
+							<input name="promo_duration_months" type="number" min="1" max="36" value="12" required />
+						</label>
+
+						<label>
+							<span>Max redemptions</span>
+							<input name="promo_max_redemptions" type="number" min="1" placeholder="Optional" />
+						</label>
+					</div>
+
+					<div class="form-actions">
+						<button class="primary-button" type="submit">Create promo code</button>
+						<p>Leave code blank to generate a unique Superteam code.</p>
+					</div>
+				</form>
+			</article>
+
+			<aside class="side-stack">
+				<article class="panel compact-panel">
+					<div class="panel-head">
+						<h2>Access policy</h2>
+						<p>Ferno members get Custom Plan access by membership. Promo codes are for non-Ferno partner access.</p>
+					</div>
+					<ul class="bullet-list">
+						<li>Superteam members get 12 months free by default.</li>
+						<li>Use <code>Custom Plan</code> for custom bot and alert access.</li>
+						<li>Redemption still needs account wiring before billing enforcement.</li>
+					</ul>
+				</article>
+			</aside>
+		</section>
+
+		<section class="panel">
+			<div class="panel-head">
+				<h2>Active promo codes</h2>
+				<p>Codes can be deleted until redemption and billing enforcement are wired.</p>
+			</div>
+
+			{#if data.promoCodes.length === 0}
+				<p class="empty-state">No promo codes yet.</p>
+			{:else}
+				<div class="list-grid">
+					{#each data.promoCodes as promo}
+						<article class="list-card">
+							<div class="list-head">
+								<div>
+									<strong class="promo-code">{promo.code}</strong>
+									<p>{promo.label} · {formatTimestamp(promo.created_at)}</p>
+								</div>
+								<span class="coverage">{promo.duration_months} months</span>
+							</div>
+
+							<ul class="meta-list">
+								<li><strong>Audience</strong><span>{promo.audience}</span></li>
+								<li><strong>Plan</strong><span>{promoPlanLabel(promo.plan_id)}</span></li>
+								<li><strong>Redemptions</strong><span>{redemptionCopy(promo.max_redemptions, promo.redeemed_count)}</span></li>
+								<li><strong>Status</strong><span>{promo.active ? 'Active' : 'Paused'}</span></li>
+							</ul>
+
+							<form method="POST" action="?/delete_promo_code">
+								<input type="hidden" name="id" value={promo.id} />
+								<button class="ghost-button" type="submit">Delete code</button>
+							</form>
+						</article>
+					{/each}
+				</div>
+			{/if}
+		</section>
+	{/if}
+
 	{#if activeTab === 'catalog'}
 		<section class="panel">
 			<div class="panel-head">
@@ -873,6 +1196,11 @@
 	.program-links a {
 		text-decoration: none;
 		color: #667788;
+	}
+
+	.promo-code {
+		font-family: 'IBM Plex Mono', 'SFMono-Regular', monospace;
+		overflow-wrap: anywhere;
 	}
 
 	@media (max-width: 980px) {

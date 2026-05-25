@@ -37,10 +37,12 @@ use solana_sdk::{
     loader_instruction::LoaderInstruction,
     loader_upgradeable_instruction::UpgradeableLoaderInstruction, loader_v4,
     loader_v4_instruction::LoaderV4Instruction, pubkey::Pubkey, signature::Signature,
+    system_program,
 };
 
 const FILTER_LABEL: &str = "firewatch";
 const BLOCK_META_FILTER_LABEL: &str = "firewatch-block-meta";
+const KAMINO_LEND_SLUG: &str = "kamino_lend";
 const ORCA_WHIRLPOOLS_SLUG: &str = "orca_whirlpools";
 const ORCA_OFFICIAL_WHIRLPOOLS_CONFIGS: &[(&str, &str)] = &[
     (
@@ -105,6 +107,13 @@ struct ProtocolInstructionDetails {
     actor: Option<String>,
     high_impact_override: Option<bool>,
     payload_fields: Vec<(&'static str, String)>,
+}
+
+struct KaminoReserveConfigUpdate {
+    mode: u64,
+    mode_name: &'static str,
+    value_len: usize,
+    skip_validation: bool,
 }
 
 struct ParsedTransactionArtifacts {
@@ -224,7 +233,7 @@ async fn connect_and_stream(
     let (mut subscribe_tx, mut stream) = client.subscribe().await?;
 
     subscribe_tx
-        .send(subscription_request(resume_from_slot)?)
+        .send(subscription_request(&state, resume_from_slot)?)
         .await?;
     info!(resume_from_slot, "connected to yellowstone gRPC");
 
@@ -310,7 +319,10 @@ async fn connect_and_stream(
     Ok(())
 }
 
-fn subscription_request(resume_from_slot: Option<u64>) -> Result<SubscribeRequest> {
+fn subscription_request(
+    state: &SharedState,
+    resume_from_slot: Option<u64>,
+) -> Result<SubscribeRequest> {
     let mut watched_programs = vec![
         bpf_loader::ID.to_string(),
         bpf_loader_deprecated::ID.to_string(),
@@ -334,6 +346,11 @@ fn subscription_request(resume_from_slot: Option<u64>) -> Result<SubscribeReques
             .into_iter()
             .map(|metadata_account| metadata_account.to_string()),
     );
+    if let Some(recipient) = state.config.solana_pay_recipient.as_deref() {
+        if Pubkey::from_str(recipient).is_ok() {
+            watched_programs.push(recipient.to_owned());
+        }
+    }
     watched_programs.sort();
     watched_programs.dedup();
 
@@ -477,12 +494,16 @@ pub(crate) async fn ingest_resolved_transaction(
     options: IngestOptions,
 ) -> Result<IngestTransactionResult> {
     let parsed = parse_transaction_events(state.clone(), tx, slot, block_time).await?;
+    let detected_payment_count = detect_solana_payments(state.clone(), tx, block_time)
+        .await
+        .context("detect Solana Pay payment")?;
     let mut events = parsed.events;
     let mut result = IngestTransactionResult {
         matched: !events.is_empty()
             || !parsed.metric_observations.is_empty()
             || !parsed.program_data_writes.is_empty()
-            || !parsed.program_idl_data_writes.is_empty(),
+            || !parsed.program_idl_data_writes.is_empty()
+            || detected_payment_count > 0,
         parsed_event_count: events.len(),
         parsed_metric_observation_count: parsed.metric_observations.len(),
         program_data_write_count: parsed.program_data_writes.len(),
@@ -706,6 +727,149 @@ async fn parse_transaction_events(
         program_data_writes,
         program_idl_data_writes,
     })
+}
+
+async fn detect_solana_payments(
+    state: SharedState,
+    tx: &ResolvedTransaction,
+    block_time: Option<i64>,
+) -> Result<usize> {
+    let Some(recipient) = state
+        .config
+        .solana_pay_recipient
+        .as_deref()
+        .and_then(|value| Pubkey::from_str(value).ok())
+    else {
+        return Ok(0);
+    };
+
+    if !tx.account_keys.iter().any(|account| account == &recipient) {
+        return Ok(0);
+    }
+
+    let references = tx
+        .account_keys
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    let now = now_ts();
+    let pending_links = state
+        .db
+        .pending_payment_links_by_references(&references, now)
+        .await?;
+    if pending_links.is_empty() {
+        return Ok(0);
+    }
+
+    let paid_lamports = sol_transferred_to_recipient(tx, &recipient);
+    let paid_at = block_time.unwrap_or(now);
+    let mut detected = 0;
+
+    for payment_link in pending_links {
+        if payment_link.spl_token.is_some() {
+            continue;
+        }
+
+        let Some(expected_lamports) = sol_amount_to_lamports(&payment_link.amount) else {
+            continue;
+        };
+
+        if paid_lamports < expected_lamports {
+            continue;
+        }
+
+        if state
+            .db
+            .mark_payment_link_paid(&payment_link.id, paid_at)
+            .await?
+        {
+            state
+                .db
+                .grant_user_entitlement(
+                    &payment_link.user_id,
+                    &payment_link.plan_id,
+                    "solana_pay",
+                    Some(1),
+                    None,
+                )
+                .await?;
+            detected += 1;
+            info!(
+                signature = %tx.signature,
+                reference = %payment_link.reference,
+                user_id = %payment_link.user_id,
+                amount = %payment_link.amount,
+                paid_lamports,
+                "confirmed Solana Pay payment",
+            );
+        }
+    }
+
+    Ok(detected)
+}
+
+fn sol_transferred_to_recipient(tx: &ResolvedTransaction, recipient: &Pubkey) -> u64 {
+    let mut lamports = 0_u64;
+    for instruction in tx.top_level_instructions.iter().chain(
+        tx.inner_instruction_sets
+            .iter()
+            .flat_map(|set| set.instructions.iter()),
+    ) {
+        if program_id(tx, instruction) != Some(system_program::ID) {
+            continue;
+        }
+
+        let Ok(destination) = instruction_account(tx, instruction, 1) else {
+            continue;
+        };
+        if &destination != recipient {
+            continue;
+        }
+
+        if let Some(value) = system_transfer_lamports(&instruction.data) {
+            lamports = lamports.saturating_add(value);
+        }
+    }
+
+    lamports
+}
+
+fn system_transfer_lamports(data: &[u8]) -> Option<u64> {
+    let discriminator = data.get(0..4)?;
+    if discriminator != [2, 0, 0, 0] {
+        return None;
+    }
+
+    let lamports = data.get(4..12)?.try_into().ok()?;
+    Some(u64::from_le_bytes(lamports))
+}
+
+fn sol_amount_to_lamports(amount: &str) -> Option<u64> {
+    let amount = amount.trim();
+    if amount.is_empty() || amount.starts_with('-') {
+        return None;
+    }
+
+    let (whole, fraction) = amount.split_once('.').unwrap_or((amount, ""));
+    if whole.is_empty() || !whole.chars().all(|character| character.is_ascii_digit()) {
+        return None;
+    }
+    if !fraction.chars().all(|character| character.is_ascii_digit()) || fraction.len() > 9 {
+        return None;
+    }
+
+    let whole_lamports = whole.parse::<u64>().ok()?.checked_mul(1_000_000_000)?;
+    let mut fractional = fraction.to_owned();
+    while fractional.len() < 9 {
+        fractional.push('0');
+    }
+    let fractional_lamports = if fractional.is_empty() {
+        0
+    } else {
+        fractional.parse::<u64>().ok()?
+    };
+
+    whole_lamports.checked_add(fractional_lamports)
 }
 
 async fn parse_instruction(
@@ -2634,6 +2798,12 @@ fn protocol_instruction_details(
     instruction: &ResolvedInstruction,
     signal: &ProtocolInstructionSignal,
 ) -> ProtocolInstructionDetails {
+    if signal.protocol.slug == KAMINO_LEND_SLUG
+        && signal.instruction_name.as_deref() == Some("update_reserve_config")
+    {
+        return kamino_reserve_config_details(tx, instruction);
+    }
+
     if signal.protocol.slug == ORCA_WHIRLPOOLS_SLUG {
         match signal.instruction_name.as_deref() {
             Some("set_config_extension_authority") => {
@@ -2659,6 +2829,151 @@ fn protocol_instruction_details(
     }
 
     ProtocolInstructionDetails::default()
+}
+
+fn kamino_reserve_config_details(
+    tx: &ResolvedTransaction,
+    instruction: &ResolvedInstruction,
+) -> ProtocolInstructionDetails {
+    let lending_market_owner = instruction_account(tx, instruction, 0).ok();
+    let lending_market = instruction_account(tx, instruction, 1).ok();
+    let reserve = instruction_account(tx, instruction, 2).ok();
+    let parsed = parse_kamino_reserve_config_update(&instruction.data);
+
+    let mut payload_fields = Vec::new();
+    if let Some(lending_market_owner) = lending_market_owner {
+        payload_fields.push(("lending_market_owner", lending_market_owner.to_string()));
+    }
+    if let Some(lending_market) = lending_market {
+        payload_fields.push(("lending_market", lending_market.to_string()));
+    }
+    if let Some(reserve) = reserve {
+        payload_fields.push(("reserve", reserve.to_string()));
+    }
+    if let Some(parsed) = parsed.as_ref() {
+        payload_fields.push(("kamino_update_config_mode", parsed.mode_name.to_owned()));
+        payload_fields.push(("kamino_update_config_mode_id", parsed.mode.to_string()));
+        payload_fields.push((
+            "kamino_update_config_value_len",
+            parsed.value_len.to_string(),
+        ));
+        payload_fields.push((
+            "kamino_update_config_skip_validation",
+            parsed.skip_validation.to_string(),
+        ));
+    }
+
+    ProtocolInstructionDetails {
+        actor: lending_market_owner.map(|owner| owner.to_string()),
+        high_impact_override: parsed
+            .as_ref()
+            .map(kamino_reserve_config_update_high_impact),
+        payload_fields,
+    }
+}
+
+fn parse_kamino_reserve_config_update(data: &[u8]) -> Option<KaminoReserveConfigUpdate> {
+    if data.get(..8)? != anchor_discriminator("update_reserve_config").as_slice() {
+        return None;
+    }
+
+    let mode = u64::from_le_bytes(data.get(8..16)?.try_into().ok()?);
+    let value_len = u32::from_le_bytes(data.get(16..20)?.try_into().ok()?) as usize;
+    let skip_validation_offset = 20_usize.checked_add(value_len)?;
+    data.get(20..skip_validation_offset)?;
+    let skip_validation = match data.get(skip_validation_offset)? {
+        0 => false,
+        1 => true,
+        _ => return None,
+    };
+
+    Some(KaminoReserveConfigUpdate {
+        mode,
+        mode_name: kamino_update_config_mode_name(mode),
+        value_len,
+        skip_validation,
+    })
+}
+
+fn kamino_update_config_mode_name(mode: u64) -> &'static str {
+    match mode {
+        1 => "update_loan_to_value_pct",
+        2 => "update_max_liquidation_bonus_bps",
+        3 => "update_liquidation_threshold_pct",
+        4 => "update_protocol_liquidation_fee",
+        5 => "update_protocol_take_rate",
+        6 => "update_fees_origination_fee",
+        7 => "update_fees_flash_loan_fee",
+        8 => "deprecated_update_fees_referral_fee_bps",
+        9 => "update_deposit_limit",
+        10 => "update_borrow_limit",
+        11 => "update_token_info_lower_heuristic",
+        12 => "update_token_info_upper_heuristic",
+        13 => "update_token_info_exp_heuristic",
+        14 => "update_token_info_twap_divergence",
+        15 => "update_token_info_scope_twap",
+        16 => "update_token_info_scope_chain",
+        17 => "update_token_info_name",
+        18 => "update_token_info_price_max_age",
+        19 => "update_token_info_twap_max_age",
+        20 => "update_scope_price_feed",
+        21 => "update_pyth_price",
+        22 => "update_switchboard_feed",
+        23 => "update_switchboard_twap_feed",
+        24 => "update_borrow_rate_curve",
+        25 => "update_entire_reserve_config",
+        26 => "update_debt_withdrawal_cap",
+        27 => "update_deposit_withdrawal_cap",
+        28 => "deprecated_update_debt_withdrawal_cap_current_total",
+        29 => "deprecated_update_deposit_withdrawal_cap_current_total",
+        30 => "update_bad_debt_liquidation_bonus_bps",
+        31 => "update_min_liquidation_bonus_bps",
+        32 => "update_deleveraging_margin_call_period",
+        33 => "update_borrow_factor",
+        34 => "deprecated_update_asset_tier",
+        35 => "update_elevation_group",
+        36 => "update_deleveraging_threshold_decrease_bps_per_day",
+        37 => "deprecated_update_multiplier_side_boost",
+        38 => "deprecated_update_multiplier_tag_boost",
+        39 => "update_reserve_status",
+        40 => "update_farm_collateral",
+        41 => "update_farm_debt",
+        42 => "update_disable_usage_as_collateral_outside_emode",
+        43 => "update_block_borrowing_above_utilization_pct",
+        44 => "update_block_price_usage",
+        45 => "update_borrow_limit_outside_elevation_group",
+        46 => "update_borrow_limits_in_elevation_group_against_this_reserve",
+        47 => "update_host_fixed_interest_rate_bps",
+        48 => "update_autodeleverage_enabled",
+        49 => "update_deleveraging_bonus_increase_bps_per_day",
+        50 => "update_protocol_order_execution_fee",
+        51 => "update_proposer_authority_lock",
+        52 => "update_min_deleveraging_bonus_bps",
+        53 => "update_block_c_token_usage",
+        54 => "update_debt_maturity_timestamp",
+        55 => "update_debt_term_seconds",
+        _ => "unknown",
+    }
+}
+
+fn kamino_reserve_config_update_high_impact(update: &KaminoReserveConfigUpdate) -> bool {
+    update.skip_validation
+        || update.mode_name == "unknown"
+        || matches!(
+            update.mode,
+            1..=3
+                | 4..=7
+                | 11..=16
+                | 18..=25
+                | 30..=36
+                | 39
+                | 42..=44
+                | 47
+                | 48
+                | 49
+                | 50
+                | 51..=55
+        )
 }
 
 fn orca_config_extension_authority_details(
@@ -3218,6 +3533,51 @@ mod tests {
             .expect("orca config extension authority event")
     }
 
+    fn sample_kamino_reserve_config_event(mode: u64, skip_validation: bool) -> ChainEvent {
+        let lending_market_owner = Pubkey::new_unique();
+        let lending_market = Pubkey::new_unique();
+        let reserve = Pubkey::new_unique();
+        let kamino_program =
+            Pubkey::from_str("KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD").unwrap();
+        let tx = ResolvedTransaction {
+            signature: "kamino-reserve-config-test".to_owned(),
+            primary_signer: Some(lending_market_owner),
+            account_keys: vec![
+                lending_market_owner,
+                lending_market,
+                reserve,
+                kamino_program,
+            ],
+            top_level_instructions: vec![],
+            inner_instruction_sets: vec![],
+            log_messages: vec![],
+        };
+        let instruction = ResolvedInstruction {
+            program_id_index: 3,
+            accounts: vec![0, 1, 2],
+            data: kamino_reserve_config_update_data(mode, &[], skip_validation),
+            stack_height: Some(1),
+        };
+
+        parse_protocol_instruction_event(&tx, &instruction, 421137051, Some(1779340560), "4", None)
+            .unwrap()
+            .0
+            .expect("kamino reserve config event")
+    }
+
+    fn kamino_reserve_config_update_data(
+        mode: u64,
+        value: &[u8],
+        skip_validation: bool,
+    ) -> Vec<u8> {
+        let mut data = anchor_discriminator("update_reserve_config").to_vec();
+        data.extend_from_slice(&mode.to_le_bytes());
+        data.extend_from_slice(&(value.len() as u32).to_le_bytes());
+        data.extend_from_slice(value);
+        data.push(u8::from(skip_validation));
+        data
+    }
+
     #[test]
     fn captures_upgradeable_loader_write_bytes() {
         let buffer = Pubkey::new_unique();
@@ -3339,6 +3699,76 @@ mod tests {
                 .get("whirlpools_config_extension")
                 .and_then(|value| value.as_str()),
             Some("777H5H3Tp9U11uRVRzFwM8BinfiakbaLT8vQpeuhvEiH")
+        );
+    }
+
+    #[test]
+    fn keeps_kamino_borrow_limit_update_as_standard_admin() {
+        let event = sample_kamino_reserve_config_event(10, false);
+
+        assert_eq!(event.kind, event_kind::PROGRAM_ADMIN_INSTRUCTION);
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "instruction:update_reserve_config")
+        );
+        assert!(!event.tags.iter().any(|tag| tag == "severity:high"));
+        assert!(!event.tags.iter().any(|tag| tag == "impact:high"));
+        assert!(!TelegramEventScope::DefiWatch.matches_event(&event));
+        assert_eq!(
+            event
+                .payload
+                .get("kamino_update_config_mode")
+                .and_then(|value| value.as_str()),
+            Some("update_borrow_limit")
+        );
+    }
+
+    #[test]
+    fn escalates_kamino_liquidation_threshold_update() {
+        let event = sample_kamino_reserve_config_event(3, false);
+
+        assert!(event.summary.starts_with("High-impact "));
+        assert!(event.tags.iter().any(|tag| tag == "severity:high"));
+        assert!(event.tags.iter().any(|tag| tag == "impact:high"));
+        assert!(TelegramEventScope::DefiWatch.matches_event(&event));
+        assert_eq!(
+            event
+                .payload
+                .get("kamino_update_config_mode")
+                .and_then(|value| value.as_str()),
+            Some("update_liquidation_threshold_pct")
+        );
+    }
+
+    #[test]
+    fn escalates_kamino_fee_updates_without_direction_history() {
+        let event = sample_kamino_reserve_config_event(5, false);
+
+        assert!(event.tags.iter().any(|tag| tag == "severity:high"));
+        assert!(event.tags.iter().any(|tag| tag == "impact:high"));
+        assert_eq!(
+            event
+                .payload
+                .get("kamino_update_config_mode")
+                .and_then(|value| value.as_str()),
+            Some("update_protocol_take_rate")
+        );
+    }
+
+    #[test]
+    fn escalates_kamino_reserve_config_skip_validation() {
+        let event = sample_kamino_reserve_config_event(10, true);
+
+        assert!(event.tags.iter().any(|tag| tag == "severity:high"));
+        assert!(event.tags.iter().any(|tag| tag == "impact:high"));
+        assert_eq!(
+            event
+                .payload
+                .get("kamino_update_config_skip_validation")
+                .and_then(|value| value.as_str()),
+            Some("true")
         );
     }
 

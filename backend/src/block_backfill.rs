@@ -210,7 +210,7 @@ pub(crate) async fn backfill_grpc_transactions(
     let mut client = builder.connect().await?;
     let (mut subscribe_tx, mut stream) = client.subscribe().await?;
     subscribe_tx
-        .send(grpc_backfill_subscription_request(start_slot))
+        .send(grpc_backfill_subscription_request(&state, start_slot))
         .await?;
 
     let mut report = GrpcBackfillReport {
@@ -307,8 +307,8 @@ pub(crate) async fn backfill_grpc_transactions(
     Ok(report)
 }
 
-fn grpc_backfill_subscription_request(start_slot: u64) -> SubscribeRequest {
-    let mut watched_accounts = watched_backfill_accounts()
+fn grpc_backfill_subscription_request(state: &SharedState, start_slot: u64) -> SubscribeRequest {
+    let mut watched_accounts = watched_backfill_accounts(state)
         .iter()
         .cloned()
         .collect::<Vec<_>>();
@@ -570,7 +570,7 @@ async fn backfill_ferno_block_proto(
         ..Default::default()
     };
     let block_time = block.block_time.map(|value| value.timestamp);
-    let watched_accounts = watched_backfill_account_bytes();
+    let watched_accounts = watched_backfill_account_bytes(&state);
 
     for (index, block_transaction) in block.transactions.into_iter().enumerate() {
         report.transaction_count += 1;
@@ -588,7 +588,7 @@ async fn backfill_ferno_block_proto(
             continue;
         }
 
-        if !proto_transaction_touches_watched_accounts(&transaction, &meta, watched_accounts) {
+        if !proto_transaction_touches_watched_accounts(&transaction, &meta, &watched_accounts) {
             report.skipped_unwatched_transaction_count += 1;
             continue;
         }
@@ -681,7 +681,7 @@ async fn ingest_json_block(
     }
 
     let block_time = block.block_time;
-    let watched_accounts = watched_backfill_accounts();
+    let watched_accounts = watched_backfill_accounts(&state);
 
     for (index, block_transaction) in block.transactions.into_iter().enumerate() {
         report.transaction_count += 1;
@@ -698,7 +698,7 @@ async fn ingest_json_block(
         if !transaction_touches_watched_accounts(
             &block_transaction.transaction,
             &meta,
-            watched_accounts,
+            &watched_accounts,
         ) {
             report.skipped_unwatched_transaction_count += 1;
             continue;
@@ -784,7 +784,7 @@ fn proto_transaction_touches_watched_accounts(
             .any(|key| pubkey_bytes(key).is_some_and(|pubkey| watched_accounts.contains(&pubkey)))
 }
 
-fn watched_backfill_accounts() -> &'static HashSet<String> {
+fn base_watched_backfill_accounts() -> &'static HashSet<String> {
     static WATCHED_BACKFILL_ACCOUNTS: OnceLock<HashSet<String>> = OnceLock::new();
     WATCHED_BACKFILL_ACCOUNTS.get_or_init(|| {
         let mut accounts = HashSet::new();
@@ -812,18 +812,25 @@ fn watched_backfill_accounts() -> &'static HashSet<String> {
     })
 }
 
-fn watched_backfill_account_bytes() -> &'static HashSet<[u8; 32]> {
-    static WATCHED_BACKFILL_ACCOUNT_BYTES: OnceLock<HashSet<[u8; 32]>> = OnceLock::new();
-    WATCHED_BACKFILL_ACCOUNT_BYTES.get_or_init(|| {
-        watched_backfill_accounts()
-            .iter()
-            .filter_map(|account| {
-                Pubkey::from_str(account)
-                    .ok()
-                    .map(|pubkey| pubkey.to_bytes())
-            })
-            .collect()
-    })
+fn watched_backfill_accounts(state: &SharedState) -> HashSet<String> {
+    let mut accounts = base_watched_backfill_accounts().clone();
+    if let Some(recipient) = state.config.solana_pay_recipient.as_deref() {
+        if Pubkey::from_str(recipient).is_ok() {
+            accounts.insert(recipient.to_owned());
+        }
+    }
+    accounts
+}
+
+fn watched_backfill_account_bytes(state: &SharedState) -> HashSet<[u8; 32]> {
+    watched_backfill_accounts(state)
+        .iter()
+        .filter_map(|account| {
+            Pubkey::from_str(account)
+                .ok()
+                .map(|pubkey| pubkey.to_bytes())
+        })
+        .collect()
 }
 
 pub(crate) async fn backfill_ferno_blocks(

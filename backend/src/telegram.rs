@@ -1,7 +1,7 @@
 use crate::{
     context::SharedState,
     delivery,
-    models::{TelegramBotProfile, TelegramEventScope},
+    models::{FirewatchUser, TelegramBotProfile, TelegramEventScope},
     protocols,
 };
 use anyhow::{Result, anyhow};
@@ -12,8 +12,30 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
-const HELP_MESSAGE: &str = "FireWatch commands:\n/help - show this message\n/info - show FireWatch live status for the indexer\n/list - list FireWatch rules in this chat\n/watch - open quick watch actions\n/watch all - subscribe this chat to all program updates and curated DeFi signals\n/watch defi - subscribe this chat to the focused DeFi stream\n/watch protocol <slug> - subscribe this chat to one curated DeFi protocol\n/watch program <address> - subscribe this chat to one program's upgrades and IDL changes\n/watch multisig <address> - subscribe this chat to one Squads multisig\n/unwatch - open quick remove actions\n/unwatch all - remove all FireWatch rules from this chat\n/unwatch defi - remove only the focused DeFi rule from this chat\n/unwatch protocol <slug> - remove one protocol rule from this chat\n/unwatch program <address> - remove one program rule from this chat\n/unwatch multisig <address> - remove one multisig rule from this chat\n/cancel - close the current action\n\nAlerts only apply to new matching events after the command is accepted.";
-const WATCH_MENU_MESSAGE: &str = "Choose what to watch in this chat:";
+const HELP_MESSAGE: &str = concat!(
+    "FireWatch commands:\n",
+    "/help - show this message\n",
+    "/info - show FireWatch live status for the indexer\n",
+    "/list - list FireWatch rules in this chat\n",
+    "/watch - open quick watch actions\n",
+    "/watch defi - subscribe this chat to the free unfiltered DeFi alert stream\n",
+    "/unwatch - open quick remove actions\n",
+    "/unwatch all - remove all FireWatch rules from this chat\n",
+    "/unwatch defi - remove only the DeFi rule from this chat\n",
+    "/unwatch protocol <slug> - remove one custom protocol rule from this chat\n",
+    "/unwatch program <address> - remove one custom program rule from this chat\n",
+    "/unwatch multisig <address> - remove one custom multisig rule from this chat\n",
+    "/cancel - close the current action\n\n",
+    "Custom program, protocol, wallet, threshold, and bot setup require Custom Plan access. ",
+    "Ferno members are included, and approved Superteam promo codes cover 12 months.\n\n",
+    "Alerts only apply to new matching events after the command is accepted."
+);
+const CUSTOM_WATCH_REQUIRED_MESSAGE: &str = concat!(
+    "Custom watch rules require the Custom Plan. ",
+    "Free users can use /watch defi for the unfiltered DeFi alert feed. ",
+    "Ferno members and approved Superteam promo users can configure program, protocol, wallet, and threshold watches from FireWatch setup."
+);
+const WATCH_MENU_MESSAGE: &str = "Choose a free watch action in this chat:";
 const UNWATCH_MENU_MESSAGE: &str = "Choose what to remove from this chat:";
 
 #[derive(Deserialize)]
@@ -36,8 +58,16 @@ struct TelegramUpdate {
 struct TelegramMessage {
     message_id: i64,
     chat: TelegramChat,
+    from: Option<TelegramMessageUser>,
     text: Option<String>,
     message_thread_id: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct TelegramMessageUser {
+    id: i64,
+    first_name: Option<String>,
+    username: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -393,7 +423,7 @@ async fn handle_message(state: &SharedState, message: &TelegramMessage) -> Resul
                 state,
                 &message.chat.id.to_string(),
                 message.message_thread_id,
-                "Use the quick actions below, or send /help for the full command list.",
+                "Use /watch defi for the free feed, or send /help for the full command list.",
             )
             .await?;
         }
@@ -426,15 +456,14 @@ async fn handle_callback_query(
             answer_callback_query(
                 state,
                 &callback_query.id,
-                Some("Subscribing this chat to broad coverage…"),
+                Some("Custom Plan required for filtered watches."),
             )
             .await?;
-            let reply = ensure_watch_all(state, message).await?;
             close_menu_message(
                 state,
                 &message.chat.id.to_string(),
                 message.message_id,
-                &reply,
+                CUSTOM_WATCH_REQUIRED_MESSAGE,
             )
             .await?;
         }
@@ -442,7 +471,7 @@ async fn handle_callback_query(
             answer_callback_query(
                 state,
                 &callback_query.id,
-                Some("Subscribing this chat to curated DeFi alerts…"),
+                Some("Subscribing this chat to free DeFi alerts…"),
             )
             .await?;
             let reply = ensure_watch_defi(state, message).await?;
@@ -490,7 +519,7 @@ async fn handle_callback_query(
             answer_callback_query(
                 state,
                 &callback_query.id,
-                Some("Removing the focused DeFi rule from this chat…"),
+                Some("Removing the DeFi rule from this chat…"),
             )
             .await?;
             let reply = ensure_unwatch_defi(state, message).await?;
@@ -527,7 +556,7 @@ async fn handle_callback_query(
 }
 
 async fn handle_watch_all(state: &SharedState, message: &TelegramMessage) -> Result<()> {
-    let reply = ensure_watch_all(state, message).await?;
+    let reply = build_custom_watch_required_reply(state, message, None).await?;
     delivery::send_telegram_text(
         state,
         &message.chat.id.to_string(),
@@ -537,52 +566,6 @@ async fn handle_watch_all(state: &SharedState, message: &TelegramMessage) -> Res
     .await?;
 
     Ok(())
-}
-
-async fn ensure_watch_all(state: &SharedState, message: &TelegramMessage) -> Result<String> {
-    let chat_id = message.chat.id.to_string();
-    let thread_id = message.message_thread_id;
-    let label_prefix = message
-        .chat
-        .title
-        .as_deref()
-        .unwrap_or("telegram chat")
-        .to_owned();
-
-    let (_, program_created) = state
-        .db
-        .ensure_telegram_subscription(
-            &format!("{label_prefix} /watch all - program updates"),
-            &chat_id,
-            thread_id,
-            TelegramEventScope::ProgramUpdates,
-            None,
-            &Vec::new(),
-        )
-        .await?;
-
-    let (_, defi_created) = state
-        .db
-        .ensure_telegram_subscription(
-            &format!("{label_prefix} /watch all - DeFi watch"),
-            &chat_id,
-            thread_id,
-            TelegramEventScope::DefiWatch,
-            None,
-            &Vec::new(),
-        )
-        .await?;
-
-    Ok(match (program_created, defi_created) {
-        (true, true) => {
-            "This chat is now subscribed to all new program updates and curated DeFi signals."
-        }
-        (false, false) => {
-            "This chat was already subscribed to program updates and curated DeFi signals."
-        }
-        _ => "This chat is now subscribed to program updates and curated DeFi signals.",
-    }
-    .to_owned())
 }
 
 async fn handle_watch_defi(state: &SharedState, message: &TelegramMessage) -> Result<()> {
@@ -603,7 +586,33 @@ async fn handle_watch_protocol(
     message: &TelegramMessage,
     slug_or_name: &str,
 ) -> Result<()> {
-    let reply = ensure_watch_protocol(state, message, slug_or_name).await?;
+    let Some(protocol) = protocols::curated_protocol_descriptor(slug_or_name) else {
+        let reply = "FireWatch does not know that protocol key yet. Use the website catalog to copy an exact Custom Plan setup draft.";
+        delivery::send_telegram_text(
+            state,
+            &message.chat.id.to_string(),
+            message.message_thread_id,
+            reply,
+        )
+        .await?;
+        return Ok(());
+    };
+
+    let required_tags = vec![format!("protocol:{}", protocol.slug)];
+    let label = format!(
+        "{} /watch protocol - {}",
+        message.chat.title.as_deref().unwrap_or("telegram chat"),
+        protocol.name
+    );
+    let reply = ensure_custom_watch_with_payment(
+        state,
+        message,
+        &label,
+        TelegramEventScope::DefiWatch,
+        None,
+        &required_tags,
+    )
+    .await?;
     delivery::send_telegram_text(
         state,
         &message.chat.id.to_string(),
@@ -620,7 +629,20 @@ async fn handle_watch_program(
     message: &TelegramMessage,
     address: &str,
 ) -> Result<()> {
-    let reply = ensure_watch_program(state, message, address).await?;
+    let normalized = normalize_pubkey(address).map_err(|error| anyhow!(error))?;
+    let label = format!(
+        "{} /watch program - {normalized}",
+        message.chat.title.as_deref().unwrap_or("telegram chat")
+    );
+    let reply = ensure_custom_watch_with_payment(
+        state,
+        message,
+        &label,
+        TelegramEventScope::ProgramUpdates,
+        Some(&normalized),
+        &[],
+    )
+    .await?;
     delivery::send_telegram_text(
         state,
         &message.chat.id.to_string(),
@@ -637,7 +659,20 @@ async fn handle_watch_multisig(
     message: &TelegramMessage,
     address: &str,
 ) -> Result<()> {
-    let reply = ensure_watch_multisig(state, message, address).await?;
+    let normalized = normalize_pubkey(address).map_err(|error| anyhow!(error))?;
+    let label = format!(
+        "{} /watch multisig - {normalized}",
+        message.chat.title.as_deref().unwrap_or("telegram chat")
+    );
+    let reply = ensure_custom_watch_with_payment(
+        state,
+        message,
+        &label,
+        TelegramEventScope::MultisigActivity,
+        Some(&normalized),
+        &[],
+    )
+    .await?;
     delivery::send_telegram_text(
         state,
         &message.chat.id.to_string(),
@@ -647,6 +682,110 @@ async fn handle_watch_multisig(
     .await?;
 
     Ok(())
+}
+
+async fn ensure_custom_watch_with_payment(
+    state: &SharedState,
+    message: &TelegramMessage,
+    label: &str,
+    scope: TelegramEventScope,
+    target_address: Option<&str>,
+    required_tags: &[String],
+) -> Result<String> {
+    let user = firewatch_user_for_message(state, message).await?;
+    let has_entitlement = state
+        .db
+        .user_has_active_custom_entitlement(&user.id, crate::models::now_ts())
+        .await?;
+    let status = if has_entitlement {
+        "active"
+    } else {
+        "pending_payment"
+    };
+
+    let subscription = state
+        .db
+        .create_telegram_subscription(
+            &uuid::Uuid::new_v4().to_string(),
+            label,
+            Some(&user.id),
+            &message.chat.id.to_string(),
+            message.message_thread_id,
+            scope,
+            target_address,
+            required_tags,
+            status,
+            None,
+        )
+        .await?;
+
+    if has_entitlement {
+        return Ok(format!(
+            "Custom Plan access is active. Saved and activated this custom watch rule: {}.",
+            subscription.label
+        ));
+    }
+
+    let payment_note = build_custom_watch_required_reply(state, message, Some(&user)).await?;
+    Ok(format!(
+        "Saved this custom watch rule as pending payment: {}.\n\n{payment_note}\n\nAlerts will stay paused until this Telegram user has active Custom Plan access.",
+        subscription.label
+    ))
+}
+
+async fn build_custom_watch_required_reply(
+    state: &SharedState,
+    message: &TelegramMessage,
+    existing_user: Option<&FirewatchUser>,
+) -> Result<String> {
+    let user = match existing_user {
+        Some(user) => user.clone(),
+        None => firewatch_user_for_message(state, message).await?,
+    };
+
+    match crate::http::create_solana_payment_link_for_user(state, &user, "paid").await {
+        Ok(payment_link) => Ok(format!(
+            "{CUSTOM_WATCH_REQUIRED_MESSAGE}\n\nPay with Solana Pay: {}\nReference: {}",
+            payment_link.public_url, payment_link.reference
+        )),
+        Err((_, axum::Json(payload))) => {
+            let reason = payload
+                .get("error")
+                .and_then(|value| value.as_str())
+                .unwrap_or("Payment link is not configured.");
+            Ok(format!(
+                "{CUSTOM_WATCH_REQUIRED_MESSAGE}\n\nPayment link is not available yet: {reason}"
+            ))
+        }
+    }
+}
+
+async fn firewatch_user_for_message(
+    state: &SharedState,
+    message: &TelegramMessage,
+) -> Result<FirewatchUser> {
+    let telegram_user_id = message.from.as_ref().map(|user| user.id);
+    let telegram_username = message.from.as_ref().and_then(|user| {
+        user.username
+            .as_deref()
+            .map(normalize_telegram_username)
+            .filter(|value| !value.is_empty())
+    });
+    let label = message
+        .from
+        .as_ref()
+        .and_then(|user| user.first_name.as_deref())
+        .or(message.chat.title.as_deref())
+        .unwrap_or("Telegram user");
+
+    state
+        .db
+        .upsert_firewatch_user(telegram_user_id, telegram_username.as_deref(), Some(label))
+        .await
+}
+
+fn normalize_telegram_username(value: &str) -> String {
+    value.trim().trim_start_matches('@').to_ascii_lowercase()
 }
 
 async fn handle_unwatch_all(state: &SharedState, message: &TelegramMessage) -> Result<()> {
@@ -748,170 +887,22 @@ async fn ensure_watch_defi(state: &SharedState, message: &TelegramMessage) -> Re
         )
         .await?;
 
-    let broad_rule_count = count_non_defi_subscriptions_for_chat(state, message).await?;
+    let custom_rule_count = count_non_defi_subscriptions_for_chat(state, message).await?;
     let mut reply = if created {
         "This chat is now subscribed to high-signal DeFi alerts: program upgrades, unknown instructions, metric anomalies, and high-impact admin changes."
     } else {
-        "This chat was already subscribed to the focused DeFi alert stream."
+        "This chat was already subscribed to the free DeFi alert stream."
     }
     .to_owned();
 
-    if broad_rule_count > 0 {
+    if custom_rule_count > 0 {
         reply.push_str(&format!(
-            "\n\nThis chat still has {broad_rule_count} broader FireWatch rule{} from /watch all. Use /unwatch if you want only the focused DeFi stream.",
-            if broad_rule_count == 1 { "" } else { "s" }
+            "\n\nThis chat still has {custom_rule_count} custom FireWatch rule{}. Use /unwatch if you want only the free DeFi stream.",
+            if custom_rule_count == 1 { "" } else { "s" }
         ));
     }
 
     Ok(reply)
-}
-
-async fn ensure_watch_protocol(
-    state: &SharedState,
-    message: &TelegramMessage,
-    slug_or_name: &str,
-) -> Result<String> {
-    let Some(protocol) = protocols::curated_protocol_descriptor(slug_or_name) else {
-        return Ok("FireWatch does not know that protocol key yet. Use the website catalog to copy an exact /watch protocol command.".to_owned());
-    };
-
-    let chat_id = message.chat.id.to_string();
-    let thread_id = message.message_thread_id;
-    let label_prefix = message
-        .chat
-        .title
-        .as_deref()
-        .unwrap_or("telegram chat")
-        .to_owned();
-    let required_tags = vec![format!("protocol:{}", protocol.slug)];
-
-    let (_, created) = state
-        .db
-        .ensure_telegram_subscription(
-            &format!("{label_prefix} /watch protocol - {}", protocol.name),
-            &chat_id,
-            thread_id,
-            TelegramEventScope::DefiWatch,
-            None,
-            &required_tags,
-        )
-        .await?;
-
-    Ok(if created {
-        let mut scopes = Vec::new();
-        if !protocol.programs.is_empty() {
-            scopes.push(format!(
-                "{} program{}",
-                protocol.programs.len(),
-                if protocol.programs.len() == 1 {
-                    ""
-                } else {
-                    "s"
-                }
-            ));
-        }
-        if !protocol.sol_domains.is_empty() {
-            scopes.push(format!(
-                "{} SNS domain{}",
-                protocol.sol_domains.len(),
-                if protocol.sol_domains.len() == 1 {
-                    ""
-                } else {
-                    "s"
-                }
-            ));
-        }
-        if !protocol.amount_triggers.is_empty() {
-            scopes.push(format!(
-                "{} amount trigger{}",
-                protocol.amount_triggers.len(),
-                if protocol.amount_triggers.len() == 1 {
-                    ""
-                } else {
-                    "s"
-                }
-            ));
-        }
-        let scope_summary = if scopes.is_empty() {
-            "its curated alerts".to_owned()
-        } else {
-            scopes.join(", ")
-        };
-        format!(
-            "This chat now tracks {} across {}.",
-            protocol.name, scope_summary
-        )
-    } else {
-        format!("This chat was already tracking {}.", protocol.name)
-    })
-}
-
-async fn ensure_watch_program(
-    state: &SharedState,
-    message: &TelegramMessage,
-    address: &str,
-) -> Result<String> {
-    let normalized = normalize_pubkey(address).map_err(|error| anyhow!(error))?;
-    let chat_id = message.chat.id.to_string();
-    let thread_id = message.message_thread_id;
-    let label_prefix = message
-        .chat
-        .title
-        .as_deref()
-        .unwrap_or("telegram chat")
-        .to_owned();
-
-    let (_, created) = state
-        .db
-        .ensure_telegram_subscription(
-            &format!("{label_prefix} /watch program - {normalized}"),
-            &chat_id,
-            thread_id,
-            TelegramEventScope::ProgramUpdates,
-            Some(&normalized),
-            &Vec::new(),
-        )
-        .await?;
-
-    Ok(if created {
-        format!("This chat now tracks program updates and IDL changes for {normalized}.")
-    } else {
-        format!("This chat was already tracking {normalized}.")
-    })
-}
-
-async fn ensure_watch_multisig(
-    state: &SharedState,
-    message: &TelegramMessage,
-    address: &str,
-) -> Result<String> {
-    let normalized = normalize_pubkey(address).map_err(|error| anyhow!(error))?;
-    let chat_id = message.chat.id.to_string();
-    let thread_id = message.message_thread_id;
-    let label_prefix = message
-        .chat
-        .title
-        .as_deref()
-        .unwrap_or("telegram chat")
-        .to_owned();
-
-    let (_, created) = state
-        .db
-        .ensure_telegram_subscription(
-            &format!("{label_prefix} /watch multisig - {normalized}"),
-            &chat_id,
-            thread_id,
-            TelegramEventScope::MultisigActivity,
-            Some(&normalized),
-            &Vec::new(),
-        )
-        .await?;
-
-    Ok(if created {
-        format!("This chat now tracks Squads activity for {normalized}.")
-    } else {
-        format!("This chat was already tracking {normalized}.")
-    })
 }
 
 async fn ensure_unwatch_all(state: &SharedState, message: &TelegramMessage) -> Result<String> {
@@ -931,9 +922,9 @@ async fn ensure_unwatch_defi(state: &SharedState, message: &TelegramMessage) -> 
     .await?;
 
     Ok(match deleted {
-        0 => "This chat had no focused DeFi rule to remove.".to_owned(),
-        1 => "Removed the focused DeFi rule from this chat.".to_owned(),
-        count => format!("Removed {count} focused DeFi rules from this chat."),
+        0 => "This chat had no DeFi rule to remove.".to_owned(),
+        1 => "Removed the DeFi rule from this chat.".to_owned(),
+        count => format!("Removed {count} DeFi rules from this chat."),
     })
 }
 
@@ -1087,7 +1078,7 @@ async fn build_list_message(state: &SharedState, message: &TelegramMessage) -> R
         ));
     }
     lines.push(
-        "Use /unwatch to remove broad rules, or send a specific /unwatch command for one target."
+        "Use /unwatch to remove rules, or send a specific /unwatch command for one custom target."
             .to_owned(),
     );
 
@@ -1132,12 +1123,8 @@ async fn register_bot_commands(state: &SharedState) -> Result<()> {
                 description: "Show FireWatch live status",
             },
             TelegramBotCommand {
-                command: "watch_all",
-                description: "Subscribe this chat to broad coverage",
-            },
-            TelegramBotCommand {
                 command: "watch_defi",
-                description: "Subscribe this chat to curated DeFi watch",
+                description: "Subscribe this chat to the free DeFi feed",
             },
             TelegramBotCommand {
                 command: "unwatch",
@@ -1230,7 +1217,13 @@ async fn send_help_menu(state: &SharedState, chat_id: &str, thread_id: Option<i6
 }
 
 async fn send_watch_menu(state: &SharedState, chat_id: &str, thread_id: Option<i64>) -> Result<()> {
-    send_watch_menu_with_note(state, chat_id, thread_id, WATCH_MENU_MESSAGE).await
+    send_watch_menu_with_note(
+        state,
+        chat_id,
+        thread_id,
+        "Free users can use /watch defi. Custom filters require Custom Plan setup.",
+    )
+    .await
 }
 
 async fn send_unwatch_menu(
@@ -1239,7 +1232,7 @@ async fn send_unwatch_menu(
     thread_id: Option<i64>,
 ) -> Result<()> {
     let text = format!(
-        "{UNWATCH_MENU_MESSAGE}\n\nUse this when you want to move from broad /watch all mode to a quieter focused setup."
+        "{UNWATCH_MENU_MESSAGE}\n\nUse this when you want to remove active rules before switching to the free DeFi stream."
     );
     send_message(
         state,
@@ -1383,16 +1376,10 @@ async fn close_menu_message(
 fn watch_menu_markup() -> TelegramInlineKeyboardMarkup {
     TelegramInlineKeyboardMarkup {
         inline_keyboard: vec![
-            vec![
-                TelegramInlineKeyboardButton {
-                    text: "Watch all",
-                    callback_data: "watch:all",
-                },
-                TelegramInlineKeyboardButton {
-                    text: "Watch DeFi",
-                    callback_data: "watch:defi",
-                },
-            ],
+            vec![TelegramInlineKeyboardButton {
+                text: "Watch free DeFi",
+                callback_data: "watch:defi",
+            }],
             vec![TelegramInlineKeyboardButton {
                 text: "Remove alerts",
                 callback_data: "unwatch:all",

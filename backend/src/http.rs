@@ -3,11 +3,14 @@ use crate::{
     database::{EventListFilters, ProgramVersionByteSide},
     link_preview,
     models::{
-        ChainEvent, CreateMetricAlertRuleRequest, CreateTelegramSubscriptionRequest,
-        DefiProtocolsResponse, EventScopeCounts, EventsResponse, EventsSummary, LiveStatusResponse,
-        MetricAlertRule, MetricAlertsResponse, ProgramDisassemblyResponse,
-        ProgramIdlVersionsResponse, ProgramSignerStatsResponse, ProgramVersionsResponse,
-        TelegramSubscription, TelegramSubscriptionSummaryResponse, TelegramSubscriptionsResponse,
+        AdminUsersResponse, ChainEvent, CreateMetricAlertRuleRequest, CreatePaymentLinkRequest,
+        CreatePromoCodeRequest, CreateTelegramSubscriptionRequest, DefiProtocolsResponse,
+        EventScopeCounts, EventsResponse, EventsSummary, FirewatchUser,
+        GrantUserEntitlementRequest, LiveStatusResponse, MetricAlertRule, MetricAlertsResponse,
+        PaymentLink, PaymentLinkCheckoutResponse, ProgramDisassemblyResponse,
+        ProgramIdlVersionsResponse, ProgramSignerStatsResponse, ProgramVersionsResponse, PromoCode,
+        PromoCodesResponse, TelegramSubscription, TelegramSubscriptionSummaryResponse,
+        TelegramSubscriptionsResponse, UpsertFirewatchUserRequest,
     },
     name_service, protocols, telegram,
 };
@@ -21,6 +24,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use solana_sdk::pubkey::Pubkey;
 use std::{str::FromStr, time::Instant};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
@@ -74,6 +78,24 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
         .route(
             "/api/metric-alert-rules/{id}",
             delete(delete_metric_alert_rule),
+        )
+        .route(
+            "/api/promo-codes",
+            get(list_promo_codes).post(create_promo_code),
+        )
+        .route("/api/promo-codes/{id}", delete(delete_promo_code))
+        .route("/api/users", get(list_users).post(upsert_user))
+        .route(
+            "/api/users/entitlements",
+            axum::routing::post(grant_user_entitlement),
+        )
+        .route(
+            "/api/payment-links",
+            get(list_payment_links).post(create_payment_link),
+        )
+        .route(
+            "/api/payment-links/by-token/{token}",
+            get(get_payment_link_checkout),
         )
         .route(
             "/api/telegram-subscriptions",
@@ -689,6 +711,301 @@ async fn delete_metric_alert_rule(
     }
 }
 
+async fn list_promo_codes(State(state): State<SharedState>) -> ApiResult<PromoCodesResponse> {
+    let items = state.db.list_promo_codes().await.map_err(internal_error)?;
+
+    Ok(Json(PromoCodesResponse { items }))
+}
+
+async fn create_promo_code(
+    State(state): State<SharedState>,
+    Json(payload): Json<CreatePromoCodeRequest>,
+) -> ApiResult<PromoCode> {
+    let label = payload.label.trim();
+    let audience = payload.audience.trim();
+    let plan_id = payload.plan_id.trim();
+
+    if label.is_empty() {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "A promo label is required.",
+        ));
+    }
+
+    if audience.is_empty() {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "A promo audience is required.",
+        ));
+    }
+
+    if plan_id.is_empty() {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "A promo plan id is required.",
+        ));
+    }
+
+    if !(1..=36).contains(&payload.duration_months) {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Promo duration must be between 1 and 36 months.",
+        ));
+    }
+
+    if payload.max_redemptions.is_some_and(|value| value <= 0) {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Max redemptions must be positive when provided.",
+        ));
+    }
+
+    if let (Some(starts_at), Some(expires_at)) = (payload.starts_at, payload.expires_at) {
+        if expires_at <= starts_at {
+            return Err(error_response(
+                StatusCode::BAD_REQUEST,
+                "Promo expiration must be after its start time.",
+            ));
+        }
+    }
+
+    let code_seed = payload
+        .code
+        .as_deref()
+        .map(str::trim)
+        .filter(|code| !code.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(generate_superteam_promo_code);
+    let code = normalize_promo_code(&code_seed)?;
+    let existing_codes = state.db.list_promo_codes().await.map_err(internal_error)?;
+    if existing_codes.iter().any(|promo| promo.code == code) {
+        return Err(error_response(
+            StatusCode::CONFLICT,
+            "A promo code with that code already exists.",
+        ));
+    }
+
+    let promo_code = state
+        .db
+        .create_promo_code(
+            &uuid::Uuid::new_v4().to_string(),
+            &code,
+            label,
+            audience,
+            plan_id,
+            payload.duration_months,
+            payload.max_redemptions,
+            payload.starts_at,
+            payload.expires_at,
+        )
+        .await
+        .map_err(internal_error)?;
+
+    Ok(Json(promo_code))
+}
+
+async fn delete_promo_code(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    let deleted = state
+        .db
+        .delete_promo_code(&id)
+        .await
+        .map_err(internal_error)?;
+
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Promo code not found.",
+        ))
+    }
+}
+
+async fn list_users(State(state): State<SharedState>) -> ApiResult<AdminUsersResponse> {
+    let users = state
+        .db
+        .list_firewatch_users()
+        .await
+        .map_err(internal_error)?;
+    let entitlements = state
+        .db
+        .list_user_entitlements()
+        .await
+        .map_err(internal_error)?;
+    let payment_links = state
+        .db
+        .list_payment_links()
+        .await
+        .map_err(internal_error)?;
+
+    Ok(Json(AdminUsersResponse {
+        users,
+        entitlements,
+        payment_links,
+    }))
+}
+
+async fn upsert_user(
+    State(state): State<SharedState>,
+    Json(payload): Json<UpsertFirewatchUserRequest>,
+) -> ApiResult<FirewatchUser> {
+    let username = payload
+        .telegram_username
+        .as_deref()
+        .map(normalize_telegram_username)
+        .filter(|value| !value.is_empty());
+    let label = payload
+        .label
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+
+    if payload.telegram_user_id.is_none() && username.is_none() && label.is_none() {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Provide a Telegram handle, Telegram user id, or label.",
+        ));
+    }
+
+    let user = state
+        .db
+        .upsert_firewatch_user(
+            payload.telegram_user_id,
+            username.as_deref(),
+            label.as_deref(),
+        )
+        .await
+        .map_err(internal_error)?;
+
+    Ok(Json(user))
+}
+
+async fn grant_user_entitlement(
+    State(state): State<SharedState>,
+    Json(payload): Json<GrantUserEntitlementRequest>,
+) -> ApiResult<crate::models::UserEntitlement> {
+    let user_id = payload.user_id.trim();
+    let plan_id = payload.plan_id.trim();
+    let source = payload.source.trim();
+
+    if state
+        .db
+        .firewatch_user_by_id(user_id)
+        .await
+        .map_err(internal_error)?
+        .is_none()
+    {
+        return Err(error_response(StatusCode::NOT_FOUND, "User not found."));
+    }
+
+    if plan_id.is_empty() {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Plan id is required.",
+        ));
+    }
+
+    if source.is_empty() {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Source is required.",
+        ));
+    }
+
+    if payload
+        .duration_months
+        .is_some_and(|value| !(1..=36).contains(&value))
+    {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Duration must be between 1 and 36 months.",
+        ));
+    }
+
+    let entitlement = state
+        .db
+        .grant_user_entitlement(
+            user_id,
+            plan_id,
+            source,
+            payload.duration_months,
+            payload.expires_at,
+        )
+        .await
+        .map_err(internal_error)?;
+
+    Ok(Json(entitlement))
+}
+
+async fn list_payment_links(State(state): State<SharedState>) -> ApiResult<serde_json::Value> {
+    let items = state
+        .db
+        .list_payment_links()
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(json!({ "items": items })))
+}
+
+async fn create_payment_link(
+    State(state): State<SharedState>,
+    Json(payload): Json<CreatePaymentLinkRequest>,
+) -> ApiResult<PaymentLink> {
+    let user = resolve_payment_link_user(&state, &payload).await?;
+    let plan_id = payload
+        .plan_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("paid");
+    let amount = payload
+        .amount
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or(state.config.solana_pay_custom_plan_amount.as_deref())
+        .ok_or_else(|| {
+            error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "SOLANA_PAY_CUSTOM_PLAN_AMOUNT or SOLANA_PAY_AMOUNT is not configured.",
+            )
+        })?;
+
+    let payment_link = build_and_store_payment_link(&state, &user, plan_id, amount).await?;
+    Ok(Json(payment_link))
+}
+
+async fn get_payment_link_checkout(
+    State(state): State<SharedState>,
+    Path(token): Path<String>,
+) -> ApiResult<PaymentLinkCheckoutResponse> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Payment link not found.",
+        ));
+    }
+
+    let token_hash = token_hash(token);
+    let Some((payment_link, user)) = state
+        .db
+        .payment_link_by_token_hash(&token_hash)
+        .await
+        .map_err(internal_error)?
+    else {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Payment link not found.",
+        ));
+    };
+
+    Ok(Json(PaymentLinkCheckoutResponse { payment_link, user }))
+}
+
 async fn create_telegram_subscription(
     State(state): State<SharedState>,
     Json(payload): Json<CreateTelegramSubscriptionRequest>,
@@ -742,11 +1059,14 @@ async fn create_telegram_subscription(
         .create_telegram_subscription(
             &uuid::Uuid::new_v4().to_string(),
             label,
+            None,
             chat_id,
             payload.thread_id,
             payload.scope,
             normalized_target_address.as_deref(),
             &required_tags,
+            "active",
+            None,
         )
         .await
         .map_err(internal_error)?;
@@ -887,6 +1207,286 @@ fn normalize_required_tags(
     normalized.dedup();
 
     Ok(normalized)
+}
+
+fn normalize_promo_code(raw_code: &str) -> Result<String, (StatusCode, Json<serde_json::Value>)> {
+    let code = raw_code.trim().to_ascii_uppercase();
+
+    if code.is_empty() || code.len() > 64 {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Promo code must be between 1 and 64 characters.",
+        ));
+    }
+
+    if !code
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Promo code may only contain letters, numbers, '-' and '_'.",
+        ));
+    }
+
+    Ok(code)
+}
+
+pub(crate) async fn create_solana_payment_link_for_user(
+    state: &SharedState,
+    user: &FirewatchUser,
+    plan_id: &str,
+) -> Result<PaymentLink, (StatusCode, Json<serde_json::Value>)> {
+    let amount = state
+        .config
+        .solana_pay_custom_plan_amount
+        .as_deref()
+        .ok_or_else(|| {
+            error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "SOLANA_PAY_CUSTOM_PLAN_AMOUNT or SOLANA_PAY_AMOUNT is not configured.",
+            )
+        })?;
+
+    build_and_store_payment_link(state, user, plan_id, amount).await
+}
+
+async fn resolve_payment_link_user(
+    state: &SharedState,
+    payload: &CreatePaymentLinkRequest,
+) -> Result<FirewatchUser, (StatusCode, Json<serde_json::Value>)> {
+    if let Some(user_id) = payload
+        .user_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return state
+            .db
+            .firewatch_user_by_id(user_id)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "User not found."));
+    }
+
+    let username = payload
+        .telegram_username
+        .as_deref()
+        .map(normalize_telegram_username)
+        .filter(|value| !value.is_empty());
+    let label = payload
+        .label
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+
+    if payload.telegram_user_id.is_none() && username.is_none() && label.is_none() {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Provide a user id, Telegram handle, Telegram user id, or label.",
+        ));
+    }
+
+    state
+        .db
+        .upsert_firewatch_user(
+            payload.telegram_user_id,
+            username.as_deref(),
+            label.as_deref(),
+        )
+        .await
+        .map_err(internal_error)
+}
+
+async fn build_and_store_payment_link(
+    state: &SharedState,
+    user: &FirewatchUser,
+    plan_id: &str,
+    amount: &str,
+) -> Result<PaymentLink, (StatusCode, Json<serde_json::Value>)> {
+    let recipient = state
+        .config
+        .solana_pay_recipient
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "SOLANA_PAY_RECIPIENT is not configured.",
+            )
+        })?;
+    let recipient = validate_pubkey_string(recipient, "SOLANA_PAY_RECIPIENT")?;
+    if state.config.solana_pay_spl_token.is_some() {
+        return Err(error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "SPL-token Solana Pay links are not enabled for auto-confirmation yet. Use a SOL amount for watcher-confirmed payments.",
+        ));
+    }
+    let spl_token: Option<String> = None;
+    validate_amount_string(amount)?;
+
+    let token = generate_payment_token();
+    let hash = token_hash(&token);
+    let reference = payment_reference(&token);
+    let public_url = format!(
+        "{}/pay/{}",
+        state.config.firewatch_web_base_url.trim_end_matches('/'),
+        token
+    );
+    let username = user
+        .telegram_username
+        .as_ref()
+        .map(|username| format!("@{username}"))
+        .or_else(|| user.label.clone())
+        .unwrap_or_else(|| "FireWatch user".to_owned());
+    let label = state.config.solana_pay_label.clone();
+    let message = format!("FireWatch Custom Plan for {username}");
+    let memo = format!("firewatch:{}:{}", user.id, &reference[..8]);
+    let solana_pay_url = solana_pay_url(
+        &recipient,
+        amount,
+        spl_token.as_deref(),
+        &reference,
+        &label,
+        &message,
+        &memo,
+    );
+    let expires_at = crate::models::now_ts() + state.config.solana_pay_link_ttl_hours * 60 * 60;
+
+    state
+        .db
+        .create_payment_link(
+            &user.id,
+            plan_id,
+            &hash,
+            &public_url,
+            &solana_pay_url,
+            &reference,
+            &recipient,
+            amount,
+            spl_token.as_deref(),
+            &label,
+            &message,
+            &memo,
+            expires_at,
+        )
+        .await
+        .map_err(internal_error)
+}
+
+fn normalize_telegram_username(value: &str) -> String {
+    value.trim().trim_start_matches('@').to_ascii_lowercase()
+}
+
+fn validate_pubkey_string(
+    value: &str,
+    label: &str,
+) -> Result<String, (StatusCode, Json<serde_json::Value>)> {
+    Pubkey::from_str(value)
+        .map(|pubkey| pubkey.to_string())
+        .map_err(|_| {
+            error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("{label} is not a valid Solana pubkey."),
+            )
+        })
+}
+
+fn validate_amount_string(amount: &str) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let amount = amount.trim();
+    if amount.is_empty()
+        || !amount
+            .chars()
+            .all(|character| character.is_ascii_digit() || character == '.')
+        || amount.matches('.').count() > 1
+    {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Solana Pay amount must be a positive decimal string.",
+        ));
+    }
+
+    let parsed = amount.parse::<f64>().map_err(|_| {
+        error_response(
+            StatusCode::BAD_REQUEST,
+            "Solana Pay amount must be a positive decimal string.",
+        )
+    })?;
+    if parsed <= 0.0 {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Solana Pay amount must be greater than zero.",
+        ));
+    }
+
+    Ok(())
+}
+
+fn generate_payment_token() -> String {
+    format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    )
+}
+
+fn token_hash(token: &str) -> String {
+    let digest = Sha256::digest(token.as_bytes());
+    hex::encode(digest)
+}
+
+fn payment_reference(token: &str) -> String {
+    let digest = Sha256::digest(format!("firewatch-solana-pay:{token}").as_bytes());
+    bs58::encode(digest).into_string()
+}
+
+fn solana_pay_url(
+    recipient: &str,
+    amount: &str,
+    spl_token: Option<&str>,
+    reference: &str,
+    label: &str,
+    message: &str,
+    memo: &str,
+) -> String {
+    let mut params = vec![
+        format!("amount={}", percent_encode(amount)),
+        format!("reference={}", percent_encode(reference)),
+        format!("label={}", percent_encode(label)),
+        format!("message={}", percent_encode(message)),
+        format!("memo={}", percent_encode(memo)),
+    ];
+    if let Some(spl_token) = spl_token {
+        params.insert(1, format!("spl-token={}", percent_encode(spl_token)));
+    }
+
+    format!("solana:{recipient}?{}", params.join("&"))
+}
+
+fn percent_encode(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        let character = byte as char;
+        if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.' | '~') {
+            encoded.push(character);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
+}
+
+fn generate_superteam_promo_code() -> String {
+    let suffix = uuid::Uuid::new_v4()
+        .simple()
+        .to_string()
+        .chars()
+        .take(8)
+        .collect::<String>()
+        .to_ascii_uppercase();
+    format!("SUPERTEAM-{suffix}")
 }
 
 fn program_bytes_filename(address: &str, version_id: &str, side: ProgramVersionByteSide) -> String {

@@ -24,6 +24,11 @@ pub struct Config {
     pub sns_refresh_seconds: u64,
     pub critical_sol_domains: Vec<String>,
     pub ferno_block_base_url: String,
+    pub solana_pay_recipient: Option<String>,
+    pub solana_pay_custom_plan_amount: Option<String>,
+    pub solana_pay_spl_token: Option<String>,
+    pub solana_pay_label: String,
+    pub solana_pay_link_ttl_hours: i64,
 }
 
 impl Config {
@@ -85,6 +90,25 @@ impl Config {
                 .ok()
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or_else(|| "https://block.ferno.ag/block".to_owned()),
+            solana_pay_recipient: env::var("SOLANA_PAY_RECIPIENT")
+                .ok()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty()),
+            solana_pay_custom_plan_amount: env::var("SOLANA_PAY_CUSTOM_PLAN_AMOUNT")
+                .or_else(|_| env::var("SOLANA_PAY_AMOUNT"))
+                .ok()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty()),
+            solana_pay_spl_token: env::var("SOLANA_PAY_SPL_TOKEN")
+                .ok()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty()),
+            solana_pay_label: env::var("SOLANA_PAY_LABEL")
+                .ok()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "FireWatch".to_owned()),
+            solana_pay_link_ttl_hours: env_i64("SOLANA_PAY_LINK_TTL_HOURS", 72).max(1),
         })
     }
 
@@ -162,6 +186,13 @@ fn detect_explorer_cluster(endpoint: &str) -> &'static str {
 }
 
 fn env_u64(key: &str, default: u64) -> u64 {
+    env::var(key)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
+}
+
+fn env_i64(key: &str, default: i64) -> i64 {
     env::var(key)
         .ok()
         .and_then(|value| value.parse().ok())

@@ -18,6 +18,7 @@
 		{ href: '/', label: 'Watch' },
 		{ href: '/programs', label: 'Programs' },
 		{ href: '/events', label: 'Activity' },
+		{ href: '/pricing', label: 'Pricing' },
 		{ href: '/docs', label: 'Reference' }
 	];
 

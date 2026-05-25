@@ -149,16 +149,23 @@ pub struct EventsResponse {
 pub struct TelegramSubscription {
     pub id: String,
     pub label: String,
+    pub user_id: Option<String>,
     pub chat_id: String,
     pub thread_id: Option<i64>,
     pub scope: TelegramEventScope,
     pub target_address: Option<String>,
     pub required_tags: Vec<String>,
+    pub status: String,
+    pub payment_link_id: Option<String>,
     pub created_at: i64,
 }
 
 impl TelegramSubscription {
     pub fn matches_event(&self, event: &ChainEvent) -> bool {
+        if self.status != "active" {
+            return false;
+        }
+
         if self.scope == TelegramEventScope::MultisigActivity {
             if event.target_type != target_type::MULTISIG
                 || !is_multisig_activity_kind(event.kind.as_str())
@@ -194,6 +201,121 @@ pub struct TelegramSubscriptionsResponse {
 pub struct TelegramSubscriptionSummaryResponse {
     pub subscription_count: i64,
     pub telegram_enabled: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PromoCode {
+    pub id: String,
+    pub code: String,
+    pub label: String,
+    pub audience: String,
+    pub plan_id: String,
+    pub duration_months: i64,
+    pub max_redemptions: Option<i64>,
+    pub redeemed_count: i64,
+    pub starts_at: Option<i64>,
+    pub expires_at: Option<i64>,
+    pub active: bool,
+    pub created_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PromoCodesResponse {
+    pub items: Vec<PromoCode>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CreatePromoCodeRequest {
+    pub code: Option<String>,
+    pub label: String,
+    pub audience: String,
+    pub plan_id: String,
+    pub duration_months: i64,
+    pub max_redemptions: Option<i64>,
+    pub starts_at: Option<i64>,
+    pub expires_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FirewatchUser {
+    pub id: String,
+    pub telegram_user_id: Option<i64>,
+    pub telegram_username: Option<String>,
+    pub label: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UserEntitlement {
+    pub id: String,
+    pub user_id: String,
+    pub plan_id: String,
+    pub source: String,
+    pub status: String,
+    pub starts_at: i64,
+    pub expires_at: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PaymentLink {
+    pub id: String,
+    pub user_id: String,
+    pub plan_id: String,
+    pub public_url: String,
+    pub solana_pay_url: String,
+    pub reference: String,
+    pub recipient: String,
+    pub amount: String,
+    pub spl_token: Option<String>,
+    pub label: String,
+    pub message: String,
+    pub memo: String,
+    pub status: String,
+    pub expires_at: i64,
+    pub paid_at: Option<i64>,
+    pub created_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AdminUsersResponse {
+    pub users: Vec<FirewatchUser>,
+    pub entitlements: Vec<UserEntitlement>,
+    pub payment_links: Vec<PaymentLink>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UpsertFirewatchUserRequest {
+    pub telegram_user_id: Option<i64>,
+    pub telegram_username: Option<String>,
+    pub label: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GrantUserEntitlementRequest {
+    pub user_id: String,
+    pub plan_id: String,
+    pub source: String,
+    pub duration_months: Option<i64>,
+    pub expires_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CreatePaymentLinkRequest {
+    pub user_id: Option<String>,
+    pub telegram_user_id: Option<i64>,
+    pub telegram_username: Option<String>,
+    pub label: Option<String>,
+    pub plan_id: Option<String>,
+    pub amount: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PaymentLinkCheckoutResponse {
+    pub payment_link: PaymentLink,
+    pub user: FirewatchUser,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -649,11 +771,14 @@ mod tests {
         TelegramSubscription {
             id: "test-subscription".to_owned(),
             label: "test".to_owned(),
+            user_id: None,
             chat_id: "1".to_owned(),
             thread_id: None,
             scope: TelegramEventScope::MultisigActivity,
             target_address: target_address.map(str::to_owned),
             required_tags: Vec::new(),
+            status: "active".to_owned(),
+            payment_link_id: None,
             created_at: 1,
         }
     }

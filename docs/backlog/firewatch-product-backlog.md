@@ -1,5 +1,27 @@
 # FireWatch Backlog
 
+## Monetization and Account Entitlements
+
+Status: in progress
+
+Goal: keep FireWatch free for Ferno members while making non-member custom bot setup, arbitrary program/watch rules, and pro response access paid.
+
+Why it matters:
+- Custom alert setup creates support and infrastructure cost.
+- A paid account gives teams a clear path from "watch this surface" to a private bot with tested delivery.
+- Pro response can package reviewed signals and Smart Account actions without confusing them with the free shared watch.
+
+Implementation ideas:
+- Free Shared Watch: curated protocols, exact program commands, and public activity.
+- Paid Account: dedicated bot, custom program/multisig/wallet rules, chosen alert thresholds, private test alert.
+- Superteam Promo: admin-created code that grants 12 months of free product access.
+- Pro Response: on-demand reviewed signal access plus authorized Smart Account withdrawal and redeploy workflow.
+
+Open questions:
+- Which billing provider and account identity model should own entitlement checks?
+- Should paid accounts be self-serve, manually provisioned, or both?
+- What policy approvals are required before Smart Account fund movement is enabled?
+
 ## Wallet to Protocol Detection
 
 Status: backlog

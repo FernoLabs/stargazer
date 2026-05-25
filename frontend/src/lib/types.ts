@@ -51,11 +51,14 @@ export type TelegramEventScope = 'program_updates' | 'multisig_activity' | 'defi
 export interface TelegramSubscription {
 	id: string;
 	label: string;
+	user_id: string | null;
 	chat_id: string;
 	thread_id: number | null;
 	scope: TelegramEventScope;
 	target_address: string | null;
 	required_tags: string[];
+	status: string;
+	payment_link_id: string | null;
 	created_at: number;
 }
 
@@ -118,6 +121,80 @@ export interface MetricAlertPreset {
 export interface MetricAlertsResponse {
 	presets: MetricAlertPreset[];
 	rules: MetricAlertRule[];
+}
+
+export interface PromoCode {
+	id: string;
+	code: string;
+	label: string;
+	audience: string;
+	plan_id: string;
+	duration_months: number;
+	max_redemptions: number | null;
+	redeemed_count: number;
+	starts_at: number | null;
+	expires_at: number | null;
+	active: boolean;
+	created_at: number;
+}
+
+export interface PromoCodesResponse {
+	items: PromoCode[];
+}
+
+export interface FirewatchUser {
+	id: string;
+	telegram_user_id: number | null;
+	telegram_username: string | null;
+	label: string | null;
+	created_at: number;
+	updated_at: number;
+}
+
+export interface UserEntitlement {
+	id: string;
+	user_id: string;
+	plan_id: string;
+	source: string;
+	status: string;
+	starts_at: number;
+	expires_at: number | null;
+	created_at: number;
+	updated_at: number;
+}
+
+export interface PaymentLink {
+	id: string;
+	user_id: string;
+	plan_id: string;
+	public_url: string;
+	solana_pay_url: string;
+	reference: string;
+	recipient: string;
+	amount: string;
+	spl_token: string | null;
+	label: string;
+	message: string;
+	memo: string;
+	status: string;
+	expires_at: number;
+	paid_at: number | null;
+	created_at: number;
+}
+
+export interface AdminUsersResponse {
+	users: FirewatchUser[];
+	entitlements: UserEntitlement[];
+	payment_links: PaymentLink[];
+}
+
+export interface PaymentLinksResponse {
+	items: PaymentLink[];
+}
+
+export interface PaymentLinkCheckoutResponse {
+	payment_link: PaymentLink;
+	user: FirewatchUser;
 }
 
 export type ProtocolCoverage = 'address_only' | 'admin_signals' | 'deep_decode';

@@ -109,6 +109,11 @@ function isProtectedBackendPath(path: string) {
 		path === 'api/metric-alerts' ||
 		path === 'api/metric-alert-rules' ||
 		path.startsWith('api/metric-alert-rules/') ||
+		path === 'api/promo-codes' ||
+		path.startsWith('api/promo-codes/') ||
+		path === 'api/users' ||
+		path.startsWith('api/users/') ||
+		path === 'api/payment-links' ||
 		path === 'api/telegram-subscriptions' ||
 		path.startsWith('api/telegram-subscriptions/')
 	);

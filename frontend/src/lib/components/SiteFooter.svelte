@@ -10,6 +10,8 @@
 		</div>
 
 		<nav class="footer-links" aria-label="FireWatch footer">
+			<a href="/pricing">Pricing</a>
+			<a href="/join-the-watch">Join</a>
 			<a href="/docs">Reference</a>
 			<span class="muted-text">GitHub soon</span>
 		</nav>

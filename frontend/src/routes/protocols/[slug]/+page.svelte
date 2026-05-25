@@ -266,7 +266,7 @@
 		<article class="panel">
 			<SectionHeader
 				title="Watch targets"
-				description="Copy one focused rule for the project, or track individual programs and multisigs."
+				description="Custom Plan drafts for one project, exact programs, or multisigs."
 				compact
 			/>
 
@@ -284,19 +284,19 @@
 							<p>{item.reason}</p>
 							<code class="command-code">{item.command}</code>
 						</div>
-						<button class="ghost-button" type="button" onclick={() => copyText(item.command)}>Copy</button>
+						<button class="ghost-button" type="button" onclick={() => copyText(item.command)}>Copy draft</button>
 					</div>
 				{/each}
 			</div>
 
 			<div class="panel-actions">
 				<button class="secondary-link button-like" type="button" onclick={() => copyText(commandBlock())}>
-					Copy all commands
+					Copy all drafts
 				</button>
 			</div>
 
 			{#if copiedState === 'copied'}
-				<p class="flash success">Command copied.</p>
+				<p class="flash success">Setup draft copied.</p>
 			{:else if copiedState === 'error'}
 				<p class="flash error">Clipboard access failed. Copy the command manually.</p>
 			{/if}

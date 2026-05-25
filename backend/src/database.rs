@@ -9,10 +9,11 @@ use crate::protocols;
 use crate::{
     anchor_idl,
     models::{
-        ChainEvent, EventScopeCounts, EventsSummary, MetricAlertPreset, MetricAlertRule,
-        PendingTelegramDelivery, ProgramDataWrite, ProgramDisassemblyRecord, ProgramIdlDataWrite,
-        ProgramIdlVersionRecord, ProgramRiskSummary, ProgramSignerStat, ProgramVersionRecord,
-        ProgramVersionSummary, ProtocolMetricObservation, TelegramEventScope, TelegramSubscription,
+        ChainEvent, EventScopeCounts, EventsSummary, FirewatchUser, MetricAlertPreset,
+        MetricAlertRule, PaymentLink, PendingTelegramDelivery, ProgramDataWrite,
+        ProgramDisassemblyRecord, ProgramIdlDataWrite, ProgramIdlVersionRecord, ProgramRiskSummary,
+        ProgramSignerStat, ProgramVersionRecord, ProgramVersionSummary, PromoCode,
+        ProtocolMetricObservation, TelegramEventScope, TelegramSubscription, UserEntitlement,
         event_kind, now_ts,
     },
 };
@@ -439,11 +440,14 @@ impl Database {
             CREATE TABLE IF NOT EXISTS telegram_subscriptions (
                 id TEXT PRIMARY KEY,
                 label TEXT NOT NULL,
+                user_id TEXT,
                 chat_id TEXT NOT NULL,
                 thread_id INTEGER,
                 scope TEXT NOT NULL,
                 target_address TEXT,
                 required_tags_json TEXT NOT NULL DEFAULT '[]',
+                status TEXT NOT NULL DEFAULT 'active',
+                payment_link_id TEXT,
                 created_at INTEGER NOT NULL
             );
             "#,
@@ -457,11 +461,30 @@ impl Database {
             "TEXT NOT NULL DEFAULT '[]'",
         )
         .await?;
+        self.ensure_column("telegram_subscriptions", "user_id", "TEXT")
+            .await?;
+        self.ensure_column(
+            "telegram_subscriptions",
+            "status",
+            "TEXT NOT NULL DEFAULT 'active'",
+        )
+        .await?;
+        self.ensure_column("telegram_subscriptions", "payment_link_id", "TEXT")
+            .await?;
 
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_telegram_subscriptions_scope_target
             ON telegram_subscriptions (scope, target_address, created_at DESC);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_telegram_subscriptions_status_user
+            ON telegram_subscriptions (status, user_id, created_at DESC);
             "#,
         )
         .execute(&self.pool)
@@ -563,6 +586,132 @@ impl Database {
             r#"
             CREATE INDEX IF NOT EXISTS idx_metric_alert_rules_lookup
             ON metric_alert_rules (protocol_slug, instruction_name, metric_key, subject_address, created_at DESC);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS promo_codes (
+                id TEXT PRIMARY KEY,
+                code TEXT NOT NULL UNIQUE,
+                label TEXT NOT NULL,
+                audience TEXT NOT NULL,
+                plan_id TEXT NOT NULL,
+                duration_months INTEGER NOT NULL,
+                max_redemptions INTEGER,
+                redeemed_count INTEGER NOT NULL DEFAULT 0,
+                starts_at INTEGER,
+                expires_at INTEGER,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at INTEGER NOT NULL
+            );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS firewatch_users (
+                id TEXT PRIMARY KEY,
+                telegram_user_id INTEGER,
+                telegram_username TEXT,
+                label TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_firewatch_users_telegram_user_id
+            ON firewatch_users (telegram_user_id)
+            WHERE telegram_user_id IS NOT NULL;
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_firewatch_users_telegram_username
+            ON firewatch_users (telegram_username);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS user_entitlements (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                plan_id TEXT NOT NULL,
+                source TEXT NOT NULL,
+                status TEXT NOT NULL,
+                starts_at INTEGER NOT NULL,
+                expires_at INTEGER,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_user_entitlements_user_status
+            ON user_entitlements (user_id, status, plan_id, expires_at);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS payment_links (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                plan_id TEXT NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                public_url TEXT NOT NULL,
+                solana_pay_url TEXT NOT NULL,
+                reference TEXT NOT NULL UNIQUE,
+                recipient TEXT NOT NULL,
+                amount TEXT NOT NULL,
+                spl_token TEXT,
+                label TEXT NOT NULL,
+                message TEXT NOT NULL,
+                memo TEXT NOT NULL,
+                status TEXT NOT NULL,
+                expires_at INTEGER NOT NULL,
+                paid_at INTEGER,
+                created_at INTEGER NOT NULL
+            );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_payment_links_user_created
+            ON payment_links (user_id, created_at DESC);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_promo_codes_created_at
+            ON promo_codes (created_at DESC);
             "#,
         )
         .execute(&self.pool)
@@ -3539,6 +3688,520 @@ impl Database {
         Ok(result.rows_affected() == 1)
     }
 
+    pub async fn list_firewatch_users(&self) -> Result<Vec<FirewatchUser>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, telegram_user_id, telegram_username, label, created_at, updated_at
+            FROM firewatch_users
+            ORDER BY updated_at DESC, created_at DESC;
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(row_to_firewatch_user).collect()
+    }
+
+    pub async fn firewatch_user_by_id(&self, id: &str) -> Result<Option<FirewatchUser>> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, telegram_user_id, telegram_username, label, created_at, updated_at
+            FROM firewatch_users
+            WHERE id = ?
+            LIMIT 1;
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(row_to_firewatch_user).transpose()
+    }
+
+    pub async fn upsert_firewatch_user(
+        &self,
+        telegram_user_id: Option<i64>,
+        telegram_username: Option<&str>,
+        label: Option<&str>,
+    ) -> Result<FirewatchUser> {
+        let normalized_username = telegram_username
+            .map(normalize_telegram_username)
+            .filter(|value| !value.is_empty());
+        let normalized_label = label.map(str::trim).filter(|value| !value.is_empty());
+        let existing = if let Some(telegram_user_id) = telegram_user_id {
+            sqlx::query(
+                r#"
+                SELECT id, telegram_user_id, telegram_username, label, created_at, updated_at
+                FROM firewatch_users
+                WHERE telegram_user_id = ?
+                LIMIT 1;
+                "#,
+            )
+            .bind(telegram_user_id)
+            .fetch_optional(&self.pool)
+            .await?
+        } else if let Some(username) = normalized_username.as_deref() {
+            sqlx::query(
+                r#"
+                SELECT id, telegram_user_id, telegram_username, label, created_at, updated_at
+                FROM firewatch_users
+                WHERE lower(telegram_username) = lower(?)
+                LIMIT 1;
+                "#,
+            )
+            .bind(username)
+            .fetch_optional(&self.pool)
+            .await?
+        } else {
+            None
+        };
+
+        let now = now_ts();
+        if let Some(row) = existing {
+            let id: String = row.try_get("id")?;
+            let user = row_to_firewatch_user(row)?;
+            let next_username = normalized_username
+                .as_deref()
+                .or(user.telegram_username.as_deref());
+            let next_label = normalized_label.or(user.label.as_deref());
+            let row = sqlx::query(
+                r#"
+                UPDATE firewatch_users
+                SET telegram_user_id = COALESCE(?, telegram_user_id),
+                    telegram_username = ?,
+                    label = ?,
+                    updated_at = ?
+                WHERE id = ?
+                RETURNING id, telegram_user_id, telegram_username, label, created_at, updated_at;
+                "#,
+            )
+            .bind(telegram_user_id)
+            .bind(next_username)
+            .bind(next_label)
+            .bind(now)
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await?;
+
+            return row_to_firewatch_user(row);
+        }
+
+        let row = sqlx::query(
+            r#"
+            INSERT INTO firewatch_users (
+                id,
+                telegram_user_id,
+                telegram_username,
+                label,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            RETURNING id, telegram_user_id, telegram_username, label, created_at, updated_at;
+            "#,
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(telegram_user_id)
+        .bind(normalized_username.as_deref())
+        .bind(normalized_label)
+        .bind(now)
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await?;
+
+        row_to_firewatch_user(row)
+    }
+
+    pub async fn list_user_entitlements(&self) -> Result<Vec<UserEntitlement>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, user_id, plan_id, source, status, starts_at, expires_at, created_at, updated_at
+            FROM user_entitlements
+            ORDER BY updated_at DESC, created_at DESC;
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(row_to_user_entitlement).collect()
+    }
+
+    pub async fn user_has_active_custom_entitlement(
+        &self,
+        user_id: &str,
+        now: i64,
+    ) -> Result<bool> {
+        let count = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*)
+            FROM user_entitlements
+            WHERE user_id = ?
+              AND status = 'active'
+              AND plan_id IN ('paid', 'custom', 'pro', 'ferno-member')
+              AND starts_at <= ?
+              AND (expires_at IS NULL OR expires_at > ?);
+            "#,
+        )
+        .bind(user_id)
+        .bind(now)
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(count > 0)
+    }
+
+    pub async fn grant_user_entitlement(
+        &self,
+        user_id: &str,
+        plan_id: &str,
+        source: &str,
+        duration_months: Option<i64>,
+        expires_at: Option<i64>,
+    ) -> Result<UserEntitlement> {
+        let now = now_ts();
+        let computed_expires_at = expires_at
+            .or_else(|| duration_months.map(|months| now + months.max(1) * 30 * 24 * 60 * 60));
+        let row = sqlx::query(
+            r#"
+            INSERT INTO user_entitlements (
+                id,
+                user_id,
+                plan_id,
+                source,
+                status,
+                starts_at,
+                expires_at,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)
+            RETURNING id, user_id, plan_id, source, status, starts_at, expires_at, created_at, updated_at;
+            "#,
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(user_id)
+        .bind(plan_id)
+        .bind(source)
+        .bind(now)
+        .bind(computed_expires_at)
+        .bind(now)
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await?;
+
+        self.activate_user_pending_subscriptions(user_id).await?;
+        self.mark_user_payment_links_paid(user_id, now).await?;
+
+        row_to_user_entitlement(row)
+    }
+
+    pub async fn list_payment_links(&self) -> Result<Vec<PaymentLink>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                id, user_id, plan_id, public_url, solana_pay_url, reference, recipient,
+                amount, spl_token, label, message, memo, status, expires_at, paid_at, created_at
+            FROM payment_links
+            ORDER BY created_at DESC;
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(row_to_payment_link).collect()
+    }
+
+    pub async fn create_payment_link(
+        &self,
+        user_id: &str,
+        plan_id: &str,
+        token_hash: &str,
+        public_url: &str,
+        solana_pay_url: &str,
+        reference: &str,
+        recipient: &str,
+        amount: &str,
+        spl_token: Option<&str>,
+        label: &str,
+        message: &str,
+        memo: &str,
+        expires_at: i64,
+    ) -> Result<PaymentLink> {
+        let created_at = now_ts();
+        let row = sqlx::query(
+            r#"
+            INSERT INTO payment_links (
+                id,
+                user_id,
+                plan_id,
+                token_hash,
+                public_url,
+                solana_pay_url,
+                reference,
+                recipient,
+                amount,
+                spl_token,
+                label,
+                message,
+                memo,
+                status,
+                expires_at,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+            RETURNING
+                id, user_id, plan_id, public_url, solana_pay_url, reference, recipient,
+                amount, spl_token, label, message, memo, status, expires_at, paid_at, created_at;
+            "#,
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(user_id)
+        .bind(plan_id)
+        .bind(token_hash)
+        .bind(public_url)
+        .bind(solana_pay_url)
+        .bind(reference)
+        .bind(recipient)
+        .bind(amount)
+        .bind(spl_token)
+        .bind(label)
+        .bind(message)
+        .bind(memo)
+        .bind(expires_at)
+        .bind(created_at)
+        .fetch_one(&self.pool)
+        .await?;
+
+        row_to_payment_link(row)
+    }
+
+    pub async fn payment_link_by_token_hash(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<(PaymentLink, FirewatchUser)>> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                pl.id AS payment_link_id,
+                pl.user_id AS payment_link_user_id,
+                pl.plan_id AS payment_link_plan_id,
+                pl.public_url AS payment_link_public_url,
+                pl.solana_pay_url AS payment_link_solana_pay_url,
+                pl.reference AS payment_link_reference,
+                pl.recipient AS payment_link_recipient,
+                pl.amount AS payment_link_amount,
+                pl.spl_token AS payment_link_spl_token,
+                pl.label AS payment_link_label,
+                pl.message AS payment_link_message,
+                pl.memo AS payment_link_memo,
+                pl.status AS payment_link_status,
+                pl.expires_at AS payment_link_expires_at,
+                pl.paid_at AS payment_link_paid_at,
+                pl.created_at AS payment_link_created_at,
+                u.id AS user_id,
+                u.telegram_user_id AS user_telegram_user_id,
+                u.telegram_username AS user_telegram_username,
+                u.label AS user_label,
+                u.created_at AS user_created_at,
+                u.updated_at AS user_updated_at
+            FROM payment_links pl
+            JOIN firewatch_users u ON u.id = pl.user_id
+            WHERE pl.token_hash = ?
+            LIMIT 1;
+            "#,
+        )
+        .bind(token_hash)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(|row| {
+            Ok((
+                row_to_payment_link_prefixed(&row, "payment_link_")?,
+                row_to_firewatch_user_prefixed(&row, "user_")?,
+            ))
+        })
+        .transpose()
+    }
+
+    pub async fn pending_payment_links_by_references(
+        &self,
+        references: &[String],
+        now: i64,
+    ) -> Result<Vec<PaymentLink>> {
+        if references.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            r#"
+            SELECT
+                id, user_id, plan_id, public_url, solana_pay_url, reference, recipient,
+                amount, spl_token, label, message, memo, status, expires_at, paid_at, created_at
+            FROM payment_links
+            WHERE status = 'pending'
+              AND expires_at > 
+            "#,
+        );
+        builder.push_bind(now);
+        builder.push(" AND reference IN (");
+        let mut separated = builder.separated(", ");
+        for reference in references {
+            separated.push_bind(reference);
+        }
+        separated.push_unseparated(")");
+
+        let rows = builder.build().fetch_all(&self.pool).await?;
+
+        rows.into_iter().map(row_to_payment_link).collect()
+    }
+
+    pub async fn mark_payment_link_paid(&self, id: &str, paid_at: i64) -> Result<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE payment_links
+            SET status = 'paid', paid_at = ?
+            WHERE id = ? AND status = 'pending';
+            "#,
+        )
+        .bind(paid_at)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn activate_user_pending_subscriptions(&self, user_id: &str) -> Result<u64> {
+        let result = sqlx::query(
+            r#"
+            UPDATE telegram_subscriptions
+            SET status = 'active'
+            WHERE user_id = ? AND status = 'pending_payment';
+            "#,
+        )
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    pub async fn mark_user_payment_links_paid(&self, user_id: &str, paid_at: i64) -> Result<u64> {
+        let result = sqlx::query(
+            r#"
+            UPDATE payment_links
+            SET status = 'paid', paid_at = COALESCE(paid_at, ?)
+            WHERE user_id = ? AND status = 'pending';
+            "#,
+        )
+        .bind(paid_at)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    pub async fn list_promo_codes(&self) -> Result<Vec<PromoCode>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                id,
+                code,
+                label,
+                audience,
+                plan_id,
+                duration_months,
+                max_redemptions,
+                redeemed_count,
+                starts_at,
+                expires_at,
+                active,
+                created_at
+            FROM promo_codes
+            ORDER BY created_at DESC;
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(row_to_promo_code).collect()
+    }
+
+    pub async fn create_promo_code(
+        &self,
+        id: &str,
+        code: &str,
+        label: &str,
+        audience: &str,
+        plan_id: &str,
+        duration_months: i64,
+        max_redemptions: Option<i64>,
+        starts_at: Option<i64>,
+        expires_at: Option<i64>,
+    ) -> Result<PromoCode> {
+        let created_at = now_ts();
+        let row = sqlx::query(
+            r#"
+            INSERT INTO promo_codes (
+                id,
+                code,
+                label,
+                audience,
+                plan_id,
+                duration_months,
+                max_redemptions,
+                starts_at,
+                expires_at,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING
+                id,
+                code,
+                label,
+                audience,
+                plan_id,
+                duration_months,
+                max_redemptions,
+                redeemed_count,
+                starts_at,
+                expires_at,
+                active,
+                created_at;
+            "#,
+        )
+        .bind(id)
+        .bind(code)
+        .bind(label)
+        .bind(audience)
+        .bind(plan_id)
+        .bind(duration_months)
+        .bind(max_redemptions)
+        .bind(starts_at)
+        .bind(expires_at)
+        .bind(created_at)
+        .fetch_one(&self.pool)
+        .await?;
+
+        row_to_promo_code(row)
+    }
+
+    pub async fn delete_promo_code(&self, id: &str) -> Result<bool> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM promo_codes
+            WHERE id = ?;
+            "#,
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() == 1)
+    }
+
     pub async fn matching_metric_alert_rules(
         &self,
         observation: &ProtocolMetricObservation,
@@ -3581,7 +4244,18 @@ impl Database {
     pub async fn list_telegram_subscriptions(&self) -> Result<Vec<TelegramSubscription>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, label, chat_id, thread_id, scope, target_address, required_tags_json, created_at
+            SELECT
+                id,
+                label,
+                user_id,
+                chat_id,
+                thread_id,
+                scope,
+                target_address,
+                required_tags_json,
+                status,
+                payment_link_id,
+                created_at
             FROM telegram_subscriptions
             ORDER BY created_at DESC;
             "#,
@@ -3609,11 +4283,14 @@ impl Database {
         &self,
         id: &str,
         label: &str,
+        user_id: Option<&str>,
         chat_id: &str,
         thread_id: Option<i64>,
         scope: TelegramEventScope,
         target_address: Option<&str>,
         required_tags: &[String],
+        status: &str,
+        payment_link_id: Option<&str>,
     ) -> Result<TelegramSubscription> {
         let created_at = now_ts();
         let row = sqlx::query(
@@ -3621,24 +4298,41 @@ impl Database {
             INSERT INTO telegram_subscriptions (
                 id,
                 label,
+                user_id,
                 chat_id,
                 thread_id,
                 scope,
                 target_address,
                 required_tags_json,
+                status,
+                payment_link_id,
                 created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            RETURNING id, label, chat_id, thread_id, scope, target_address, required_tags_json, created_at;
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING
+                id,
+                label,
+                user_id,
+                chat_id,
+                thread_id,
+                scope,
+                target_address,
+                required_tags_json,
+                status,
+                payment_link_id,
+                created_at;
             "#,
         )
         .bind(id)
         .bind(label)
+        .bind(user_id)
         .bind(chat_id)
         .bind(thread_id)
         .bind(scope.as_str())
         .bind(target_address)
         .bind(serde_json::to_string(required_tags)?)
+        .bind(status)
+        .bind(payment_link_id)
         .bind(created_at)
         .fetch_one(&self.pool)
         .await?;
@@ -3658,13 +4352,25 @@ impl Database {
         let required_tags_json = serde_json::to_string(required_tags)?;
         let existing = sqlx::query(
             r#"
-            SELECT id, label, chat_id, thread_id, scope, target_address, required_tags_json, created_at
+            SELECT
+                id,
+                label,
+                user_id,
+                chat_id,
+                thread_id,
+                scope,
+                target_address,
+                required_tags_json,
+                status,
+                payment_link_id,
+                created_at
             FROM telegram_subscriptions
             WHERE chat_id = ?
               AND ((thread_id IS NULL AND ? IS NULL) OR thread_id = ?)
               AND scope = ?
               AND ((target_address IS NULL AND ? IS NULL) OR target_address = ?)
               AND required_tags_json = ?
+              AND status = 'active'
             LIMIT 1;
             "#,
         )
@@ -3686,11 +4392,14 @@ impl Database {
             self.create_telegram_subscription(
                 &uuid::Uuid::new_v4().to_string(),
                 label,
+                None,
                 chat_id,
                 thread_id,
                 scope,
                 target_address,
                 required_tags,
+                "active",
+                None,
             )
             .await?,
             true,
@@ -3788,11 +4497,14 @@ impl Database {
                 td.delivery_attempts AS telegram_delivery_attempts,
                 s.id AS subscription_id,
                 s.label AS subscription_label,
+                s.user_id AS subscription_user_id,
                 s.chat_id AS subscription_chat_id,
                 s.thread_id AS subscription_thread_id,
                 s.scope AS subscription_scope,
                 s.target_address AS subscription_target_address,
                 s.required_tags_json AS subscription_required_tags_json,
+                s.status AS subscription_status,
+                s.payment_link_id AS subscription_payment_link_id,
                 s.created_at AS subscription_created_at,
                 e.id,
                 e.signature,
@@ -3814,7 +4526,7 @@ impl Database {
             FROM telegram_deliveries td
             JOIN telegram_subscriptions s ON s.id = td.subscription_id
             JOIN events e ON e.id = td.event_id
-            WHERE td.delivered_at IS NULL AND td.next_retry_at <= ?
+            WHERE td.delivered_at IS NULL AND td.next_retry_at <= ? AND s.status = 'active'
             ORDER BY td.next_retry_at ASC, e.slot DESC
             LIMIT ?;
             "#,
@@ -4811,6 +5523,7 @@ fn row_to_telegram_subscription(row: sqlx::sqlite::SqliteRow) -> Result<Telegram
     Ok(TelegramSubscription {
         id: row.try_get("id")?,
         label: row.try_get("label")?,
+        user_id: row.try_get("user_id")?,
         chat_id: row.try_get("chat_id")?,
         thread_id: row.try_get("thread_id")?,
         scope: row
@@ -4821,6 +5534,8 @@ fn row_to_telegram_subscription(row: sqlx::sqlite::SqliteRow) -> Result<Telegram
         required_tags: serde_json::from_str::<Vec<String>>(
             &row.try_get::<String, _>("required_tags_json")?,
         )?,
+        status: row.try_get("status")?,
+        payment_link_id: row.try_get("payment_link_id")?,
         created_at: row.try_get("created_at")?,
     })
 }
@@ -4834,6 +5549,7 @@ fn row_to_pending_telegram_delivery(
         subscription: TelegramSubscription {
             id: row.try_get("subscription_id")?,
             label: row.try_get("subscription_label")?,
+            user_id: row.try_get("subscription_user_id")?,
             chat_id: row.try_get("subscription_chat_id")?,
             thread_id: row.try_get("subscription_thread_id")?,
             scope: row
@@ -4844,6 +5560,8 @@ fn row_to_pending_telegram_delivery(
             required_tags: serde_json::from_str::<Vec<String>>(
                 &row.try_get::<String, _>("subscription_required_tags_json")?,
             )?,
+            status: row.try_get("subscription_status")?,
+            payment_link_id: row.try_get("subscription_payment_link_id")?,
             created_at: row.try_get("subscription_created_at")?,
         },
         event: row_to_event(row)?,
@@ -5091,6 +5809,70 @@ mod tests {
     }
 }
 
+fn normalize_telegram_username(value: &str) -> String {
+    value.trim().trim_start_matches('@').to_ascii_lowercase()
+}
+
+fn row_to_firewatch_user(row: sqlx::sqlite::SqliteRow) -> Result<FirewatchUser> {
+    row_to_firewatch_user_prefixed(&row, "")
+}
+
+fn row_to_firewatch_user_prefixed(
+    row: &sqlx::sqlite::SqliteRow,
+    prefix: &str,
+) -> Result<FirewatchUser> {
+    Ok(FirewatchUser {
+        id: row.try_get(format!("{prefix}id").as_str())?,
+        telegram_user_id: row.try_get(format!("{prefix}telegram_user_id").as_str())?,
+        telegram_username: row.try_get(format!("{prefix}telegram_username").as_str())?,
+        label: row.try_get(format!("{prefix}label").as_str())?,
+        created_at: row.try_get(format!("{prefix}created_at").as_str())?,
+        updated_at: row.try_get(format!("{prefix}updated_at").as_str())?,
+    })
+}
+
+fn row_to_user_entitlement(row: sqlx::sqlite::SqliteRow) -> Result<UserEntitlement> {
+    Ok(UserEntitlement {
+        id: row.try_get("id")?,
+        user_id: row.try_get("user_id")?,
+        plan_id: row.try_get("plan_id")?,
+        source: row.try_get("source")?,
+        status: row.try_get("status")?,
+        starts_at: row.try_get("starts_at")?,
+        expires_at: row.try_get("expires_at")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+fn row_to_payment_link(row: sqlx::sqlite::SqliteRow) -> Result<PaymentLink> {
+    row_to_payment_link_prefixed(&row, "")
+}
+
+fn row_to_payment_link_prefixed(
+    row: &sqlx::sqlite::SqliteRow,
+    prefix: &str,
+) -> Result<PaymentLink> {
+    Ok(PaymentLink {
+        id: row.try_get(format!("{prefix}id").as_str())?,
+        user_id: row.try_get(format!("{prefix}user_id").as_str())?,
+        plan_id: row.try_get(format!("{prefix}plan_id").as_str())?,
+        public_url: row.try_get(format!("{prefix}public_url").as_str())?,
+        solana_pay_url: row.try_get(format!("{prefix}solana_pay_url").as_str())?,
+        reference: row.try_get(format!("{prefix}reference").as_str())?,
+        recipient: row.try_get(format!("{prefix}recipient").as_str())?,
+        amount: row.try_get(format!("{prefix}amount").as_str())?,
+        spl_token: row.try_get(format!("{prefix}spl_token").as_str())?,
+        label: row.try_get(format!("{prefix}label").as_str())?,
+        message: row.try_get(format!("{prefix}message").as_str())?,
+        memo: row.try_get(format!("{prefix}memo").as_str())?,
+        status: row.try_get(format!("{prefix}status").as_str())?,
+        expires_at: row.try_get(format!("{prefix}expires_at").as_str())?,
+        paid_at: row.try_get(format!("{prefix}paid_at").as_str())?,
+        created_at: row.try_get(format!("{prefix}created_at").as_str())?,
+    })
+}
+
 fn row_to_metric_alert_rule(row: sqlx::sqlite::SqliteRow) -> Result<MetricAlertRule> {
     Ok(MetricAlertRule {
         id: row.try_get("id")?,
@@ -5105,6 +5887,23 @@ fn row_to_metric_alert_rule(row: sqlx::sqlite::SqliteRow) -> Result<MetricAlertR
         subject_label: row.try_get("subject_label")?,
         min_value: row.try_get("min_value")?,
         max_value: row.try_get("max_value")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+
+fn row_to_promo_code(row: sqlx::sqlite::SqliteRow) -> Result<PromoCode> {
+    Ok(PromoCode {
+        id: row.try_get("id")?,
+        code: row.try_get("code")?,
+        label: row.try_get("label")?,
+        audience: row.try_get("audience")?,
+        plan_id: row.try_get("plan_id")?,
+        duration_months: row.try_get("duration_months")?,
+        max_redemptions: row.try_get("max_redemptions")?,
+        redeemed_count: row.try_get("redeemed_count")?,
+        starts_at: row.try_get("starts_at")?,
+        expires_at: row.try_get("expires_at")?,
+        active: row.try_get::<i64, _>("active")? == 1,
         created_at: row.try_get("created_at")?,
     })
 }
