@@ -194,7 +194,7 @@
 			</div>
 		</div>
 
-		{#if data.backendError}
+		{#if data.backendError && !currentLiveStatus()}
 			<p class="banner error">Backend unavailable: {data.backendError}</p>
 		{:else if liveStatusError && !currentLiveStatus()}
 			<p class="banner">Live refresh delayed: {liveStatusError}</p>

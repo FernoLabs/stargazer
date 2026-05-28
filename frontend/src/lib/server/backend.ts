@@ -10,7 +10,7 @@ import type {
 export const DEFAULT_BACKEND_ORIGIN_URL = 'http://127.0.0.1:8080';
 export const DEFAULT_PUBLIC_BACKEND_BASE_URL = '/api/backend';
 export const DEFAULT_EXPLORER_CLUSTER = 'mainnet-beta';
-const APP_SHELL_FETCH_TIMEOUT_MS = 2500;
+const APP_SHELL_FETCH_TIMEOUT_MS = 6000;
 const LIVE_STATUS_CACHE_MS = 3000;
 const PROTOCOLS_CACHE_MS = 5 * 60 * 1000;
 const TELEGRAM_SUMMARY_CACHE_MS = 15_000;
