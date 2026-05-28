@@ -12,7 +12,10 @@
 		alertLabel?: string;
 	};
 
-	const SLOT_TICK_MS = 400;
+	const SLOT_TICK_MS = 1000;
+	const LIVE_REFRESH_MS = 10_000;
+	const INITIAL_REFRESH_DELAY_MS = 6500;
+	const countFormatter = new Intl.NumberFormat('en-US');
 
 	const primaryNav = [
 		{ href: '/', label: 'Watch' },
@@ -62,7 +65,7 @@
 	}
 
 	function formatCount(value: number | null | undefined) {
-		return new Intl.NumberFormat('en-US').format(value ?? 0);
+		return countFormatter.format(value ?? 0);
 	}
 
 	function defaultPreviewImageUrl() {
@@ -83,8 +86,16 @@
 
 	onMount(() => {
 		let cancelled = false;
+		let refreshInterval: number | undefined;
+		let refreshTimeout: number | undefined;
+
+		function pageVisible() {
+			return document.visibilityState === 'visible';
+		}
 
 		async function refreshLiveStatus() {
+			if (!pageVisible()) return;
+
 			try {
 				const response = await fetch(`${data.backendBaseUrl}/api/live-status`);
 				if (!response.ok) {
@@ -102,16 +113,35 @@
 			}
 		}
 
-		void refreshLiveStatus();
-		const refreshInterval = window.setInterval(refreshLiveStatus, 5000);
-		const tickInterval = window.setInterval(() => {
+		function tickLiveSlot() {
+			if (!pageVisible() || !currentLiveStatus()) return;
 			estimatedNowMs = Date.now();
-		}, SLOT_TICK_MS);
+		}
+
+		function startLiveRefresh() {
+			void refreshLiveStatus();
+			refreshInterval = window.setInterval(refreshLiveStatus, LIVE_REFRESH_MS);
+		}
+
+		function handleVisibilityChange() {
+			if (!pageVisible()) return;
+			estimatedNowMs = Date.now();
+			void refreshLiveStatus();
+		}
+
+		refreshTimeout = window.setTimeout(
+			startLiveRefresh,
+			currentLiveStatus() ? INITIAL_REFRESH_DELAY_MS : 0
+		);
+		const tickInterval = window.setInterval(tickLiveSlot, SLOT_TICK_MS);
+		document.addEventListener('visibilitychange', handleVisibilityChange);
 
 		return () => {
 			cancelled = true;
-			window.clearInterval(refreshInterval);
+			if (refreshInterval) window.clearInterval(refreshInterval);
+			if (refreshTimeout) window.clearTimeout(refreshTimeout);
 			window.clearInterval(tickInterval);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
 		};
 	});
 </script>
