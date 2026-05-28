@@ -20,8 +20,9 @@ mod telegram;
 use anyhow::{Context, Result, bail};
 use blob_store::BlobStore;
 use block_backfill::{
-    BlockBackfillRangeReport, GrpcBackfillReport, backfill_ferno_block, backfill_ferno_blocks,
-    backfill_grpc_transactions, backfill_rpc_blocks,
+    BlockBackfillRangeReport, GrpcBackfillReport, ProgramUpgradeHistoryBackfillReport,
+    backfill_ferno_block, backfill_ferno_blocks, backfill_grpc_transactions,
+    backfill_program_upgrade_history, backfill_rpc_blocks,
 };
 use config::Config;
 use context::AppState;
@@ -152,6 +153,29 @@ async fn main() -> Result<()> {
             print_range_report(&report, enqueue_deliveries);
             return Ok(());
         }
+        Command::BackfillProgramHistory {
+            program_address,
+            before_slot,
+            limit,
+            lookback_slots,
+            concurrency,
+            retries,
+            enqueue_deliveries,
+        } => {
+            let report = backfill_program_upgrade_history(
+                state,
+                &program_address,
+                before_slot,
+                limit,
+                lookback_slots,
+                concurrency,
+                retries,
+                enqueue_deliveries,
+            )
+            .await?;
+            print_program_upgrade_history_report(&report, enqueue_deliveries);
+            return Ok(());
+        }
         Command::MigrateBlobs { vacuum } => {
             let report = state.db.migrate_inline_blobs().await?;
             println!("Migrated inline blobs to {}", blob_store_label(&config));
@@ -192,6 +216,7 @@ async fn main() -> Result<()> {
     }
 
     spawn_block_time_repair(state.clone());
+    spawn_sns_label_bootstrap(state.clone());
 
     let router = http::router(state.clone())?;
     let listener = TcpListener::bind(&config.http_bind).await?;
@@ -199,7 +224,6 @@ async fn main() -> Result<()> {
     tokio::try_join!(
         solana::run_indexer(state.clone()),
         delivery::run_retry_loop(state.clone()),
-        name_service::run_indexer_loop(state.clone()),
         telegram::run_command_loop(state.clone()),
         async move {
             axum::serve(listener, router)
@@ -232,6 +256,15 @@ enum Command {
     BackfillRpc {
         start_slot: u64,
         end_slot: u64,
+        concurrency: usize,
+        retries: usize,
+        enqueue_deliveries: bool,
+    },
+    BackfillProgramHistory {
+        program_address: String,
+        before_slot: Option<u64>,
+        limit: usize,
+        lookback_slots: u64,
         concurrency: usize,
         retries: usize,
         enqueue_deliveries: bool,
@@ -416,6 +449,90 @@ fn parse_command() -> Result<Command> {
                 enqueue_deliveries,
             })
         }
+        "backfill-program-history" | "--backfill-program-history" => {
+            let program_address = args
+                .get(1)
+                .context(
+                    "usage: firewatch-backend backfill-program-history <program-id> [--before-slot N] [--limit N] [--lookback-slots N] [--concurrency N] [--retries N] [--deliver]",
+                )?
+                .to_owned();
+
+            let mut before_slot = None;
+            let mut limit = 2;
+            let mut lookback_slots = 2_048;
+            let mut concurrency = 4;
+            let mut retries = 2;
+            let mut enqueue_deliveries = false;
+            let mut index = 2;
+            while index < args.len() {
+                match args[index].as_str() {
+                    "--deliver" => {
+                        enqueue_deliveries = true;
+                        index += 1;
+                    }
+                    "--before-slot" => {
+                        let value = args
+                            .get(index + 1)
+                            .context("--before-slot requires a value")?;
+                        before_slot = Some(
+                            value
+                                .parse::<u64>()
+                                .context("--before-slot must be an unsigned integer")?,
+                        );
+                        index += 2;
+                    }
+                    "--limit" => {
+                        let value = args.get(index + 1).context("--limit requires a value")?;
+                        limit = value
+                            .parse::<usize>()
+                            .context("--limit must be a positive integer")?;
+                        if limit == 0 {
+                            bail!("--limit must be greater than zero");
+                        }
+                        index += 2;
+                    }
+                    "--lookback-slots" => {
+                        let value = args
+                            .get(index + 1)
+                            .context("--lookback-slots requires a value")?;
+                        lookback_slots = value
+                            .parse::<u64>()
+                            .context("--lookback-slots must be an unsigned integer")?;
+                        index += 2;
+                    }
+                    "--concurrency" => {
+                        let value = args
+                            .get(index + 1)
+                            .context("--concurrency requires a value")?;
+                        concurrency = value
+                            .parse::<usize>()
+                            .context("--concurrency must be a positive integer")?;
+                        if concurrency == 0 {
+                            bail!("--concurrency must be greater than zero");
+                        }
+                        index += 2;
+                    }
+                    "--retries" => {
+                        let value = args.get(index + 1).context("--retries requires a value")?;
+                        retries = value
+                            .parse::<usize>()
+                            .context("--retries must be a non-negative integer")?;
+                        index += 2;
+                    }
+                    unknown => bail!("unknown backfill-program-history option {unknown:?}"),
+                }
+            }
+
+            Ok(Command::BackfillProgramHistory {
+                program_address,
+                before_slot,
+                limit,
+                lookback_slots,
+                concurrency,
+                retries,
+                enqueue_deliveries,
+            })
+        }
         "migrate-blobs" | "--migrate-blobs" => {
             let mut vacuum = false;
             for arg in args.iter().skip(1) {
@@ -462,13 +579,16 @@ fn parse_command() -> Result<Command> {
                 "  firewatch-backend backfill-rpc <start-slot> <end-slot> [--concurrency N] [--retries N] [--deliver]"
             );
             println!("  firewatch-backend backfill-grpc <start-slot> <end-slot> [--deliver]");
+            println!(
+                "  firewatch-backend backfill-program-history <program-id> [--before-slot N] [--limit N] [--lookback-slots N] [--concurrency N] [--retries N] [--deliver]"
+            );
             println!("  firewatch-backend migrate-blobs [--vacuum]");
             println!("  firewatch-backend repair-block-time <slot>");
             println!("  firewatch-backend repair-recent-block-times [limit]");
             std::process::exit(0);
         }
         unknown => bail!(
-            "unknown command {unknown:?}; use `backfill-block <slot>`, `backfill-blocks <start> <end>`, `backfill-rpc <start> <end>`, `backfill-grpc <start> <end>`, `migrate-blobs`, `repair-block-time <slot>`, `repair-recent-block-times [limit]`, or no command"
+            "unknown command {unknown:?}; use `backfill-block <slot>`, `backfill-blocks <start> <end>`, `backfill-rpc <start> <end>`, `backfill-grpc <start> <end>`, `backfill-program-history <program-id>`, `migrate-blobs`, `repair-block-time <slot>`, `repair-recent-block-times [limit]`, or no command"
         ),
     }
 }
@@ -509,6 +629,30 @@ fn spawn_block_time_repair(state: context::SharedState) {
             }
             Err(error) => {
                 warn!(error = ?error, "failed to repair missing block times on startup");
+            }
+        }
+    });
+}
+
+fn spawn_sns_label_bootstrap(state: context::SharedState) {
+    let limit = state.config.sns_bootstrap_label_limit;
+    if limit == 0 {
+        return;
+    }
+
+    tokio::spawn(async move {
+        match name_service::bootstrap_recent_activity_labels(state, limit).await {
+            Ok(resolved_count) if resolved_count > 0 => {
+                info!(
+                    resolved_count,
+                    limit, "bootstrapped SNS labels from indexed activity",
+                );
+            }
+            Ok(_) => {
+                debug!(limit, "no SNS labels bootstrapped from indexed activity");
+            }
+            Err(error) => {
+                warn!(error = ?error, "failed to bootstrap SNS labels on startup");
             }
         }
     });
@@ -630,6 +774,88 @@ fn print_range_report(report: &BlockBackfillRangeReport, enqueue_deliveries: boo
         report.program_idl_version_update_count()
     );
     println!("Throughput: {block_rate:.2} ok blocks/s, {transaction_rate:.0} tx/s");
+}
+
+fn print_program_upgrade_history_report(
+    report: &ProgramUpgradeHistoryBackfillReport,
+    enqueue_deliveries: bool,
+) {
+    let elapsed_seconds = report.elapsed_ms as f64 / 1000.0;
+    let ok_blocks = report
+        .windows
+        .iter()
+        .map(|window| window.report.ok_count())
+        .sum::<usize>();
+    let errored_blocks = report
+        .windows
+        .iter()
+        .map(|window| window.report.error_count())
+        .sum::<usize>();
+    let transaction_count = report
+        .windows
+        .iter()
+        .map(|window| window.report.transaction_count())
+        .sum::<usize>();
+    let matched_transaction_count = report
+        .windows
+        .iter()
+        .map(|window| window.report.matched_transaction_count())
+        .sum::<usize>();
+    let parsed_event_count = report
+        .windows
+        .iter()
+        .map(|window| window.report.parsed_event_count())
+        .sum::<usize>();
+    let inserted_event_count = report
+        .windows
+        .iter()
+        .map(|window| window.report.inserted_event_count())
+        .sum::<usize>();
+    let program_data_write_count = report
+        .windows
+        .iter()
+        .map(|window| window.report.program_data_write_count())
+        .sum::<usize>();
+    let program_version_update_count = report
+        .windows
+        .iter()
+        .map(|window| window.report.program_version_update_count())
+        .sum::<usize>();
+
+    println!(
+        "Backfilled program upgrade history for {}",
+        report.program_address
+    );
+    println!("Program data account: {}", report.program_data_account);
+    println!("Upgrade signatures found: {}", report.signatures.len());
+    for signature in &report.signatures {
+        println!("{}\tslot {}", signature.signature, signature.slot);
+    }
+    println!("Backfill windows: {}", report.windows.len());
+    for window in &report.windows {
+        println!(
+            "{}..{}\t{} ok\t{} errors\t{} matched tx\t{} program versions",
+            window.start_slot,
+            window.end_slot,
+            window.report.ok_count(),
+            window.report.error_count(),
+            window.report.matched_transaction_count(),
+            window.report.program_version_update_count(),
+        );
+    }
+    println!(
+        "Telegram delivery: {}",
+        if enqueue_deliveries { "on" } else { "off" }
+    );
+    println!("Elapsed: {elapsed_seconds:.2}s");
+    println!("OK blocks: {ok_blocks}");
+    println!("Errored blocks: {errored_blocks}");
+    println!("Transactions: {transaction_count}");
+    println!("Matched transactions: {matched_transaction_count}");
+    println!("Parsed events: {parsed_event_count}");
+    println!("Inserted events: {inserted_event_count}");
+    println!("Program data writes: {program_data_write_count}");
+    println!("Program version updates: {program_version_update_count}");
 }
 
 fn print_grpc_report(report: &GrpcBackfillReport, enqueue_deliveries: bool) {

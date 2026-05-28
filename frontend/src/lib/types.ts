@@ -282,6 +282,29 @@ export interface ProgramVersionsResponse {
 	items: ProgramVersionRecord[];
 }
 
+export interface ProgramVersionLatestSummary {
+	id: string;
+	kind: string;
+	slot: number;
+	block_time: number | null;
+	complete: boolean;
+	program_len: number | null;
+	program_sha256: string | null;
+	previous_version_id: string | null;
+}
+
+export interface ProgramVersionCatalogSummary {
+	program_id: string;
+	version_count: number;
+	diffable_count: number;
+	incomplete_count: number;
+	latest: ProgramVersionLatestSummary | null;
+}
+
+export interface ProgramVersionSummariesResponse {
+	items: ProgramVersionCatalogSummary[];
+}
+
 export interface ProgramIdlVersionRecord {
 	id: string;
 	event_id: string;

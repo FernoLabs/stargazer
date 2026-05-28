@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
-	import { MergeView } from '@codemirror/merge';
-	import { EditorState } from '@codemirror/state';
-	import { EditorView, lineNumbers } from '@codemirror/view';
+	import type { MergeView as MergeViewInstance } from '@codemirror/merge';
 
 	type AssemblyLine = {
 		number: number | null;
@@ -16,6 +14,13 @@
 		beforeText: string;
 		afterText: string;
 		count?: number;
+	};
+
+	type CodeMirrorModules = {
+		MergeView: typeof import('@codemirror/merge').MergeView;
+		EditorState: typeof import('@codemirror/state').EditorState;
+		EditorView: typeof import('@codemirror/view').EditorView;
+		lineNumbers: typeof import('@codemirror/view').lineNumbers;
 	};
 
 	let {
@@ -33,42 +38,60 @@
 	} = $props();
 
 	let container = $state<HTMLDivElement | undefined>();
-	let mergeView: MergeView | null = null;
+	let mergeView: MergeViewInstance | null = null;
 	let mounted = false;
 	let assemblyRows = $state<AssemblyRow[]>([]);
 	let assemblyChangedCount = $state(0);
 	let assemblyPending = $state(true);
+	let codeMirrorPending = $state(false);
+	let codeMirrorLoadError = $state<string | null>(null);
 	let assemblyRenderToken = 0;
+	let codeMirrorModulesPromise: Promise<CodeMirrorModules> | null = null;
 
-	const editorTheme = EditorView.theme({
-		'&': {
-			height: '72vh',
-			fontSize: '12.5px',
-			backgroundColor: '#fff'
-		},
-		'.cm-scroller': {
-			fontFamily: "'IBM Plex Mono', 'SFMono-Regular', monospace",
-			lineHeight: '1.45'
-		},
-		'.cm-gutters': {
-			backgroundColor: '#f7f6f3',
-			color: '#7a8793',
-			borderRight: '1px solid rgba(23, 32, 42, 0.1)'
-		},
-		'.cm-line': {
-			padding: '0 0.7rem'
-		},
-		'.cm-content': {
-			padding: '0.5rem 0',
-			minWidth: 'max-content'
-		}
-	});
+	function loadCodeMirrorModules() {
+		codeMirrorModulesPromise ??= Promise.all([
+			import('@codemirror/merge'),
+			import('@codemirror/state'),
+			import('@codemirror/view')
+		]).then(([merge, state, view]) => ({
+			MergeView: merge.MergeView,
+			EditorState: state.EditorState,
+			EditorView: view.EditorView,
+			lineNumbers: view.lineNumbers
+		}));
 
-	function editorExtensions() {
+		return codeMirrorModulesPromise;
+	}
+
+	function editorExtensions(modules: CodeMirrorModules) {
+		const editorTheme = modules.EditorView.theme({
+			'&': {
+				height: '72vh',
+				fontSize: '12.5px',
+				backgroundColor: '#fff'
+			},
+			'.cm-scroller': {
+				fontFamily: "'IBM Plex Mono', 'SFMono-Regular', monospace",
+				lineHeight: '1.45'
+			},
+			'.cm-gutters': {
+				backgroundColor: '#f7f6f3',
+				color: '#7a8793',
+				borderRight: '1px solid rgba(23, 32, 42, 0.1)'
+			},
+			'.cm-line': {
+				padding: '0 0.7rem'
+			},
+			'.cm-content': {
+				padding: '0.5rem 0',
+				minWidth: 'max-content'
+			}
+		});
+
 		return [
-			lineNumbers(),
-			EditorState.readOnly.of(true),
-			EditorView.editable.of(false),
+			modules.lineNumbers(),
+			modules.EditorState.readOnly.of(true),
+			modules.EditorView.editable.of(false),
 			editorTheme
 		];
 	}
@@ -158,29 +181,46 @@
 		}, 0);
 	}
 
-	function renderCodeMirrorDiff() {
+	async function renderCodeMirrorDiff() {
 		if (!mounted || !container) return;
-		assemblyRenderToken += 1;
+		const token = ++assemblyRenderToken;
+		codeMirrorPending = true;
+		codeMirrorLoadError = null;
 		mergeView?.destroy();
 		container.innerHTML = '';
-		mergeView = new MergeView({
-			a: {
-				doc: beforeText || '',
-				extensions: editorExtensions()
-			},
-			b: {
-				doc: afterText || '',
-				extensions: editorExtensions()
-			},
-			parent: container,
-			collapseUnchanged: {
-				margin: 2,
-				minSize: 12
-			},
-			diffConfig: {
-				scanLimit: 500
+
+		try {
+			const modules = await loadCodeMirrorModules();
+			if (token !== assemblyRenderToken || !mounted || mode === 'assembly' || !container) return;
+
+			mergeView = new modules.MergeView({
+				a: {
+					doc: beforeText || '',
+					extensions: editorExtensions(modules)
+				},
+				b: {
+					doc: afterText || '',
+					extensions: editorExtensions(modules)
+				},
+				parent: container,
+				collapseUnchanged: {
+					margin: 2,
+					minSize: 12
+				},
+				diffConfig: {
+					scanLimit: 500
+				}
+			});
+		} catch (error) {
+			if (token === assemblyRenderToken) {
+				codeMirrorLoadError =
+					error instanceof Error ? error.message : 'Could not load the split editor.';
 			}
-		});
+		} finally {
+			if (token === assemblyRenderToken) {
+				codeMirrorPending = false;
+			}
+		}
 	}
 
 	function renderActiveView() {
@@ -191,7 +231,7 @@
 			renderAssemblyDiff();
 			return;
 		}
-		renderCodeMirrorDiff();
+		void renderCodeMirrorDiff();
 	}
 
 	function assemblyLineNumber(value: number | null) {
@@ -252,6 +292,11 @@
 			{/if}
 		</div>
 	{:else}
+		{#if codeMirrorPending}
+			<p class="empty-state">Preparing split editor.</p>
+		{:else if codeMirrorLoadError}
+			<p class="empty-state">Split editor unavailable: {codeMirrorLoadError}</p>
+		{/if}
 		<div class="diff-host" bind:this={container}></div>
 	{/if}
 </div>

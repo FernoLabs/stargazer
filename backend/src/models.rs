@@ -502,6 +502,32 @@ pub struct ProgramVersionsResponse {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProgramVersionLatestSummary {
+    pub id: String,
+    pub kind: String,
+    pub slot: i64,
+    pub block_time: Option<i64>,
+    pub complete: bool,
+    pub program_len: Option<i64>,
+    pub program_sha256: Option<String>,
+    pub previous_version_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProgramVersionCatalogSummary {
+    pub program_id: String,
+    pub version_count: i64,
+    pub diffable_count: i64,
+    pub incomplete_count: i64,
+    pub latest: Option<ProgramVersionLatestSummary>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProgramVersionSummariesResponse {
+    pub items: Vec<ProgramVersionCatalogSummary>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProgramIdlVersionRecord {
     pub id: String,
     pub event_id: String,

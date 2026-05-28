@@ -50,17 +50,7 @@ export const load = (async ({ fetch, params, parent }) => {
 		throw error(404, 'Program not found');
 	}
 
-	let events: EventsResponse['items'] = [];
-	let nextOffset: number | null = null;
-	let programEventsError: string | null = null;
-	let signerStats: ProgramSignerStatsResponse['items'] = [];
-	let signerStatsError: string | null = null;
-	let versions: ProgramVersionsResponse['items'] = [];
-	let versionsError: string | null = null;
-	let idlVersions: ProgramIdlVersionsResponse['items'] = [];
-	let idlVersionsError: string | null = null;
-
-	try {
+	const eventsPromise = (async () => {
 		const search = new URLSearchParams({
 			limit: '120',
 			target_address: match.program.program_id,
@@ -71,44 +61,73 @@ export const load = (async ({ fetch, params, parent }) => {
 		if (!eventsResponse.ok) throw new Error(await readBackendError(eventsResponse));
 
 		const payload = (await eventsResponse.json()) as EventsResponse;
-		events = payload.items;
-		nextOffset = payload.next_offset;
-	} catch (err) {
-		programEventsError = err instanceof Error ? err.message : 'Unknown backend error';
-	}
+		return {
+			events: payload.items,
+			nextOffset: payload.next_offset,
+			programEventsError: null
+		};
+	})().catch((err) => ({
+		events: [] as EventsResponse['items'],
+		nextOffset: null,
+		programEventsError: err instanceof Error ? err.message : 'Unknown backend error'
+	}));
 
-	try {
+	const signerStatsPromise = (async () => {
 		const signerStatsResponse = await backendRequest(
 			fetch,
 			`/api/programs/${match.program.program_id}/signer-stats`
 		);
 		if (!signerStatsResponse.ok) throw new Error(await readBackendError(signerStatsResponse));
-		signerStats = ((await signerStatsResponse.json()) as ProgramSignerStatsResponse).items;
-	} catch (err) {
-		signerStatsError = err instanceof Error ? err.message : 'Unknown backend error';
-	}
+		return {
+			signerStats: ((await signerStatsResponse.json()) as ProgramSignerStatsResponse).items,
+			signerStatsError: null
+		};
+	})().catch((err) => ({
+		signerStats: [] as ProgramSignerStatsResponse['items'],
+		signerStatsError: err instanceof Error ? err.message : 'Unknown backend error'
+	}));
 
-	try {
+	const versionsPromise = (async () => {
 		const versionsResponse = await backendRequest(
 			fetch,
 			`/api/programs/${match.program.program_id}/versions`
 		);
 		if (!versionsResponse.ok) throw new Error(await readBackendError(versionsResponse));
-		versions = ((await versionsResponse.json()) as ProgramVersionsResponse).items;
-	} catch (err) {
-		versionsError = err instanceof Error ? err.message : 'Unknown backend error';
-	}
+		return {
+			versions: ((await versionsResponse.json()) as ProgramVersionsResponse).items,
+			versionsError: null
+		};
+	})().catch((err) => ({
+		versions: [] as ProgramVersionsResponse['items'],
+		versionsError: err instanceof Error ? err.message : 'Unknown backend error'
+	}));
 
-	try {
+	const idlVersionsPromise = (async () => {
 		const idlVersionsResponse = await backendRequest(
 			fetch,
 			`/api/programs/${match.program.program_id}/idls`
 		);
 		if (!idlVersionsResponse.ok) throw new Error(await readBackendError(idlVersionsResponse));
-		idlVersions = ((await idlVersionsResponse.json()) as ProgramIdlVersionsResponse).items;
-	} catch (err) {
-		idlVersionsError = err instanceof Error ? err.message : 'Unknown backend error';
-	}
+		return {
+			idlVersions: ((await idlVersionsResponse.json()) as ProgramIdlVersionsResponse).items,
+			idlVersionsError: null
+		};
+	})().catch((err) => ({
+		idlVersions: [] as ProgramIdlVersionsResponse['items'],
+		idlVersionsError: err instanceof Error ? err.message : 'Unknown backend error'
+	}));
+
+	const [
+		{ events, nextOffset, programEventsError },
+		{ signerStats, signerStatsError },
+		{ versions, versionsError },
+		{ idlVersions, idlVersionsError }
+	] = await Promise.all([
+		eventsPromise,
+		signerStatsPromise,
+		versionsPromise,
+		idlVersionsPromise
+	]);
 
 	return {
 		protocol: match.protocol,

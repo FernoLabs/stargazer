@@ -1,4 +1,8 @@
-use crate::{context::SharedState, database::AddressLabelRecord, models::now_ts};
+use crate::{
+    context::SharedState,
+    database::AddressLabelRecord,
+    models::{ChainEvent, now_ts},
+};
 use anyhow::{Context, Result, anyhow};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -6,14 +10,13 @@ use serde::Deserialize;
 use serde_json::json;
 use solana_sdk::pubkey::Pubkey;
 use std::{
+    collections::{HashMap, HashSet},
     future::Future,
     pin::Pin,
     str::FromStr,
     sync::OnceLock,
-    time::{Duration, Instant},
 };
-use tokio::time::sleep;
-use tracing::{debug, warn};
+use tracing::debug;
 
 const NAME_PROGRAM_ID: &str = "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX";
 const ROOT_DOMAIN_ACCOUNT: &str = "58PwtjSDuFHuUkYjH9BYnnQKHfwo9reZhC2zMJv9JPkx";
@@ -182,21 +185,22 @@ pub fn primary_domain_program_id() -> Pubkey {
     })
 }
 
-pub async fn run_indexer_loop(state: SharedState) -> Result<()> {
-    loop {
-        let started = Instant::now();
-        if let Err(error) = sync_recent_activity_labels(state.clone(), 96).await {
-            warn!(error = %error, "failed to sync indexed SNS labels");
+pub async fn bootstrap_recent_activity_labels(state: SharedState, limit: i64) -> Result<usize> {
+    let recent_addresses = state.db.recent_unlabeled_addresses(limit).await?;
+    let mut resolved_count = 0_usize;
+
+    for address in recent_addresses {
+        if bootstrap_address_label(&state, &address).await?.is_some() {
+            resolved_count += 1;
         }
-
-        let elapsed = started.elapsed();
-        debug!(
-            refreshed_in_ms = elapsed.as_millis() as u64,
-            "completed SNS index sync pass",
-        );
-
-        sleep(Duration::from_secs(state.config.sns_refresh_seconds)).await;
     }
+
+    debug!(
+        resolved_count,
+        "completed one-shot SNS label bootstrap from indexed activity",
+    );
+
+    Ok(resolved_count)
 }
 
 pub async fn hydrate_event(
@@ -257,32 +261,17 @@ pub async fn hydrate_event(
     event
 }
 
-pub async fn hydrate_event_cached(
-    state: &SharedState,
-    mut event: crate::models::ChainEvent,
-) -> crate::models::ChainEvent {
+pub async fn hydrate_event_cached(state: &SharedState, mut event: ChainEvent) -> ChainEvent {
     if let Some(label) = cached_address_label(state, &event.target_address)
         .await
         .unwrap_or(None)
     {
-        let payload = event
-            .payload
-            .as_object_mut()
-            .expect("event payload is always an object");
-        payload
-            .entry("target_name".to_owned())
-            .or_insert_with(|| json!(label.label()));
+        apply_event_label(&mut event, "target_name", &label);
     }
 
     if let Some(actor) = event.actor.clone() {
         if let Some(label) = cached_address_label(state, &actor).await.unwrap_or(None) {
-            let payload = event
-                .payload
-                .as_object_mut()
-                .expect("event payload is always an object");
-            payload
-                .entry("actor_name".to_owned())
-                .or_insert_with(|| json!(label.label()));
+            apply_event_label(&mut event, "actor_name", &label);
         }
     }
 
@@ -301,18 +290,151 @@ pub async fn hydrate_event_cached(
             .map(str::to_owned)
         {
             if let Some(label) = cached_address_label(state, &address).await.unwrap_or(None) {
-                let payload = event
-                    .payload
-                    .as_object_mut()
-                    .expect("event payload is always an object");
-                payload
-                    .entry(label_key.to_owned())
-                    .or_insert_with(|| json!(label.label()));
+                apply_event_label(&mut event, label_key, &label);
             }
         }
     }
 
     event
+}
+
+pub async fn hydrate_events_cached(
+    state: &SharedState,
+    events: Vec<ChainEvent>,
+) -> Vec<ChainEvent> {
+    let addresses = event_label_addresses(&events);
+    if addresses.is_empty() {
+        return events;
+    }
+
+    let Ok(labels) = cached_address_labels(state, &addresses).await else {
+        return events;
+    };
+
+    events
+        .into_iter()
+        .map(|mut event| {
+            if let Some(label) = labels.get(&event.target_address) {
+                apply_event_label(&mut event, "target_name", label);
+            }
+
+            if let Some(actor) = event.actor.clone() {
+                if let Some(label) = labels.get(&actor) {
+                    apply_event_label(&mut event, "actor_name", label);
+                }
+            }
+
+            for (address_key, label_key) in [
+                ("member", "member_name"),
+                ("multisig", "multisig_name"),
+                ("decoded_program", "decoded_program_name"),
+                ("owner", "owner_name"),
+                ("new_owner", "new_owner_name"),
+                ("refund_target", "refund_target_name"),
+            ] {
+                let address = event
+                    .payload
+                    .get(address_key)
+                    .and_then(|value| value.as_str())
+                    .map(str::to_owned);
+                if let Some(label) = address.as_ref().and_then(|address| labels.get(address)) {
+                    apply_event_label(&mut event, label_key, label);
+                }
+            }
+
+            event
+        })
+        .collect()
+}
+
+fn apply_event_label(event: &mut ChainEvent, label_key: &str, label: &AddressLabel) {
+    let payload = event
+        .payload
+        .as_object_mut()
+        .expect("event payload is always an object");
+    payload
+        .entry(label_key.to_owned())
+        .or_insert_with(|| json!(label.label()));
+}
+
+fn event_label_addresses(events: &[ChainEvent]) -> Vec<String> {
+    let mut addresses = HashSet::new();
+    for event in events {
+        addresses.insert(event.target_address.clone());
+        if let Some(actor) = event.actor.as_ref() {
+            addresses.insert(actor.clone());
+        }
+
+        for address_key in [
+            "member",
+            "multisig",
+            "decoded_program",
+            "owner",
+            "new_owner",
+            "refund_target",
+        ] {
+            if let Some(address) = event
+                .payload
+                .get(address_key)
+                .and_then(|value| value.as_str())
+            {
+                addresses.insert(address.to_owned());
+            }
+        }
+    }
+
+    addresses.into_iter().collect()
+}
+
+async fn cached_address_labels(
+    state: &SharedState,
+    addresses: &[String],
+) -> Result<HashMap<String, AddressLabel>> {
+    let label_records = state.db.address_labels(addresses).await?;
+    let mut labels = label_records
+        .into_iter()
+        .map(|(address, record)| (address, label_record_to_value(record)))
+        .collect::<HashMap<_, _>>();
+
+    let domain_candidates = addresses
+        .iter()
+        .filter(|address| !labels.contains_key(address.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    for (address, record) in state
+        .db
+        .sns_domains_for_name_accounts(&domain_candidates)
+        .await?
+    {
+        labels.insert(
+            address,
+            AddressLabel::DomainAccount {
+                label: record.domain_name,
+                domain_account: Pubkey::from_str(&record.name_account).unwrap_or_default(),
+            },
+        );
+    }
+
+    let primary_candidates = addresses
+        .iter()
+        .filter(|address| !labels.contains_key(address.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    for (address, record) in state
+        .db
+        .sns_primary_domains_for_owners(&primary_candidates)
+        .await?
+    {
+        labels.insert(
+            address,
+            AddressLabel::PrimaryDomain {
+                label: record.domain_name,
+                domain_account: Pubkey::from_str(&record.name_account).unwrap_or_default(),
+            },
+        );
+    }
+
+    Ok(labels)
 }
 
 pub async fn cached_address_label(
@@ -470,19 +592,6 @@ pub async fn parse_domain_instruction_event(
 
 pub fn parse_instruction(data: &[u8]) -> Option<NameRegistryInstruction> {
     NameRegistryInstruction::try_from_slice(data).ok()
-}
-
-async fn refresh_recent_labels(state: SharedState, limit: i64) -> Result<()> {
-    let recent_addresses = state.db.recent_unlabeled_addresses(limit).await?;
-    for address in recent_addresses {
-        let _ = bootstrap_address_label(&state, &address).await?;
-    }
-
-    Ok(())
-}
-
-async fn sync_recent_activity_labels(state: SharedState, limit: i64) -> Result<()> {
-    refresh_recent_labels(state, limit).await
 }
 
 async fn persist_label(state: &SharedState, address: &str, label: &AddressLabel) -> Result<()> {

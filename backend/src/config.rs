@@ -21,7 +21,7 @@ pub struct Config {
     pub cors_allowed_origin: String,
     pub delivery_poll_seconds: u64,
     pub reconnect_delay_seconds: u64,
-    pub sns_refresh_seconds: u64,
+    pub sns_bootstrap_label_limit: i64,
     pub critical_sol_domains: Vec<String>,
     pub ferno_block_base_url: String,
     pub solana_pay_recipient: Option<String>,
@@ -84,7 +84,7 @@ impl Config {
                 .unwrap_or_else(|_| "http://127.0.0.1:5173".to_owned()),
             delivery_poll_seconds: env_u64("DELIVERY_POLL_SECONDS", 5),
             reconnect_delay_seconds: env_u64("RECONNECT_DELAY_SECONDS", 5),
-            sns_refresh_seconds: env_u64("SNS_REFRESH_SECONDS", 300),
+            sns_bootstrap_label_limit: env_i64("SNS_BOOTSTRAP_LABEL_LIMIT", 96).max(0),
             critical_sol_domains: env_csv("CRITICAL_SOL_DOMAINS", protocols::FERNO_SOL_DOMAINS),
             ferno_block_base_url: env::var("FERNO_BLOCK_BASE_URL")
                 .ok()

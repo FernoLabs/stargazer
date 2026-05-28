@@ -23,14 +23,8 @@
 	];
 	let query = $state('');
 	let filter = $state<ProgramFilter>('all');
-
-	type ProgramRow = {
-		protocol: DefiProtocolDescriptor;
-		program: ProtocolProgramSurface;
-	};
-
-	function programRows(): ProgramRow[] {
-		return data.defiProtocols
+	let rows = $derived.by(() =>
+		data.defiProtocols
 			.flatMap((protocol) =>
 				protocol.programs.map((program) => ({
 					protocol,
@@ -41,15 +35,29 @@
 				(left, right) =>
 					left.protocol.name.localeCompare(right.protocol.name) ||
 					left.program.label.localeCompare(right.program.label)
-			);
-	}
+			)
+	);
+	let summaries = $derived(Object.values(data.programVersionSummaries));
+	let normalizedSearch = $derived(query.trim().toLowerCase());
+	let visibleRows = $derived.by(() =>
+		rows.filter((row) => matchesFilter(row) && matchesQuery(row))
+	);
+	let inventoryTotals = $derived.by(() => ({
+		programs: rows.length,
+		protocols: data.defiProtocols.length,
+		withVersions: summaries.filter((summary) => summary.version_count > 0).length,
+		versions: summaries.reduce((count, summary) => count + summary.version_count, 0),
+		diffs: summaries.reduce((count, summary) => count + summary.diffable_count, 0),
+		errors: summaries.filter((summary) => summary.error).length
+	}));
+
+	type ProgramRow = {
+		protocol: DefiProtocolDescriptor;
+		program: ProtocolProgramSurface;
+	};
 
 	function versionSummary(programId: string) {
 		return data.programVersionSummaries[programId] ?? null;
-	}
-
-	function normalizedQuery() {
-		return query.trim().toLowerCase();
 	}
 
 	function matchesFilter(row: ProgramRow) {
@@ -64,7 +72,7 @@
 	}
 
 	function matchesQuery(row: ProgramRow) {
-		const value = normalizedQuery();
+		const value = normalizedSearch;
 		if (!value) return true;
 		return [
 			row.protocol.name,
@@ -77,10 +85,6 @@
 			.join(' ')
 			.toLowerCase()
 			.includes(value);
-	}
-
-	function filteredPrograms() {
-		return programRows().filter((row) => matchesFilter(row) && matchesQuery(row));
 	}
 
 	function formatCount(value: number | null | undefined) {
@@ -102,18 +106,6 @@
 		const summary = versionSummary(row.program.program_id);
 		if (!summary?.latest?.complete || !summary.latest.previous_version_id) return null;
 		return `/programs/${row.program.program_id}/versions/${encodeURIComponent(summary.latest.id)}/compare`;
-	}
-
-	function totals() {
-		const summaries = Object.values(data.programVersionSummaries);
-		return {
-			programs: programRows().length,
-			protocols: data.defiProtocols.length,
-			withVersions: summaries.filter((summary) => summary.version_count > 0).length,
-			versions: summaries.reduce((count, summary) => count + summary.version_count, 0),
-			diffs: summaries.reduce((count, summary) => count + summary.diffable_count, 0),
-			errors: summaries.filter((summary) => summary.error).length
-		};
 	}
 
 	function filterLabel(nextFilter: ProgramFilter) {
@@ -140,28 +132,28 @@
 
 		<div class="stats-strip" aria-label="Program inventory">
 			<span class="stat-item">
-				<strong>{formatCount(totals().programs)}</strong>
+				<strong>{formatCount(inventoryTotals.programs)}</strong>
 				Programs
 			</span>
 			<span class="stat-item">
-				<strong>{formatCount(totals().protocols)}</strong>
+				<strong>{formatCount(inventoryTotals.protocols)}</strong>
 				Protocols
 			</span>
 			<span class="stat-item">
-				<strong>{formatCount(totals().withVersions)}</strong>
+				<strong>{formatCount(inventoryTotals.withVersions)}</strong>
 				With versions
 			</span>
 			<span class="stat-item">
-				<strong>{formatCount(totals().versions)}</strong>
+				<strong>{formatCount(inventoryTotals.versions)}</strong>
 				Versions
 			</span>
 			<span class="stat-item">
-				<strong>{formatCount(totals().diffs)}</strong>
+				<strong>{formatCount(inventoryTotals.diffs)}</strong>
 				Code diffs
 			</span>
-			{#if totals().errors > 0}
+			{#if inventoryTotals.errors > 0}
 				<span class="stat-item warning">
-					<strong>{formatCount(totals().errors)}</strong>
+					<strong>{formatCount(inventoryTotals.errors)}</strong>
 					Backend misses
 				</span>
 			{/if}
@@ -194,15 +186,15 @@
 		</div>
 
 		<div class="result-head">
-			<span>{formatCount(filteredPrograms().length)} shown</span>
+			<span>{formatCount(visibleRows.length)} shown</span>
 			<span>{filterLabel(filter)}</span>
 		</div>
 
-		{#if filteredPrograms().length === 0}
+		{#if visibleRows.length === 0}
 			<p class="empty-state">No tracked program matches this view.</p>
 		{:else}
 			<div class="program-list" role="list">
-				{#each filteredPrograms() as row}
+				{#each visibleRows as row}
 					{@const summary = versionSummary(row.program.program_id)}
 					{@const risk = programRiskSummary(row.program)}
 					{@const diffHref = latestDiffHref(row)}

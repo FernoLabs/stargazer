@@ -1022,7 +1022,7 @@ mod tests {
             cors_allowed_origin: "http://127.0.0.1:5173".to_owned(),
             delivery_poll_seconds: 5,
             reconnect_delay_seconds: 5,
-            sns_refresh_seconds: 300,
+            sns_bootstrap_label_limit: 96,
             critical_sol_domains: Vec::new(),
             ferno_block_base_url: "https://block.ferno.ag/block".to_owned(),
             solana_pay_recipient: None,

@@ -12,9 +12,9 @@ use crate::{
         ChainEvent, EventScopeCounts, EventsSummary, FirewatchUser, MetricAlertPreset,
         MetricAlertRule, PaymentLink, PendingTelegramDelivery, ProgramDataWrite,
         ProgramDisassemblyRecord, ProgramIdlDataWrite, ProgramIdlVersionRecord, ProgramRiskSummary,
-        ProgramSignerStat, ProgramVersionRecord, ProgramVersionSummary, PromoCode,
-        ProtocolMetricObservation, TelegramEventScope, TelegramSubscription, UserEntitlement,
-        event_kind, now_ts,
+        ProgramSignerStat, ProgramVersionCatalogSummary, ProgramVersionLatestSummary,
+        ProgramVersionRecord, ProgramVersionSummary, PromoCode, ProtocolMetricObservation,
+        TelegramEventScope, TelegramSubscription, UserEntitlement, event_kind, now_ts,
     },
 };
 use anyhow::{Context, Result, bail};
@@ -103,8 +103,6 @@ struct CompleteProgramVersionBytes {
 #[derive(Clone, Debug)]
 struct ProgramVersionMetadata {
     id: String,
-    program_len: Option<i64>,
-    program_sha256: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -906,6 +904,44 @@ impl Database {
         .transpose()
     }
 
+    pub async fn address_labels(
+        &self,
+        addresses: &[String],
+    ) -> Result<HashMap<String, AddressLabelRecord>> {
+        if addresses.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            r#"
+            SELECT address, label, source, kind, reference_address, updated_at
+            FROM address_labels
+            WHERE address IN (
+            "#,
+        );
+
+        let mut separated = builder.separated(", ");
+        for address in addresses {
+            separated.push_bind(address);
+        }
+        separated.push_unseparated(")");
+
+        let rows = builder.build().fetch_all(&self.pool).await?;
+        let mut labels = HashMap::with_capacity(rows.len());
+        for row in rows {
+            labels.insert(
+                row.try_get("address")?,
+                AddressLabelRecord {
+                    label: row.try_get("label")?,
+                    kind: row.try_get("kind")?,
+                    reference_address: row.try_get("reference_address")?,
+                },
+            );
+        }
+
+        Ok(labels)
+    }
+
     pub async fn delete_address_label_if_kind(&self, address: &str, kind: &str) -> Result<()> {
         sqlx::query(
             r#"
@@ -1043,6 +1079,62 @@ impl Database {
         .transpose()
     }
 
+    pub async fn sns_domains_for_name_accounts(
+        &self,
+        name_accounts: &[String],
+    ) -> Result<HashMap<String, SnsDomainRecord>> {
+        if name_accounts.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            r#"
+            SELECT
+                name_account,
+                domain_name,
+                owner_address,
+                class_address,
+                parent_name_account,
+                root_domain,
+                last_seen_slot,
+                last_event_kind,
+                updated_at,
+                deleted_at
+            FROM sns_domains
+            WHERE name_account IN (
+            "#,
+        );
+
+        let mut separated = builder.separated(", ");
+        for name_account in name_accounts {
+            separated.push_bind(name_account);
+        }
+        separated.push_unseparated(")");
+
+        let rows = builder.build().fetch_all(&self.pool).await?;
+        let mut domains = HashMap::with_capacity(rows.len());
+        for row in rows {
+            let name_account = row.try_get::<String, _>("name_account")?;
+            domains.insert(
+                name_account.clone(),
+                SnsDomainRecord {
+                    name_account,
+                    domain_name: row.try_get("domain_name")?,
+                    owner_address: row.try_get("owner_address")?,
+                    class_address: row.try_get("class_address")?,
+                    parent_name_account: row.try_get("parent_name_account")?,
+                    root_domain: row.try_get::<i64, _>("root_domain")? != 0,
+                    last_seen_slot: row.try_get("last_seen_slot")?,
+                    last_event_kind: row.try_get("last_event_kind")?,
+                    updated_at: row.try_get("updated_at")?,
+                    deleted_at: row.try_get("deleted_at")?,
+                },
+            );
+        }
+
+        Ok(domains)
+    }
+
     pub async fn upsert_sns_primary_domain(
         &self,
         owner_address: &str,
@@ -1113,6 +1205,46 @@ impl Database {
             })
         })
         .transpose()
+    }
+
+    pub async fn sns_primary_domains_for_owners(
+        &self,
+        owner_addresses: &[String],
+    ) -> Result<HashMap<String, SnsPrimaryDomainRecord>> {
+        if owner_addresses.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            r#"
+            SELECT owner_address, name_account, domain_name, updated_at
+            FROM sns_wallet_primary_domains
+            WHERE owner_address IN (
+            "#,
+        );
+
+        let mut separated = builder.separated(", ");
+        for owner_address in owner_addresses {
+            separated.push_bind(owner_address);
+        }
+        separated.push_unseparated(")");
+
+        let rows = builder.build().fetch_all(&self.pool).await?;
+        let mut domains = HashMap::with_capacity(rows.len());
+        for row in rows {
+            let owner_address = row.try_get::<String, _>("owner_address")?;
+            domains.insert(
+                owner_address.clone(),
+                SnsPrimaryDomainRecord {
+                    owner_address,
+                    name_account: row.try_get("name_account")?,
+                    domain_name: row.try_get("domain_name")?,
+                    updated_at: row.try_get("updated_at")?,
+                },
+            );
+        }
+
+        Ok(domains)
     }
 
     pub async fn recent_unlabeled_addresses(&self, limit: i64) -> Result<Vec<String>> {
@@ -1962,29 +2094,65 @@ impl Database {
     ) -> Result<Vec<ProgramVersionRecord>> {
         let rows = sqlx::query(
             r#"
+            WITH listed_versions AS (
+                SELECT
+                    id,
+                    event_id,
+                    signature,
+                    instruction_path,
+                    instruction_order,
+                    kind,
+                    program_address,
+                    loader,
+                    source_account,
+                    authority,
+                    slot,
+                    block_time,
+                    indexed_at,
+                    complete,
+                    chunk_count,
+                    program_len,
+                    program_sha256,
+                    missing_ranges_json
+                FROM program_versions
+                WHERE program_address = ?
+                ORDER BY slot DESC, instruction_order DESC, id DESC
+                LIMIT ?
+            ),
+            versions_with_previous AS (
+                SELECT
+                    listed_versions.*,
+                    (
+                        SELECT previous.id
+                        FROM program_versions previous
+                        WHERE previous.program_address = listed_versions.program_address
+                          AND previous.complete = 1
+                          AND (
+                                previous.program_bytes IS NOT NULL
+                             OR previous.program_bytes_blob_key IS NOT NULL
+                          )
+                          AND (
+                                previous.slot < listed_versions.slot
+                             OR (
+                                    previous.slot = listed_versions.slot
+                                AND previous.instruction_order < listed_versions.instruction_order
+                                )
+                          )
+                        ORDER BY previous.slot DESC, previous.instruction_order DESC, previous.id DESC
+                        LIMIT 1
+                    ) AS previous_version_id
+                FROM listed_versions
+            )
             SELECT
-                id,
-                event_id,
-                signature,
-                instruction_path,
-                instruction_order,
-                kind,
-                program_address,
-                loader,
-                source_account,
-                authority,
-                slot,
-                block_time,
-                indexed_at,
-                complete,
-                chunk_count,
-                program_len,
-                program_sha256,
-                missing_ranges_json
-            FROM program_versions
-            WHERE program_address = ?
-            ORDER BY slot DESC, instruction_order DESC, id DESC
-            LIMIT ?;
+                versions_with_previous.*,
+                previous.program_len AS previous_program_len,
+                previous.program_sha256 AS previous_program_sha256
+            FROM versions_with_previous
+            LEFT JOIN program_versions previous
+              ON previous.id = versions_with_previous.previous_version_id
+            ORDER BY versions_with_previous.slot DESC,
+                     versions_with_previous.instruction_order DESC,
+                     versions_with_previous.id DESC;
             "#,
         )
         .bind(program_id)
@@ -1995,10 +2163,6 @@ impl Database {
         let mut records = Vec::with_capacity(rows.len());
         for row in rows {
             let slot = row.try_get::<i64, _>("slot")?;
-            let instruction_order = row.try_get::<String, _>("instruction_order")?;
-            let previous = self
-                .previous_program_version_metadata(program_id, slot, &instruction_order)
-                .await?;
             records.push(ProgramVersionRecord {
                 id: row.try_get("id")?,
                 event_id: row.try_get("event_id")?,
@@ -2019,15 +2183,129 @@ impl Database {
                 missing_ranges: serde_json::from_str(
                     &row.try_get::<String, _>("missing_ranges_json")?,
                 )?,
-                previous_version_id: previous.as_ref().map(|record| record.id.clone()),
-                previous_program_len: previous.as_ref().and_then(|record| record.program_len),
-                previous_program_sha256: previous
-                    .as_ref()
-                    .and_then(|record| record.program_sha256.clone()),
+                previous_version_id: row.try_get("previous_version_id")?,
+                previous_program_len: row.try_get("previous_program_len")?,
+                previous_program_sha256: row.try_get("previous_program_sha256")?,
             });
         }
 
         Ok(records)
+    }
+
+    pub async fn program_version_catalog_summaries(
+        &self,
+        program_ids: &[String],
+    ) -> Result<Vec<ProgramVersionCatalogSummary>> {
+        if program_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            r#"
+            WITH ordered_versions AS (
+                SELECT
+                    program_address,
+                    id,
+                    kind,
+                    slot,
+                    block_time,
+                    complete,
+                    program_len,
+                    program_sha256,
+                    instruction_order,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY program_address
+                        ORDER BY slot DESC, instruction_order DESC, id DESC
+                    ) AS latest_rank
+                FROM program_versions
+                WHERE program_address IN (
+            "#,
+        );
+
+        let mut separated = builder.separated(", ");
+        for program_id in program_ids {
+            separated.push_bind(program_id);
+        }
+
+        separated.push_unseparated(
+            r#"
+                )
+            ),
+            summarized_versions AS (
+                SELECT
+                    ordered_versions.*,
+                    (
+                        SELECT previous.id
+                        FROM program_versions previous
+                        WHERE previous.program_address = ordered_versions.program_address
+                          AND previous.complete = 1
+                          AND (
+                                previous.program_bytes IS NOT NULL
+                             OR previous.program_bytes_blob_key IS NOT NULL
+                          )
+                          AND (
+                                previous.slot < ordered_versions.slot
+                             OR (
+                                    previous.slot = ordered_versions.slot
+                                AND previous.instruction_order < ordered_versions.instruction_order
+                                )
+                          )
+                        ORDER BY previous.slot DESC, previous.instruction_order DESC, previous.id DESC
+                        LIMIT 1
+                    ) AS previous_complete_version_id
+                FROM ordered_versions
+            )
+            SELECT
+                program_address,
+                COUNT(*) AS version_count,
+                COALESCE(SUM(CASE WHEN complete = 1 AND previous_complete_version_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS diffable_count,
+                COALESCE(SUM(CASE WHEN complete = 0 THEN 1 ELSE 0 END), 0) AS incomplete_count,
+                MAX(CASE WHEN latest_rank = 1 THEN id END) AS latest_id,
+                MAX(CASE WHEN latest_rank = 1 THEN kind END) AS latest_kind,
+                MAX(CASE WHEN latest_rank = 1 THEN slot END) AS latest_slot,
+                MAX(CASE WHEN latest_rank = 1 THEN block_time END) AS latest_block_time,
+                MAX(CASE WHEN latest_rank = 1 THEN complete END) AS latest_complete,
+                MAX(CASE WHEN latest_rank = 1 THEN program_len END) AS latest_program_len,
+                MAX(CASE WHEN latest_rank = 1 THEN program_sha256 END) AS latest_program_sha256,
+                MAX(CASE WHEN latest_rank = 1 THEN previous_complete_version_id END) AS latest_previous_version_id
+            FROM summarized_versions
+            GROUP BY program_address;
+            "#,
+        );
+
+        let rows = builder.build().fetch_all(&self.pool).await?;
+        let summaries = rows
+            .into_iter()
+            .map(|row| {
+                let latest_id: Option<String> = row.try_get("latest_id")?;
+                let latest = latest_id
+                    .map(|id| {
+                        Ok::<ProgramVersionLatestSummary, sqlx::Error>(
+                            ProgramVersionLatestSummary {
+                                id,
+                                kind: row.try_get("latest_kind")?,
+                                slot: row.try_get("latest_slot")?,
+                                block_time: row.try_get("latest_block_time")?,
+                                complete: row.try_get::<i64, _>("latest_complete")? != 0,
+                                program_len: row.try_get("latest_program_len")?,
+                                program_sha256: row.try_get("latest_program_sha256")?,
+                                previous_version_id: row.try_get("latest_previous_version_id")?,
+                            },
+                        )
+                    })
+                    .transpose()?;
+
+                Ok(ProgramVersionCatalogSummary {
+                    program_id: row.try_get("program_address")?,
+                    version_count: row.try_get("version_count")?,
+                    diffable_count: row.try_get("diffable_count")?,
+                    incomplete_count: row.try_get("incomplete_count")?,
+                    latest,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(summaries)
     }
 
     pub async fn list_program_idl_versions(
@@ -2037,34 +2315,70 @@ impl Database {
     ) -> Result<Vec<ProgramIdlVersionRecord>> {
         let rows = sqlx::query(
             r#"
+            WITH listed_versions AS (
+                SELECT
+                    id,
+                    event_id,
+                    signature,
+                    instruction_path,
+                    instruction_order,
+                    kind,
+                    origin,
+                    program_address,
+                    metadata_account,
+                    source_account,
+                    authority,
+                    slot,
+                    block_time,
+                    indexed_at,
+                    complete,
+                    chunk_count,
+                    idl_len,
+                    idl_sha256,
+                    encoding,
+                    compression,
+                    format,
+                    data_source,
+                    missing_ranges_json
+                FROM program_idl_versions
+                WHERE program_address = ?
+                ORDER BY slot DESC, instruction_order DESC, id DESC
+                LIMIT ?
+            ),
+            versions_with_previous AS (
+                SELECT
+                    listed_versions.*,
+                    (
+                        SELECT previous.id
+                        FROM program_idl_versions previous
+                        WHERE previous.program_address = listed_versions.program_address
+                          AND previous.complete = 1
+                          AND (
+                                previous.idl_bytes IS NOT NULL
+                             OR previous.idl_bytes_blob_key IS NOT NULL
+                          )
+                          AND (
+                                previous.slot < listed_versions.slot
+                             OR (
+                                    previous.slot = listed_versions.slot
+                                AND previous.instruction_order < listed_versions.instruction_order
+                                )
+                          )
+                        ORDER BY previous.slot DESC, previous.instruction_order DESC, previous.id DESC
+                        LIMIT 1
+                    ) AS previous_idl_version_id
+                FROM listed_versions
+            )
             SELECT
-                id,
-                event_id,
-                signature,
-                instruction_path,
-                instruction_order,
-                kind,
-                origin,
-                program_address,
-                metadata_account,
-                source_account,
-                authority,
-                slot,
-                block_time,
-                indexed_at,
-                complete,
-                chunk_count,
-                idl_len,
-                idl_sha256,
-                encoding,
-                compression,
-                format,
-                data_source,
-                missing_ranges_json
-            FROM program_idl_versions
-            WHERE program_address = ?
-            ORDER BY slot DESC, instruction_order DESC, id DESC
-            LIMIT ?;
+                versions_with_previous.*,
+                previous.idl_len AS previous_idl_len,
+                previous.idl_sha256 AS previous_idl_sha256
+            FROM versions_with_previous
+            LEFT JOIN program_idl_versions previous
+              ON previous.id = versions_with_previous.previous_idl_version_id
+            ORDER BY versions_with_previous.slot DESC,
+                     versions_with_previous.instruction_order DESC,
+                     versions_with_previous.id DESC;
             "#,
         )
         .bind(program_id)
@@ -2074,7 +2388,35 @@ impl Database {
 
         let mut records = Vec::with_capacity(rows.len());
         for row in rows {
-            records.push(self.row_to_program_idl_version_record(row).await?);
+            records.push(ProgramIdlVersionRecord {
+                id: row.try_get("id")?,
+                event_id: row.try_get("event_id")?,
+                signature: row.try_get("signature")?,
+                instruction_path: row.try_get("instruction_path")?,
+                kind: row.try_get("kind")?,
+                origin: row.try_get("origin")?,
+                program_address: row.try_get("program_address")?,
+                metadata_account: row.try_get("metadata_account")?,
+                source_account: row.try_get("source_account")?,
+                authority: row.try_get("authority")?,
+                slot: row.try_get("slot")?,
+                block_time: row.try_get("block_time")?,
+                indexed_at: row.try_get("indexed_at")?,
+                complete: row.try_get::<i64, _>("complete")? != 0,
+                chunk_count: row.try_get("chunk_count")?,
+                idl_len: row.try_get("idl_len")?,
+                idl_sha256: row.try_get("idl_sha256")?,
+                encoding: row.try_get("encoding")?,
+                compression: row.try_get("compression")?,
+                format: row.try_get("format")?,
+                data_source: row.try_get("data_source")?,
+                missing_ranges: serde_json::from_str(
+                    &row.try_get::<String, _>("missing_ranges_json")?,
+                )?,
+                previous_idl_version_id: row.try_get("previous_idl_version_id")?,
+                previous_idl_len: row.try_get("previous_idl_len")?,
+                previous_idl_sha256: row.try_get("previous_idl_sha256")?,
+            });
         }
 
         Ok(records)
@@ -2672,7 +3014,7 @@ impl Database {
     ) -> Result<Option<ProgramVersionMetadata>> {
         let row = sqlx::query(
             r#"
-            SELECT id, program_len, program_sha256
+            SELECT id
             FROM program_versions
             WHERE program_address = ?
               AND complete = 1
@@ -2695,8 +3037,6 @@ impl Database {
         row.map(|row| {
             Ok(ProgramVersionMetadata {
                 id: row.try_get("id")?,
-                program_len: row.try_get("program_len")?,
-                program_sha256: row.try_get("program_sha256")?,
             })
         })
         .transpose()
@@ -5725,6 +6065,51 @@ mod tests {
             100,
         )
         .await?;
+        let labels = db
+            .address_labels(std::slice::from_ref(&labeled_target))
+            .await?;
+        assert_eq!(
+            labels
+                .get(&labeled_target)
+                .map(|label| label.label.as_str()),
+            Some("known.sol")
+        );
+
+        let name_account = "NameAccount11111111111111111111111111111111".to_owned();
+        db.upsert_sns_domain(
+            &name_account,
+            "domain.sol",
+            Some(&actor),
+            None,
+            None,
+            false,
+            Some(42),
+            Some(event_kind::NAME_SERVICE_DOMAIN_UPDATED),
+            100,
+            None,
+        )
+        .await?;
+        let domains = db
+            .sns_domains_for_name_accounts(std::slice::from_ref(&name_account))
+            .await?;
+        assert_eq!(
+            domains
+                .get(&name_account)
+                .map(|domain| domain.domain_name.as_str()),
+            Some("domain.sol")
+        );
+
+        db.upsert_sns_primary_domain(&actor, &name_account, "primary.sol", 100)
+            .await?;
+        let primary_domains = db
+            .sns_primary_domains_for_owners(std::slice::from_ref(&actor))
+            .await?;
+        assert_eq!(
+            primary_domains
+                .get(&actor)
+                .map(|domain| domain.domain_name.as_str()),
+            Some("primary.sol")
+        );
         db.insert_event(&ChainEvent {
             id: "sig:0:test:labeled".to_owned(),
             signature: "sig".to_owned(),
@@ -5750,6 +6135,201 @@ mod tests {
         assert!(!addresses.contains(&labeled_target));
         assert!(addresses.contains(&actor));
         assert!(addresses.contains(&member));
+
+        let _ = std::fs::remove_file(db_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn program_version_catalog_summaries_skip_incomplete_previous_versions() -> Result<()> {
+        let db_path = std::env::temp_dir().join(format!(
+            "firewatch-program-version-summary-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let database_url = format!("sqlite://{}", db_path.display());
+        let db = Database::connect(&database_url, BlobStore::new(None, None)?).await?;
+        db.migrate().await?;
+
+        let program = "ProgramSummary1111111111111111111111111111111".to_owned();
+        for (id, instruction_order, slot, complete, bytes) in [
+            ("old", "0000", 10_i64, 1_i64, Some(b"old".to_vec())),
+            ("incomplete", "0001", 20_i64, 0_i64, None),
+            ("latest", "0002", 30_i64, 1_i64, Some(b"latest".to_vec())),
+        ] {
+            sqlx::query(
+                r#"
+                INSERT INTO program_versions (
+                    id,
+                    event_id,
+                    signature,
+                    instruction_path,
+                    instruction_order,
+                    kind,
+                    program_address,
+                    loader,
+                    source_account,
+                    slot,
+                    block_time,
+                    indexed_at,
+                    complete,
+                    chunk_count,
+                    program_len,
+                    program_sha256,
+                    program_bytes,
+                    missing_ranges_json,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?);
+                "#,
+            )
+            .bind(id)
+            .bind(format!("event-{id}"))
+            .bind(format!("sig-{id}"))
+            .bind(id)
+            .bind(instruction_order)
+            .bind(event_kind::PROGRAM_UPGRADED)
+            .bind(&program)
+            .bind("upgradeable")
+            .bind("buffer")
+            .bind(slot)
+            .bind(slot + 100)
+            .bind(slot + 200)
+            .bind(complete)
+            .bind(if bytes.is_some() { 1_i64 } else { 0_i64 })
+            .bind(bytes.as_ref().map(|bytes| bytes.len() as i64))
+            .bind(bytes.as_ref().map(|bytes| sha256_hex(bytes)))
+            .bind(bytes)
+            .bind(slot + 300)
+            .execute(&db.pool)
+            .await?;
+        }
+
+        let summaries = db
+            .program_version_catalog_summaries(std::slice::from_ref(&program))
+            .await?;
+        assert_eq!(summaries.len(), 1);
+
+        let summary = &summaries[0];
+        assert_eq!(summary.program_id, program);
+        assert_eq!(summary.version_count, 3);
+        assert_eq!(summary.incomplete_count, 1);
+        assert_eq!(summary.diffable_count, 1);
+        let latest = summary.latest.as_ref().expect("latest summary");
+        assert_eq!(latest.id, "latest");
+        assert_eq!(latest.previous_version_id.as_deref(), Some("old"));
+
+        let versions = db.list_program_versions(&program, 200).await?;
+        assert_eq!(versions.len(), 3);
+        assert_eq!(versions[0].id, "latest");
+        assert_eq!(versions[0].previous_version_id.as_deref(), Some("old"));
+        assert_eq!(versions[0].previous_program_len, Some(3));
+        assert_eq!(
+            versions[0].previous_program_sha256.as_deref(),
+            Some(sha256_hex(b"old").as_str())
+        );
+
+        let _ = std::fs::remove_file(db_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn list_program_idl_versions_skips_incomplete_previous_versions() -> Result<()> {
+        let db_path = std::env::temp_dir().join(format!(
+            "firewatch-idl-version-list-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let database_url = format!("sqlite://{}", db_path.display());
+        let db = Database::connect(&database_url, BlobStore::new(None, None)?).await?;
+        db.migrate().await?;
+
+        let program = "ProgramIdlSummary1111111111111111111111111111".to_owned();
+        for (id, instruction_order, slot, complete, bytes) in [
+            (
+                "old-idl",
+                "0000",
+                10_i64,
+                1_i64,
+                Some(br#"{"old":true}"#.to_vec()),
+            ),
+            ("incomplete-idl", "0001", 20_i64, 0_i64, None),
+            (
+                "latest-idl",
+                "0002",
+                30_i64,
+                1_i64,
+                Some(br#"{"latest":true}"#.to_vec()),
+            ),
+        ] {
+            sqlx::query(
+                r#"
+                INSERT INTO program_idl_versions (
+                    id,
+                    event_id,
+                    signature,
+                    instruction_path,
+                    instruction_order,
+                    kind,
+                    origin,
+                    program_address,
+                    metadata_account,
+                    source_account,
+                    slot,
+                    block_time,
+                    indexed_at,
+                    complete,
+                    chunk_count,
+                    idl_len,
+                    idl_sha256,
+                    idl_bytes,
+                    encoding,
+                    compression,
+                    format,
+                    data_source,
+                    missing_ranges_json,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?);
+                "#,
+            )
+            .bind(id)
+            .bind(format!("event-{id}"))
+            .bind(format!("sig-{id}"))
+            .bind(id)
+            .bind(instruction_order)
+            .bind(event_kind::PROGRAM_IDL_UPDATED)
+            .bind("anchor")
+            .bind(&program)
+            .bind("metadata")
+            .bind("source")
+            .bind(slot)
+            .bind(slot + 100)
+            .bind(slot + 200)
+            .bind(complete)
+            .bind(if bytes.is_some() { 1_i64 } else { 0_i64 })
+            .bind(bytes.as_ref().map(|bytes| bytes.len() as i64))
+            .bind(bytes.as_ref().map(|bytes| sha256_hex(bytes)))
+            .bind(bytes)
+            .bind("utf8")
+            .bind("zlib")
+            .bind("json")
+            .bind("account")
+            .bind(slot + 300)
+            .execute(&db.pool)
+            .await?;
+        }
+
+        let versions = db.list_program_idl_versions(&program, 200).await?;
+        assert_eq!(versions.len(), 3);
+        assert_eq!(versions[0].id, "latest-idl");
+        assert_eq!(
+            versions[0].previous_idl_version_id.as_deref(),
+            Some("old-idl")
+        );
+        assert_eq!(versions[0].previous_idl_len, Some(12));
+        assert_eq!(
+            versions[0].previous_idl_sha256.as_deref(),
+            Some(sha256_hex(br#"{"old":true}"#).as_str())
+        );
 
         let _ = std::fs::remove_file(db_path);
         Ok(())

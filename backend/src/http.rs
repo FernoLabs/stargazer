@@ -8,9 +8,10 @@ use crate::{
         EventScopeCounts, EventsResponse, EventsSummary, FirewatchUser,
         GrantUserEntitlementRequest, LiveStatusResponse, MetricAlertRule, MetricAlertsResponse,
         PaymentLink, PaymentLinkCheckoutResponse, ProgramDisassemblyResponse,
-        ProgramIdlVersionsResponse, ProgramSignerStatsResponse, ProgramVersionsResponse, PromoCode,
-        PromoCodesResponse, TelegramSubscription, TelegramSubscriptionSummaryResponse,
-        TelegramSubscriptionsResponse, UpsertFirewatchUserRequest,
+        ProgramIdlVersionsResponse, ProgramSignerStatsResponse, ProgramVersionCatalogSummary,
+        ProgramVersionSummariesResponse, ProgramVersionsResponse, PromoCode, PromoCodesResponse,
+        TelegramSubscription, TelegramSubscriptionSummaryResponse, TelegramSubscriptionsResponse,
+        UpsertFirewatchUserRequest,
     },
     name_service, protocols, telegram,
 };
@@ -18,7 +19,7 @@ use axum::{
     Json, Router,
     extract::{Path, Query, Request, State},
     http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header},
-    middleware::{Next, from_fn_with_state},
+    middleware::{Next, from_fn, from_fn_with_state},
     response::{IntoResponse, Response},
     routing::{delete, get},
 };
@@ -26,11 +27,25 @@ use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use solana_sdk::pubkey::Pubkey;
-use std::{str::FromStr, time::Instant};
+use std::{collections::HashSet, str::FromStr, time::Instant};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{debug, warn};
 
 const ESTIMATED_SLOT_TIME_MS: i64 = 400;
+const CACHE_LIVE_STATUS: &str = "public, max-age=1, s-maxage=2, stale-while-revalidate=5";
+const CACHE_STATUS: &str = "public, max-age=5, s-maxage=10, stale-while-revalidate=30";
+const CACHE_EVENTS_FRESH: &str = "public, max-age=5, s-maxage=15, stale-while-revalidate=60";
+const CACHE_EVENTS_FILTERED: &str = "public, max-age=10, s-maxage=60, stale-while-revalidate=300";
+const CACHE_EVENT_DETAIL: &str = "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400";
+const CACHE_PREVIEW_CARD: &str =
+    "public, max-age=300, s-maxage=86400, stale-while-revalidate=604800";
+const CACHE_PROTOCOLS: &str = "public, max-age=600, s-maxage=21600, stale-while-revalidate=86400";
+const CACHE_PROGRAM_STATS: &str =
+    "public, max-age=300, s-maxage=1800, stale-while-revalidate=21600";
+const CACHE_PROGRAM_LISTS: &str =
+    "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400";
+const CACHE_IMMUTABLE: &str = "public, max-age=31536000, immutable";
+const CACHE_NO_STORE: &str = "private, no-store";
 
 pub fn router(state: SharedState) -> anyhow::Result<Router> {
     let cors = CorsLayer::new()
@@ -48,6 +63,10 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
         .route("/api/status", get(status))
         .route("/api/live-status", get(live_status))
         .route("/api/protocols", get(list_protocols))
+        .route(
+            "/api/programs/version-summaries",
+            get(program_version_summaries),
+        )
         .route(
             "/api/programs/{address}/signer-stats",
             get(program_signer_stats),
@@ -110,6 +129,7 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
             delete(delete_telegram_subscription),
         )
         .with_state(state.clone())
+        .layer(from_fn(apply_cache_control))
         .layer(from_fn_with_state(state.clone(), require_origin_token));
 
     Ok(Router::new()
@@ -118,6 +138,113 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
         .with_state(state)
         .layer(cors)
         .layer(TraceLayer::new_for_http()))
+}
+
+async fn apply_cache_control(request: Request, next: Next) -> Response {
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
+    let query = request.uri().query().map(str::to_owned);
+    let mut response = next.run(request).await;
+
+    if !response.status().is_success() || response.headers().contains_key(header::CACHE_CONTROL) {
+        return response;
+    }
+
+    let cache_control =
+        cache_control_for_api_path(&method, &path, query.as_deref()).unwrap_or(CACHE_NO_STORE);
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(cache_control),
+    );
+
+    response
+}
+
+fn cache_control_for_api_path(
+    method: &Method,
+    path: &str,
+    query: Option<&str>,
+) -> Option<&'static str> {
+    if *method != Method::GET && *method != Method::HEAD {
+        return None;
+    }
+
+    match path {
+        "/api/live-status" => return Some(CACHE_LIVE_STATUS),
+        "/api/status" => return Some(CACHE_STATUS),
+        "/api/events" => return Some(event_list_cache_control(query)),
+        "/api/protocols" => return Some(CACHE_PROTOCOLS),
+        "/api/programs/version-summaries" => return Some(CACHE_PROGRAM_STATS),
+        _ => {}
+    }
+
+    let segments = path
+        .trim_matches('/')
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+
+    match segments.as_slice() {
+        ["api", "events", _id] => Some(CACHE_EVENT_DETAIL),
+        ["api", "events", _id, "preview-card.png"] => Some(CACHE_PREVIEW_CARD),
+        ["api", "programs", _address, "signer-stats"] => Some(CACHE_PROGRAM_STATS),
+        ["api", "programs", _address, versions_or_idls]
+            if matches!(*versions_or_idls, "versions" | "idls") =>
+        {
+            Some(CACHE_PROGRAM_LISTS)
+        }
+        [
+            "api",
+            "programs",
+            _address,
+            versions_or_idls,
+            _version_id,
+            bytes_or_text,
+        ] if matches!(*versions_or_idls, "versions" | "idls")
+            && matches!(*bytes_or_text, "bytes" | "text") =>
+        {
+            Some(CACHE_IMMUTABLE)
+        }
+        [
+            "api",
+            "programs",
+            _address,
+            "versions",
+            _version_id,
+            "disassembly",
+        ] => Some(CACHE_IMMUTABLE),
+        _ => None,
+    }
+}
+
+fn event_list_cache_control(query: Option<&str>) -> &'static str {
+    let offset = query_value(query, "offset")
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(0);
+    let has_focused_filter = [
+        "protocol",
+        "target_address",
+        "scope",
+        "severity",
+        "coverage",
+        "tag",
+        "search",
+    ]
+    .iter()
+    .any(|key| query_value(query, key).is_some_and(|value| !value.is_empty()));
+
+    if offset > 0 || has_focused_filter {
+        CACHE_EVENTS_FILTERED
+    } else {
+        CACHE_EVENTS_FRESH
+    }
+}
+
+fn query_value<'a>(query: Option<&'a str>, key: &str) -> Option<&'a str> {
+    query?.split('&').find_map(|pair| {
+        let (pair_key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        (pair_key == key).then_some(value)
+    })
 }
 
 #[derive(Deserialize)]
@@ -208,26 +335,14 @@ async fn list_events(
         tag: normalized_tag,
     };
 
-    let items = state
-        .db
-        .list_events_filtered(limit, offset, filters)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let scope_counts = state
-        .db
-        .event_scope_counts(filters)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let (items, scope_counts, summary) = tokio::try_join!(
+        state.db.list_events_filtered(limit, offset, filters),
+        state.db.event_scope_counts(filters),
+        state.db.summary()
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let total_count = count_for_scope(normalized_scope, &scope_counts);
-    let mut hydrated_items = Vec::with_capacity(items.len());
-    for event in items {
-        hydrated_items.push(name_service::hydrate_event_cached(&state, event).await);
-    }
-    let summary = state
-        .db
-        .summary()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let hydrated_items = name_service::hydrate_events_cached(&state, items).await;
     let next_offset = (offset + (hydrated_items.len() as i64) < total_count)
         .then_some(offset + hydrated_items.len() as i64);
 
@@ -420,6 +535,49 @@ async fn program_signer_stats(
     }
 
     Ok(Json(ProgramSignerStatsResponse { items }))
+}
+
+async fn program_version_summaries(
+    State(state): State<SharedState>,
+) -> ApiResult<ProgramVersionSummariesResponse> {
+    let mut seen = HashSet::new();
+    let program_ids = protocols::curated_protocol_descriptors()
+        .into_iter()
+        .flat_map(|protocol| protocol.programs)
+        .filter_map(|program| {
+            if seen.insert(program.program_id.clone()) {
+                Some(program.program_id)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let mut items = state
+        .db
+        .program_version_catalog_summaries(&program_ids)
+        .await
+        .map_err(internal_error)?;
+    let summarized = items
+        .iter()
+        .map(|summary| summary.program_id.clone())
+        .collect::<HashSet<_>>();
+
+    for program_id in program_ids {
+        if summarized.contains(&program_id) {
+            continue;
+        }
+
+        items.push(ProgramVersionCatalogSummary {
+            program_id,
+            version_count: 0,
+            diffable_count: 0,
+            incomplete_count: 0,
+            latest: None,
+        });
+    }
+
+    Ok(Json(ProgramVersionSummariesResponse { items }))
 }
 
 async fn program_versions(

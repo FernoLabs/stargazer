@@ -37,7 +37,7 @@ function normalizeBackendPath(path: string | undefined) {
 	return null;
 }
 
-function cachePolicyFor(path: string): CachePolicy | null {
+function cachePolicyFor(path: string, searchParams: URLSearchParams): CachePolicy | null {
 	if (path === 'api/live-status') {
 		return {
 			header: 'public, max-age=1, s-maxage=2, stale-while-revalidate=5',
@@ -45,17 +45,42 @@ function cachePolicyFor(path: string): CachePolicy | null {
 		};
 	}
 
-	if (path === 'api/events') {
+	if (path === 'api/status') {
 		return {
-			header: 'public, max-age=0, s-maxage=3, stale-while-revalidate=15',
-			edgeTtlSeconds: 3
+			header: 'public, max-age=5, s-maxage=10, stale-while-revalidate=30',
+			edgeTtlSeconds: 10
+		};
+	}
+
+	if (path === 'api/events') {
+		const offset = Number.parseInt(searchParams.get('offset') ?? '0', 10);
+		const hasFocusedFilter = [
+			'protocol',
+			'target_address',
+			'scope',
+			'severity',
+			'coverage',
+			'tag',
+			'search'
+		].some((key) => searchParams.has(key));
+
+		if (offset > 0 || hasFocusedFilter) {
+			return {
+				header: 'public, max-age=10, s-maxage=60, stale-while-revalidate=300',
+				edgeTtlSeconds: 60
+			};
+		}
+
+		return {
+			header: 'public, max-age=5, s-maxage=15, stale-while-revalidate=60',
+			edgeTtlSeconds: 15
 		};
 	}
 
 	if (/^api\/events\/[^/]+$/.test(path)) {
 		return {
-			header: 'public, max-age=30, s-maxage=300, stale-while-revalidate=3600',
-			edgeTtlSeconds: 300
+			header: 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400',
+			edgeTtlSeconds: 3600
 		};
 	}
 
@@ -68,22 +93,29 @@ function cachePolicyFor(path: string): CachePolicy | null {
 
 	if (path === 'api/protocols') {
 		return {
-			header: 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400',
-			edgeTtlSeconds: 3600
+			header: 'public, max-age=600, s-maxage=21600, stale-while-revalidate=86400',
+			edgeTtlSeconds: 21600
 		};
 	}
 
 	if (/^api\/programs\/[^/]+\/signer-stats$/.test(path)) {
 		return {
-			header: 'public, max-age=60, s-maxage=300, stale-while-revalidate=3600',
-			edgeTtlSeconds: 300
+			header: 'public, max-age=300, s-maxage=1800, stale-while-revalidate=21600',
+			edgeTtlSeconds: 1800
+		};
+	}
+
+	if (path === 'api/programs/version-summaries') {
+		return {
+			header: 'public, max-age=300, s-maxage=1800, stale-while-revalidate=21600',
+			edgeTtlSeconds: 1800
 		};
 	}
 
 	if (/^api\/programs\/[^/]+\/(versions|idls)$/.test(path)) {
 		return {
-			header: 'public, max-age=60, s-maxage=300, stale-while-revalidate=3600',
-			edgeTtlSeconds: 300
+			header: 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400',
+			edgeTtlSeconds: 3600
 		};
 	}
 
@@ -96,8 +128,8 @@ function cachePolicyFor(path: string): CachePolicy | null {
 
 	if (/^api\/programs\/[^/]+\/versions\/[^/]+\/disassembly$/.test(path)) {
 		return {
-			header: 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400',
-			edgeTtlSeconds: 3600
+			header: 'public, max-age=31536000, immutable',
+			edgeTtlSeconds: 31536000
 		};
 	}
 
@@ -159,8 +191,9 @@ const proxy: RequestHandler = async (event) => {
 	}
 
 	const method = event.request.method.toUpperCase();
-	const cachePolicy = method === 'GET' ? cachePolicyFor(normalizedPath) : null;
-	const cache = cachePolicy ? cacheForPlatform(event.platform) : undefined;
+	const isReadRequest = method === 'GET' || method === 'HEAD';
+	const cachePolicy = isReadRequest ? cachePolicyFor(normalizedPath, event.url.searchParams) : null;
+	const cache = method === 'GET' && cachePolicy ? cacheForPlatform(event.platform) : undefined;
 	const cacheKey = cache ? new Request(event.url.toString(), { method: 'GET' }) : null;
 
 	if (cache && cacheKey) {

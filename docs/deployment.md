@@ -159,6 +159,12 @@ Run one-off backfills against the same volume:
 docker compose run --rm firewatch-indexer backfill-blocks 400000000 400001000 --concurrency 4 --retries 2
 ```
 
+To recover program-version context after a newly observed upgrade, backfill the recent upgrade history for that program. This resolves the program-data account, finds recent upgrade signatures, and replays a slot window around each one so buffer writes are available for diffing:
+
+```bash
+docker compose run --rm firewatch-indexer backfill-program-history JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4 --limit 2 --lookback-slots 2048 --concurrency 4 --retries 2
+```
+
 For a small VM, pause the live indexer or run the backfill during a quiet window if CPU or disk I/O gets tight.
 
 ## Manual Systemd Origin

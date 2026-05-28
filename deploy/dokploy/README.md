@@ -57,4 +57,10 @@ Run one-off commands against the same data volume from Dokploy's terminal or an 
 docker compose run --rm firewatch-indexer backfill-blocks 400000000 400001000 --concurrency 4 --retries 2
 ```
 
+For a program upgrade where FireWatch has the new event but no prior version to compare against, replay recent upgrade windows for that program:
+
+```bash
+docker compose run --rm firewatch-indexer backfill-program-history JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4 --limit 2 --lookback-slots 2048 --concurrency 4 --retries 2
+```
+
 Avoid running heavy backfills at the same time as a live indexer on a very small VM unless you have tested CPU and I/O headroom.

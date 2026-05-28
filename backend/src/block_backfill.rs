@@ -8,6 +8,7 @@ use crate::{
     },
 };
 use anyhow::{Context, Result, bail};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use futures::{SinkExt, StreamExt, stream};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -38,6 +39,9 @@ use yellowstone_grpc_proto::{
 
 const GRPC_BACKFILL_FILTER_LABEL: &str = "firewatch-backfill";
 const GRPC_BACKFILL_BLOCK_META_FILTER_LABEL: &str = "firewatch-block-meta-backfill";
+const PROGRAM_HISTORY_SIGNATURE_PAGE_LIMIT: usize = 1_000;
+const PROGRAM_HISTORY_MAX_SIGNATURE_PAGES: usize = 16;
+const UPGRADEABLE_LOADER_PROGRAM_TAG: u32 = 2;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct BlockBackfillReport {
@@ -94,6 +98,28 @@ pub(crate) struct GrpcBackfillReport {
     pub(crate) program_version_update_count: usize,
     pub(crate) program_idl_version_update_count: usize,
     pub(crate) last_observed_slot: Option<u64>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ProgramUpgradeSignature {
+    pub(crate) signature: String,
+    pub(crate) slot: u64,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ProgramUpgradeBackfillWindow {
+    pub(crate) start_slot: u64,
+    pub(crate) end_slot: u64,
+    pub(crate) report: BlockBackfillRangeReport,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ProgramUpgradeHistoryBackfillReport {
+    pub(crate) program_address: String,
+    pub(crate) program_data_account: String,
+    pub(crate) signatures: Vec<ProgramUpgradeSignature>,
+    pub(crate) windows: Vec<ProgramUpgradeBackfillWindow>,
+    pub(crate) elapsed_ms: u128,
 }
 
 impl BlockBackfillRangeReport {
@@ -438,6 +464,295 @@ struct RpcBlockResponse {
 struct RpcError {
     code: i64,
     message: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct RpcAccountInfoResponse {
+    result: Option<RpcAccountInfoResult>,
+    error: Option<RpcError>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RpcAccountInfoResult {
+    value: Option<RpcAccountInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RpcAccountInfo {
+    owner: String,
+    data: Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct RpcSignaturesResponse {
+    result: Option<Vec<RpcSignatureInfo>>,
+    error: Option<RpcError>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RpcSignatureInfo {
+    signature: String,
+    slot: u64,
+    err: Option<Value>,
+}
+
+pub(crate) async fn backfill_program_upgrade_history(
+    state: SharedState,
+    program_address: &str,
+    before_slot: Option<u64>,
+    limit: usize,
+    lookback_slots: u64,
+    concurrency: usize,
+    retries: usize,
+    enqueue_deliveries: bool,
+) -> Result<ProgramUpgradeHistoryBackfillReport> {
+    if limit == 0 {
+        bail!("program upgrade history backfill limit must be greater than zero");
+    }
+
+    let started = Instant::now();
+    let program_address = Pubkey::from_str(program_address)
+        .with_context(|| format!("invalid program address {program_address:?}"))?;
+    let program_data_account =
+        resolve_upgradeable_program_data_account(&state, &program_address).await?;
+    let signatures =
+        fetch_program_upgrade_signatures(&state, &program_data_account, before_slot, limit).await?;
+    let ranges = merged_program_upgrade_backfill_ranges(&signatures, lookback_slots);
+    let mut windows = Vec::with_capacity(ranges.len());
+
+    for (start_slot, end_slot) in ranges {
+        let report = backfill_ferno_blocks(
+            state.clone(),
+            start_slot,
+            end_slot,
+            concurrency,
+            retries,
+            enqueue_deliveries,
+        )
+        .await;
+        windows.push(ProgramUpgradeBackfillWindow {
+            start_slot,
+            end_slot,
+            report,
+        });
+    }
+
+    Ok(ProgramUpgradeHistoryBackfillReport {
+        program_address: program_address.to_string(),
+        program_data_account: program_data_account.to_string(),
+        signatures,
+        windows,
+        elapsed_ms: started.elapsed().as_millis(),
+    })
+}
+
+async fn resolve_upgradeable_program_data_account(
+    state: &SharedState,
+    program_address: &Pubkey,
+) -> Result<Pubkey> {
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": program_address.to_string(),
+        "method": "getAccountInfo",
+        "params": [
+            program_address.to_string(),
+            {
+                "encoding": "base64",
+                "commitment": "finalized"
+            }
+        ]
+    });
+    let response = state
+        .http_client
+        .post(&state.config.solana_rpc_http_url)
+        .json(&request)
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await
+        .with_context(|| format!("fetch RPC account info for {program_address}"))?
+        .error_for_status()
+        .with_context(|| {
+            format!("RPC getAccountInfo endpoint returned an HTTP error for {program_address}")
+        })?
+        .json::<RpcAccountInfoResponse>()
+        .await
+        .with_context(|| format!("decode RPC getAccountInfo JSON for {program_address}"))?;
+
+    if let Some(error) = response.error {
+        bail!(
+            "RPC getAccountInfo returned error {} for {}: {}",
+            error.code,
+            program_address,
+            error.message
+        );
+    }
+
+    let account = response
+        .result
+        .and_then(|result| result.value)
+        .with_context(|| format!("program account {program_address} was not found"))?;
+    if account.owner != bpf_loader_upgradeable::ID.to_string() {
+        bail!(
+            "program account {} is owned by {}, not the upgradeable loader",
+            program_address,
+            account.owner
+        );
+    }
+
+    let account_data = decode_rpc_account_data(&account.data)
+        .with_context(|| format!("decode program account data for {program_address}"))?;
+    parse_upgradeable_program_data_address(&account_data)
+        .with_context(|| format!("parse program data account for {program_address}"))
+}
+
+async fn fetch_program_upgrade_signatures(
+    state: &SharedState,
+    program_data_account: &Pubkey,
+    before_slot: Option<u64>,
+    limit: usize,
+) -> Result<Vec<ProgramUpgradeSignature>> {
+    let mut signatures = Vec::with_capacity(limit.min(PROGRAM_HISTORY_SIGNATURE_PAGE_LIMIT));
+    let mut before_signature = None::<String>;
+
+    for _ in 0..PROGRAM_HISTORY_MAX_SIGNATURE_PAGES {
+        let mut config = json!({
+            "limit": PROGRAM_HISTORY_SIGNATURE_PAGE_LIMIT
+        });
+        if let Some(signature) = before_signature.as_deref() {
+            config["before"] = json!(signature);
+        }
+
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": program_data_account.to_string(),
+            "method": "getSignaturesForAddress",
+            "params": [
+                program_data_account.to_string(),
+                config
+            ]
+        });
+        let response = state
+            .http_client
+            .post(&state.config.solana_rpc_http_url)
+            .json(&request)
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await
+            .with_context(|| format!("fetch signatures for program data {program_data_account}"))?
+            .error_for_status()
+            .with_context(|| {
+                format!(
+                    "RPC getSignaturesForAddress endpoint returned an HTTP error for {program_data_account}"
+                )
+            })?
+            .json::<RpcSignaturesResponse>()
+            .await
+            .with_context(|| {
+                format!("decode RPC getSignaturesForAddress JSON for {program_data_account}")
+            })?;
+
+        if let Some(error) = response.error {
+            bail!(
+                "RPC getSignaturesForAddress returned error {} for {}: {}",
+                error.code,
+                program_data_account,
+                error.message
+            );
+        }
+
+        let page = response.result.unwrap_or_default();
+        if page.is_empty() {
+            break;
+        }
+
+        for item in &page {
+            if item.err.is_some() {
+                continue;
+            }
+            if before_slot.is_some_and(|slot| item.slot >= slot) {
+                continue;
+            }
+            signatures.push(ProgramUpgradeSignature {
+                signature: item.signature.clone(),
+                slot: item.slot,
+            });
+            if signatures.len() == limit {
+                return Ok(signatures);
+            }
+        }
+
+        before_signature = page.last().map(|item| item.signature.clone());
+        if before_signature.is_none() {
+            break;
+        }
+    }
+
+    Ok(signatures)
+}
+
+fn decode_rpc_account_data(data: &Value) -> Result<Vec<u8>> {
+    let encoded = data
+        .as_array()
+        .and_then(|items| items.first())
+        .and_then(Value::as_str)
+        .or_else(|| data.as_str())
+        .context("RPC account data is not base64 encoded")?;
+    BASE64
+        .decode(encoded)
+        .context("RPC account data has invalid base64")
+}
+
+fn parse_upgradeable_program_data_address(data: &[u8]) -> Result<Pubkey> {
+    if data.len() < 36 {
+        bail!(
+            "upgradeable program account data is too short: {} bytes",
+            data.len()
+        );
+    }
+
+    let tag = u32::from_le_bytes(
+        data[0..4]
+            .try_into()
+            .context("upgradeable program account tag overflow")?,
+    );
+    if tag != UPGRADEABLE_LOADER_PROGRAM_TAG {
+        bail!("upgradeable loader account is not a Program account");
+    }
+
+    let address = data[4..36]
+        .try_into()
+        .context("program data account address overflow")?;
+    Ok(Pubkey::new_from_array(address))
+}
+
+fn merged_program_upgrade_backfill_ranges(
+    signatures: &[ProgramUpgradeSignature],
+    lookback_slots: u64,
+) -> Vec<(u64, u64)> {
+    let mut ranges = signatures
+        .iter()
+        .map(|signature| {
+            (
+                signature.slot.saturating_sub(lookback_slots),
+                signature.slot,
+            )
+        })
+        .collect::<Vec<_>>();
+    ranges.sort_by_key(|(start_slot, end_slot)| (*start_slot, *end_slot));
+
+    let mut merged = Vec::<(u64, u64)>::new();
+    for (start_slot, end_slot) in ranges {
+        if let Some((_, last_end_slot)) = merged.last_mut()
+            && start_slot <= last_end_slot.saturating_add(1)
+        {
+            *last_end_slot = (*last_end_slot).max(end_slot);
+            continue;
+        }
+        merged.push((start_slot, end_slot));
+    }
+
+    merged
 }
 
 pub(crate) async fn backfill_ferno_block(
@@ -1132,6 +1447,48 @@ fn resolve_proto_block_transaction(
         inner_instruction_sets,
         log_messages: meta.log_messages,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_upgradeable_program_data_address() -> Result<()> {
+        let program_data = Pubkey::new_unique();
+        let mut account_data = Vec::new();
+        account_data.extend_from_slice(&UPGRADEABLE_LOADER_PROGRAM_TAG.to_le_bytes());
+        account_data.extend_from_slice(&program_data.to_bytes());
+
+        assert_eq!(
+            parse_upgradeable_program_data_address(&account_data)?,
+            program_data
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn merges_overlapping_program_upgrade_backfill_ranges() {
+        let ranges = merged_program_upgrade_backfill_ranges(
+            &[
+                ProgramUpgradeSignature {
+                    signature: "newer".to_owned(),
+                    slot: 105,
+                },
+                ProgramUpgradeSignature {
+                    signature: "older".to_owned(),
+                    slot: 100,
+                },
+                ProgramUpgradeSignature {
+                    signature: "separate".to_owned(),
+                    slot: 130,
+                },
+            ],
+            10,
+        );
+
+        assert_eq!(ranges, vec![(90, 105), (120, 130)]);
+    }
 }
 
 fn resolve_instruction(instruction: FernoInstruction) -> Result<ResolvedInstruction> {
