@@ -34,6 +34,7 @@ pub mod target_type {
     pub const DOMAIN: &str = "domain";
     pub const PROGRAM: &str = "program";
     pub const MULTISIG: &str = "multisig";
+    pub const WALLET: &str = "wallet";
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -42,6 +43,7 @@ pub enum TelegramEventScope {
     ProgramUpdates,
     MultisigActivity,
     DefiWatch,
+    WalletActivity,
 }
 
 impl TelegramEventScope {
@@ -50,6 +52,7 @@ impl TelegramEventScope {
             Self::ProgramUpdates => "program_updates",
             Self::MultisigActivity => "multisig_activity",
             Self::DefiWatch => "defi_watch",
+            Self::WalletActivity => "wallet_activity",
         }
     }
 
@@ -62,6 +65,7 @@ impl TelegramEventScope {
                 event.target_type == target_type::MULTISIG && is_multisig_activity_kind(&event.kind)
             }
             Self::DefiWatch => is_default_defi_watch_event(event),
+            Self::WalletActivity => is_wallet_activity_event(event),
         }
     }
 }
@@ -82,6 +86,7 @@ impl FromStr for TelegramEventScope {
             "program_updates" => Ok(Self::ProgramUpdates),
             "multisig_activity" => Ok(Self::MultisigActivity),
             "defi_watch" => Ok(Self::DefiWatch),
+            "wallet_activity" => Ok(Self::WalletActivity),
             _ => Err("unsupported telegram event scope"),
         }
     }
@@ -180,9 +185,14 @@ impl TelegramSubscription {
             return false;
         }
 
-        match self.target_address.as_deref() {
-            Some(address) if address != event.target_address => return false,
-            _ => {}
+        if let Some(address) = self.target_address.as_deref() {
+            if self.scope == TelegramEventScope::WalletActivity {
+                if !event_references_address(event, address) {
+                    return false;
+                }
+            } else if address != event.target_address {
+                return false;
+            }
         }
 
         self.required_tags
@@ -715,6 +725,45 @@ fn is_multisig_activity_kind(kind: &str) -> bool {
 
 fn is_relevant_multisig_activity_event(event: &ChainEvent) -> bool {
     event.has_tag("multisig:project_linked") || event.has_tag("severity:critical")
+}
+
+fn is_wallet_activity_event(event: &ChainEvent) -> bool {
+    event.target_type == target_type::WALLET
+        || event.has_tag("signal:wallet")
+        || event.has_tag("wallet:activity")
+        || event.has_tag("wallet:movement")
+        || payload_string(&event.payload, "subject_kind").is_some_and(|kind| kind == "wallet")
+        || payload_string(&event.payload, "wallet").is_some()
+}
+
+fn event_references_address(event: &ChainEvent, address: &str) -> bool {
+    if event.target_address == address || event.actor.as_deref() == Some(address) {
+        return true;
+    }
+
+    [
+        "wallet",
+        "owner",
+        "new_owner",
+        "source_wallet",
+        "destination_wallet",
+        "from",
+        "to",
+        "sender",
+        "recipient",
+        "authority",
+        "subject_address",
+    ]
+    .iter()
+    .any(|key| payload_string(&event.payload, key.as_ref()).as_deref() == Some(address))
+}
+
+fn payload_string(payload: &Value, key: &str) -> Option<String> {
+    payload
+        .get(key)
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned)
 }
 
 fn is_default_defi_watch_event(event: &ChainEvent) -> bool {

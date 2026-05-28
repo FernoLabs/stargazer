@@ -46,7 +46,11 @@ export interface EventsResponse {
 	next_offset: number | null;
 }
 
-export type TelegramEventScope = 'program_updates' | 'multisig_activity' | 'defi_watch';
+export type TelegramEventScope =
+	| 'program_updates'
+	| 'multisig_activity'
+	| 'defi_watch'
+	| 'wallet_activity';
 
 export interface TelegramSubscription {
 	id: string;

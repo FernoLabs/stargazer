@@ -92,9 +92,14 @@ export const actions = {
 			});
 		}
 
-		if (scope !== 'program_updates' && scope !== 'multisig_activity' && scope !== 'defi_watch') {
+		if (
+			scope !== 'program_updates' &&
+			scope !== 'multisig_activity' &&
+			scope !== 'defi_watch' &&
+			scope !== 'wallet_activity'
+		) {
 			return fail(400, {
-				error: 'Telegram scope must be program updates, multisig activity, or DeFi watch.'
+				error: 'Telegram scope must be program updates, multisig activity, DeFi watch, or wallet activity.'
 			});
 		}
 

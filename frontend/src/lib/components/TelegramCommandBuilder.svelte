@@ -25,13 +25,31 @@
 
 	let {
 		protocols,
-		botUsername = null
+		botUsername = null,
+		defaultPlan = 'watch',
+		defaultMode = 'defi',
+		showPlanPanel = true,
+		heading = 'Telegram command builder',
+		description = 'Copy the free DeFi command, or choose Custom Plan to configure filtered watches.'
 	}: {
 		protocols: DefiProtocolDescriptor[];
 		botUsername?: string | null;
+		defaultPlan?: PlanTier;
+		defaultMode?: BuilderMode;
+		showPlanPanel?: boolean;
+		heading?: string;
+		description?: string;
 	} = $props();
 
-	let mode = $state<BuilderMode>('defi');
+	function initialMode() {
+		return defaultMode;
+	}
+
+	function initialPlan() {
+		return defaultPlan;
+	}
+
+	let mode = $state<BuilderMode>(initialMode());
 	let programQuery = $state('');
 	let selectedProgramId = $state('');
 	let selectedProtocolSlug = $state('');
@@ -42,7 +60,7 @@
 	let walletToken = $state('USDC');
 	let walletRatio = $state('20');
 	let copiedState = $state<CopiedState>('idle');
-	let selectedPlan = $state<PlanTier>('watch');
+	let selectedPlan = $state<PlanTier>(initialPlan());
 
 	function programOptions(): ProgramOption[] {
 		return protocols.flatMap((protocol) =>
@@ -85,18 +103,55 @@
 
 	function accessNote() {
 		if (selectedPlan === 'watch') {
-			return 'Free users can copy only the unfiltered DeFi alert. Program, protocol, wallet, and filtered rules require the Custom Plan.';
+			return 'Free users can copy only /watch defi. Custom protocol, program, wallet, and filtered rules are saved through the Telegram bot after Custom Plan setup.';
 		}
 
 		if (selectedPlan === 'paid') {
-			return 'Custom Plan unlocks program, protocol, wallet, and filtered alert setup with a custom bot. Ferno members are included; Superteam promo codes cover 12 months free.';
+			return 'Send the generated command in Telegram. If this Telegram user does not have Custom Plan access yet, the bot saves the monitor as pending and replies with a payment link.';
 		}
 
-		return 'Pro Response adds reviewed signal access and an authorized Smart Account action path after policy review.';
+		return 'Company response adds reviewed signals, security review, and a Smart Account action path after policy approval.';
 	}
 
 	function canCopyCommand() {
 		return Boolean(command());
+	}
+
+	function botHref() {
+		return botUsername ? `https://t.me/${botUsername}` : null;
+	}
+
+	function telegramSteps() {
+		if (effectiveMode() === 'defi') {
+			return ['Add the bot to a chat', 'Send /watch defi', 'Use /list to confirm the rule'];
+		}
+
+		return [
+			'Send this command to the bot',
+			'The bot saves the monitor',
+			'Pay from the link if access is missing'
+		];
+	}
+
+	function telegramActionLabel() {
+		if (botHref()) return effectiveMode() === 'defi' ? 'Open bot' : 'Open Telegram';
+		return 'Command reference';
+	}
+
+	function telegramActionHref() {
+		return botHref() ?? '/docs#commands';
+	}
+
+	function planReferenceHref() {
+		if (selectedPlan === 'paid') return '/pricing#custom-plan';
+		if (selectedPlan === 'pro') return '/pricing#pro-response';
+		return selectedDeploymentPlan().ctaHref;
+	}
+
+	function planReferenceLabel() {
+		if (selectedPlan === 'paid') return 'Pricing';
+		if (selectedPlan === 'pro') return 'Company response';
+		return selectedDeploymentPlan().ctaLabel;
 	}
 
 	function currentProtocol() {
@@ -284,50 +339,52 @@
 </script>
 
 <div class="builder">
-	<section class="plan-panel" aria-label="Choose your FireWatch plan">
-		<div class="builder-head">
-			<div>
-				<h2>Choose access</h2>
-				<p>Free users get the unfiltered DeFi feed. Custom Plan access unlocks watch customization.</p>
+	{#if showPlanPanel}
+		<section class="plan-panel" aria-label="Choose your FireWatch plan">
+			<div class="builder-head">
+				<div>
+					<h2>Choose access</h2>
+					<p>Free users get the unfiltered DeFi feed. Custom Plan access unlocks monitor customization.</p>
+				</div>
 			</div>
-		</div>
 
-		<div class="plan-grid" role="radiogroup" aria-label="FireWatch plan">
-			{#each deploymentPlans as plan}
-				<button
-					aria-checked={selectedPlan === plan.id}
-					class:active={selectedPlan === plan.id}
-					class="plan-card"
-					role="radio"
-					type="button"
-					onclick={() => (selectedPlan = plan.id)}
-				>
-					<span class="plan-head">
-						<span>
-							<strong>{plan.name}</strong>
-							<span>{plan.description}</span>
+			<div class="plan-grid" role="radiogroup" aria-label="FireWatch plan">
+				{#each deploymentPlans as plan}
+					<button
+						aria-checked={selectedPlan === plan.id}
+						class:active={selectedPlan === plan.id}
+						class="plan-card"
+						role="radio"
+						type="button"
+						onclick={() => (selectedPlan = plan.id)}
+					>
+						<span class="plan-head">
+							<span>
+								<strong>{plan.name}</strong>
+								<span>{plan.description}</span>
+							</span>
+							<span class="plan-price">
+								<strong>{plan.price}</strong>
+								<span>{plan.priceNote}</span>
+							</span>
 						</span>
-						<span class="plan-price">
-							<strong>{plan.price}</strong>
-							<span>{plan.priceNote}</span>
-						</span>
-					</span>
 
-					<span class="plan-details">
-						{#each plan.features as detail}
-							<span>{detail}</span>
-						{/each}
-					</span>
-				</button>
-			{/each}
-		</div>
-	</section>
+						<span class="plan-details">
+							{#each plan.features as detail}
+								<span>{detail}</span>
+							{/each}
+						</span>
+					</button>
+				{/each}
+			</div>
+		</section>
+	{/if}
 
 	<div class="builder-main">
 		<div class="builder-head">
 			<div>
-				<h2>Telegram command builder</h2>
-				<p>Copy the free DeFi command, or choose Custom Plan to configure filtered watches.</p>
+				<h2>{heading}</h2>
+				<p>{description}</p>
 			</div>
 			{#if botUsername}
 				<a class="bot-link" href={`https://t.me/${botUsername}`} rel="noreferrer" target="_blank">
@@ -512,12 +569,21 @@
 			<code>{command() || '/watch'}</code>
 		</div>
 
+		<ol class="telegram-steps">
+			{#each telegramSteps() as step}
+				<li>{step}</li>
+			{/each}
+		</ol>
+
 		<div class="preview-actions">
 			<button class="copy-button" type="button" onclick={copyCommand} disabled={!canCopyCommand()}>
 				{effectiveMode() === 'defi' ? 'Copy' : 'Copy draft'}
 			</button>
-			<a class="setup-link" href={selectedDeploymentPlan().ctaHref}>
-				{selectedDeploymentPlan().ctaLabel}
+			<a class="setup-link" href={telegramActionHref()} rel={botHref() ? 'noreferrer' : undefined} target={botHref() ? '_blank' : undefined}>
+				{telegramActionLabel()}
+			</a>
+			<a class="secondary-link" href={planReferenceHref()}>
+				{planReferenceLabel()}
 			</a>
 			{#if copiedState === 'copied'}
 				<p class="copy-state success">{effectiveMode() === 'defi' ? 'Copied.' : 'Draft copied.'}</p>
@@ -936,6 +1002,27 @@
 		font-weight: 700;
 		text-decoration: underline;
 		text-underline-offset: 0.12em;
+	}
+
+	.secondary-link {
+		display: inline-flex;
+		align-items: center;
+		min-height: 2.2rem;
+		color: #62707d;
+		font-size: 0.82rem;
+		font-weight: 700;
+		text-decoration: underline;
+		text-underline-offset: 0.12em;
+	}
+
+	.telegram-steps {
+		display: grid;
+		gap: 0.28rem;
+		margin: 0;
+		padding-left: 1.1rem;
+		color: #5f6c79;
+		font-size: 0.84rem;
+		line-height: 1.45;
 	}
 
 	.copy-button:disabled {

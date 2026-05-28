@@ -19,12 +19,17 @@ const HELP_MESSAGE: &str = concat!(
     "/list - list FireWatch rules in this chat\n",
     "/watch - open quick watch actions\n",
     "/watch defi - subscribe this chat to the free unfiltered DeFi alert stream\n",
+    "/watch protocol <slug> - save a custom protocol monitor\n",
+    "/watch program <address> - save a custom program monitor\n",
+    "/watch multisig <address> - save a custom multisig monitor\n",
+    "/watch wallet <address> - save a custom wallet monitor\n",
     "/unwatch - open quick remove actions\n",
     "/unwatch all - remove all FireWatch rules from this chat\n",
     "/unwatch defi - remove only the DeFi rule from this chat\n",
     "/unwatch protocol <slug> - remove one custom protocol rule from this chat\n",
     "/unwatch program <address> - remove one custom program rule from this chat\n",
     "/unwatch multisig <address> - remove one custom multisig rule from this chat\n",
+    "/unwatch wallet <address> - remove one custom wallet rule from this chat\n",
     "/cancel - close the current action\n\n",
     "Custom program, protocol, wallet, threshold, and bot setup require Custom Plan access. ",
     "Ferno members are included, and approved Superteam promo codes cover 12 months.\n\n",
@@ -379,6 +384,9 @@ async fn handle_message(state: &SharedState, message: &TelegramMessage) -> Resul
         "watch" if args.to_ascii_lowercase().starts_with("multisig ") => {
             handle_watch_multisig(state, message, args["multisig ".len()..].trim()).await?;
         }
+        "watch" if args.to_ascii_lowercase().starts_with("wallet ") => {
+            handle_watch_wallet(state, message, args["wallet ".len()..].trim()).await?;
+        }
         "watch_all" => {
             handle_watch_all(state, message).await?;
         }
@@ -407,6 +415,9 @@ async fn handle_message(state: &SharedState, message: &TelegramMessage) -> Resul
         }
         "unwatch" if args.to_ascii_lowercase().starts_with("multisig ") => {
             handle_unwatch_multisig(state, message, args["multisig ".len()..].trim()).await?;
+        }
+        "unwatch" if args.to_ascii_lowercase().starts_with("wallet ") => {
+            handle_unwatch_wallet(state, message, args["wallet ".len()..].trim()).await?;
         }
         "cancel" => {
             let reply = build_cancel_message(state, message).await?;
@@ -684,6 +695,41 @@ async fn handle_watch_multisig(
     Ok(())
 }
 
+async fn handle_watch_wallet(
+    state: &SharedState,
+    message: &TelegramMessage,
+    raw_rule: &str,
+) -> Result<()> {
+    let (normalized, filter) = parse_wallet_watch_rule(raw_rule).map_err(|error| anyhow!(error))?;
+    let filter_suffix = if filter.is_empty() {
+        String::new()
+    } else {
+        format!(" - {filter}")
+    };
+    let label = format!(
+        "{} /watch wallet - {normalized}{filter_suffix}",
+        message.chat.title.as_deref().unwrap_or("telegram chat")
+    );
+    let reply = ensure_custom_watch_with_payment(
+        state,
+        message,
+        &label,
+        TelegramEventScope::WalletActivity,
+        Some(&normalized),
+        &[],
+    )
+    .await?;
+    delivery::send_telegram_text(
+        state,
+        &message.chat.id.to_string(),
+        message.message_thread_id,
+        &reply,
+    )
+    .await?;
+
+    Ok(())
+}
+
 async fn ensure_custom_watch_with_payment(
     state: &SharedState,
     message: &TelegramMessage,
@@ -865,6 +911,23 @@ async fn handle_unwatch_multisig(
     Ok(())
 }
 
+async fn handle_unwatch_wallet(
+    state: &SharedState,
+    message: &TelegramMessage,
+    address: &str,
+) -> Result<()> {
+    let reply = ensure_unwatch_wallet(state, message, address).await?;
+    delivery::send_telegram_text(
+        state,
+        &message.chat.id.to_string(),
+        message.message_thread_id,
+        &reply,
+    )
+    .await?;
+
+    Ok(())
+}
+
 async fn ensure_watch_defi(state: &SharedState, message: &TelegramMessage) -> Result<String> {
     let chat_id = message.chat.id.to_string();
     let thread_id = message.message_thread_id;
@@ -998,6 +1061,25 @@ async fn ensure_unwatch_multisig(
         0 => format!("This chat had no multisig rule for {normalized}."),
         1 => format!("Removed the multisig rule for {normalized}."),
         count => format!("Removed {count} multisig rules for {normalized}."),
+    })
+}
+
+async fn ensure_unwatch_wallet(
+    state: &SharedState,
+    message: &TelegramMessage,
+    address: &str,
+) -> Result<String> {
+    let normalized = normalize_pubkey(address).map_err(|error| anyhow!(error))?;
+    let deleted = delete_chat_subscriptions(state, message, |subscription| {
+        subscription.scope == TelegramEventScope::WalletActivity
+            && subscription.target_address.as_deref() == Some(normalized.as_str())
+    })
+    .await?;
+
+    Ok(match deleted {
+        0 => format!("This chat had no wallet rule for {normalized}."),
+        1 => format!("Removed the wallet rule for {normalized}."),
+        count => format!("Removed {count} wallet rules for {normalized}."),
     })
 }
 
@@ -1195,6 +1277,17 @@ fn normalize_pubkey(raw: &str) -> std::result::Result<String, &'static str> {
     Pubkey::from_str(value)
         .map(|pubkey| pubkey.to_string())
         .map_err(|_| "That is not a valid Solana address.")
+}
+
+fn parse_wallet_watch_rule(raw: &str) -> std::result::Result<(String, String), &'static str> {
+    let mut parts = raw.split_whitespace();
+    let Some(address) = parts.next() else {
+        return Err("A wallet address is required.");
+    };
+
+    let normalized = normalize_pubkey(address)?;
+    let filter = parts.collect::<Vec<_>>().join(" ");
+    Ok((normalized, filter))
 }
 
 fn became_active_member(old_status: &str, new_status: &str) -> bool {
@@ -1493,6 +1586,7 @@ fn scope_label(scope: TelegramEventScope) -> &'static str {
         TelegramEventScope::ProgramUpdates => "program updates",
         TelegramEventScope::MultisigActivity => "multisig activity",
         TelegramEventScope::DefiWatch => "DeFi watch",
+        TelegramEventScope::WalletActivity => "wallet activity",
     }
 }
 
@@ -1526,6 +1620,13 @@ fn describe_subscription(subscription: &crate::models::TelegramSubscription) -> 
             }
 
             "All multisig activity".to_owned()
+        }
+        TelegramEventScope::WalletActivity => {
+            if let Some(address) = subscription.target_address.as_deref() {
+                return format!("Wallet watch: {address}");
+            }
+
+            "Wallet activity".to_owned()
         }
     }
 }

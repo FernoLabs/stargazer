@@ -7,7 +7,7 @@
 	let { data, form }: { data: PageData; form?: ActionData } = $props();
 
 	let activeTab = $state<'builder' | 'rules' | 'users' | 'promos' | 'catalog'>('builder');
-	let telegramScope = $state<'defi_watch' | 'program_updates' | 'multisig_activity'>('defi_watch');
+	let telegramScope = $state<'defi_watch' | 'program_updates' | 'multisig_activity' | 'wallet_activity'>('defi_watch');
 	let telegramProtocolSlug = $state('');
 	let telegramKnownProgramId = $state('');
 	let telegramTargetAddress = $state('');
@@ -33,6 +33,7 @@
 	function watchScopeLabel(scope: string) {
 		if (scope === 'program_updates') return 'Program updates';
 		if (scope === 'multisig_activity') return 'Multisig activity';
+		if (scope === 'wallet_activity') return 'Wallet activity';
 		return 'DeFi watch';
 	}
 
@@ -221,6 +222,12 @@
 					}}>
 						Multisig
 					</button>
+					<button class:active={telegramScope === 'wallet_activity'} class="preset-button" type="button" onclick={() => {
+						telegramScope = 'wallet_activity';
+						resetProgramFilters();
+					}}>
+						Wallet
+					</button>
 				</div>
 
 				<form class="rule-form" method="POST" action="?/create_telegram_subscription">
@@ -375,6 +382,13 @@
 						<label>
 							<span>Target address</span>
 							<input bind:value={telegramTargetAddress} name="telegram_target_address" type="text" placeholder="Optional: one Squads multisig address" />
+						</label>
+					{/if}
+
+					{#if telegramScope === 'wallet_activity'}
+						<label>
+							<span>Target wallet</span>
+							<input bind:value={telegramTargetAddress} name="telegram_target_address" type="text" placeholder="One wallet address" required />
 						</label>
 					{/if}
 

@@ -38,7 +38,7 @@ export const firewatchPlans: FireWatchPlan[] = [
 			'No custom bot'
 		],
 		ctaLabel: 'Copy free command',
-		ctaHref: '/join-the-watch#command-builder'
+		ctaHref: '/#free-alert'
 	},
 	{
 		id: 'paid',
@@ -46,19 +46,20 @@ export const firewatchPlans: FireWatchPlan[] = [
 		price: 'From $750',
 		priceNote: 'per month',
 		description:
-			'Paid users can customize program, protocol, wallet, and alert filters.',
+			'Paid users can save custom program, protocol, wallet, and alert filters through Telegram.',
 		features: [
 			'Custom program watch',
 			'Protocol and program filters',
 			'Wallet and threshold alert drafts',
-			'Dedicated Telegram bot setup',
+			'Telegram-saved pending monitors',
+			'Solana Pay link generated in bot',
 			'Private setup and test alert',
 			'Included for Ferno members',
 			'Superteam promo eligible for 12 months free'
 		],
 		limits: ['Smart Account response not included', 'FireWatch review signal available as add-on'],
-		ctaLabel: 'Plan custom setup',
-		ctaHref: '/pricing#custom-plan'
+		ctaLabel: 'Build custom monitor',
+		ctaHref: '/#custom-monitor'
 	},
 	{
 		id: 'pro',
@@ -66,11 +67,13 @@ export const firewatchPlans: FireWatchPlan[] = [
 		price: 'On demand',
 		priceNote: 'incident or retainer',
 		description:
-			'Access FireWatch reviewed signals and an authorized Smart Account response path for critical issues.',
+			'Company response for reviewed signals and authorized Smart Account action paths.',
 		features: [
 			'Reviewed signal access',
+			'Extra alert and security coverage',
 			'Issue-detection withdrawal runbook',
 			'Team review before redeploy',
+			'Supported-app redeploy policies',
 			'Response channel for urgent events'
 		],
 		limits: ['Requires explicit authorization', 'Requires custody and policy review before activation'],
