@@ -37,6 +37,10 @@
 		return botHandle() ? `${bot.first_name} (${botHandle()})` : bot.first_name;
 	}
 
+	function configCommand() {
+		return '/config';
+	}
+
 	function formatCount(value: number | null | undefined) {
 		return new Intl.NumberFormat('en-US').format(value ?? 0);
 	}
@@ -124,7 +128,7 @@
 
 	async function copyFreeCommand() {
 		try {
-			await navigator.clipboard.writeText(watchDefiCommand());
+			await navigator.clipboard.writeText(configCommand());
 			freeCopyState = 'copied';
 		} catch {
 			freeCopyState = 'error';
@@ -143,15 +147,15 @@
 			<div>
 				<h1 id="front-title">FireWatch</h1>
 				<p>
-					Telegram-first Solana monitoring for protocol risk, wallet movement, program
-					upgrades, signer changes, IDL drift, and exit-critical alerts.
+					Add the Telegram bot to a protocol group, run <code>/config</code> as an admin,
+					then configure DeFi, protocol, program, wallet, instruction, amount, and .sol watches.
 				</p>
 			</div>
 		</div>
 
 		<aside class="panel free-setup" id="free-alert" aria-label="Free alert setup">
 			<div class="setup-head">
-				<h2>Free DeFi alert</h2>
+				<h2>Telegram setup</h2>
 				{#if botUrl()}
 					<a href={botUrl()} rel="noreferrer" target="_blank">{botHandle()}</a>
 				{/if}
@@ -163,14 +167,15 @@
 			</div>
 
 			<div class="command-line">
-				<code>{watchDefiCommand()}</code>
+				<code>{configCommand()}</code>
 				<button type="button" onclick={copyFreeCommand}>Copy</button>
 			</div>
 
 			<ol class="setup-list">
-				<li>Add the bot to your Telegram group or channel.</li>
-				<li>Send <code>{watchDefiCommand()}</code>.</li>
-				<li>Use <code>/list</code> to confirm the rule is active.</li>
+				<li>Add the bot to your Telegram group.</li>
+				<li>A group admin sends <code>/config</code>.</li>
+				<li>The bot DMs a private setup link with a temporary auth token.</li>
+				<li>Free groups can still send <code>{watchDefiCommand()}</code>.</li>
 			</ol>
 
 			{#if freeCopyState === 'copied'}
@@ -179,6 +184,34 @@
 				<p class="copy-state error">Copy failed.</p>
 			{/if}
 		</aside>
+	</section>
+
+	<section class="catalog-panel top-catalog" id="projects" aria-labelledby="supported-title">
+		<div class="section-copy">
+			<h2 id="supported-title">Supported protocols</h2>
+			<p>Open a protocol page to inspect covered programs, decoded instructions, amount triggers, .sol domains, and recent activity.</p>
+		</div>
+
+		<div class="protocol-list" role="list">
+			{#each data.defiProtocols as protocol}
+				<article class="protocol-item" role="listitem">
+					<a class="protocol-row" href={protocolPageHref(protocol.slug)}>
+						<div class="protocol-main">
+							<ProtocolIdentity slug={protocol.slug} label={protocol.name} />
+							<div class="protocol-badges" aria-label={`${protocol.name} monitor categories`}>
+								{#each protocolMonitorBadges(protocol) as badge}
+									<span class="monitor-badge" title={badgeLabel(badge)} aria-label={badgeLabel(badge)}>
+										{badge.label}
+										<span class="monitor-count">{badge.count}</span>
+									</span>
+								{/each}
+							</div>
+						</div>
+						<strong>Open protocol</strong>
+					</a>
+				</article>
+			{/each}
+		</div>
 	</section>
 
 	<section class="stats-strip" aria-label="FireWatch stats">
@@ -194,8 +227,8 @@
 		<div class="section-copy">
 			<h2 id="custom-monitor-title">Build a custom monitor</h2>
 			<p>
-				Choose a protocol bundle, exact program, or wallet rule. Copy the command into
-				Telegram; the bot saves the monitor and returns a pay link when access is missing.
+				Run <code>/config</code> in Telegram as a group admin. The private setup link lets you
+				select protocols, instruction tags, amount triggers, watched wallets, and .sol names.
 			</p>
 		</div>
 
@@ -263,36 +296,8 @@
 		</div>
 
 		<div class="company-actions">
-			<a class="primary-link" href="/pricing#pro-response">Review Pro Response</a>
+			<a class="primary-link" href="/pricing#custom-plan">Custom bot</a>
 			<a class="text-link" href="mailto:contact@ferno.ag?subject=FireWatch%20company%20response">Contact us</a>
-		</div>
-	</section>
-
-	<section class="catalog-panel" id="projects" aria-labelledby="supported-title">
-		<div class="section-copy">
-			<h2 id="supported-title">Supported protocols</h2>
-			<p>Protocol pages stay available for teams that want to inspect coverage before building a rule.</p>
-		</div>
-
-		<div class="protocol-list" role="list">
-			{#each data.defiProtocols as protocol}
-				<article class="protocol-item" role="listitem">
-					<a class="protocol-row" href={protocolPageHref(protocol.slug)}>
-						<div class="protocol-main">
-							<ProtocolIdentity slug={protocol.slug} label={protocol.name} />
-							<div class="protocol-badges" aria-label={`${protocol.name} monitor categories`}>
-								{#each protocolMonitorBadges(protocol) as badge}
-									<span class="monitor-badge" title={badgeLabel(badge)} aria-label={badgeLabel(badge)}>
-										{badge.label}
-										<span class="monitor-count">{badge.count}</span>
-									</span>
-								{/each}
-							</div>
-						</div>
-						<strong>Open</strong>
-					</a>
-				</article>
-			{/each}
 		</div>
 	</section>
 </div>

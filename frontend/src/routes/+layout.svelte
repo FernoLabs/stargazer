@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import favicon from '$lib/assets/firewatch-tower-icon-favicon.png';
+	import { WalletProvider } from '@fernolab/wallet-adapter-svelte';
 	import BrandLockup from '$lib/components/BrandLockup.svelte';
 	import SiteFooter from '$lib/components/SiteFooter.svelte';
 	import type { LiveStatusResponse } from '$lib/types';
@@ -158,6 +159,7 @@
 	<meta name="twitter:image" content={previewImageUrl()} />
 </svelte:head>
 
+<WalletProvider rpcEndpoint="https://api.mainnet-beta.solana.com">
 <div class="shell">
 	<header class="topbar">
 		<div class="topbar-row">
@@ -207,6 +209,7 @@
 
 	<SiteFooter />
 </div>
+</WalletProvider>
 
 <style>
 	:global(body) {

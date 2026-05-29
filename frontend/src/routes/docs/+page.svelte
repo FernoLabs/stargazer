@@ -22,8 +22,8 @@
 			<h2>Telegram setup</h2>
 			<ol>
 				<li>Add the configured FireWatch bot to your private chat, group, or channel.</li>
-				<li>Send <code>/help</code> once.</li>
-				<li>Copy commands from Home, a protocol page, or a program page.</li>
+				<li>In a group, a Telegram admin sends <code>/config</code>.</li>
+				<li>The bot DMs that admin a private setup link with a temporary auth token.</li>
 			</ol>
 		</article>
 
@@ -42,6 +42,7 @@
 			<h2>Commands</h2>
 			<ul>
 				<li><code>/help</code> shows the command list.</li>
+				<li><code>/config</code> DMs a private setup link to a group admin.</li>
 				<li><code>/info</code> shows live FireWatch status for the current bot.</li>
 				<li><code>/list</code> shows the active FireWatch watches in the current chat.</li>
 				<li><code>/watch</code> opens the quick subscription menu.</li>
