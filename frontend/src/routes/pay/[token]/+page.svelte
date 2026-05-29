@@ -1,6 +1,18 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
+	import {
+		SolanaSignAndSendTransaction,
+		WalletButton,
+		wallet
+	} from '@fernolab/wallet-adapter-svelte';
+	import {
+		Connection,
+		LAMPORTS_PER_SOL,
+		PublicKey,
+		SystemProgram,
+		Transaction
+	} from '@solana/web3.js';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import { formatTimestamp, shortAddress } from '$lib/format';
 	import type { PageData } from './$types';
@@ -17,6 +29,8 @@
 		memo: 'idle',
 		checklist: 'idle'
 	});
+	let walletPayState = $state<'idle' | 'sending' | 'sent' | 'error'>('idle');
+	let walletPayMessage = $state<string | null>(null);
 
 	function userLabel() {
 		if (data.user.telegram_username) return `@${data.user.telegram_username}`;
@@ -38,6 +52,86 @@
 
 	function canPay() {
 		return !isPaid() && !isExpired();
+	}
+
+	function lamportsFromSol(amount: string) {
+		const [whole, fraction = ''] = amount.split('.');
+		const fractionPadded = `${fraction}000000000`.slice(0, 9);
+		return Number(whole || '0') * LAMPORTS_PER_SOL + Number(fractionPadded || '0');
+	}
+
+	function signatureLabel(signature: string | Uint8Array) {
+		if (typeof signature === 'string') return signature;
+		return Array.from(signature)
+			.slice(0, 8)
+			.map((byte) => byte.toString(16).padStart(2, '0'))
+			.join('');
+	}
+
+	async function payWithConnectedWallet() {
+		if (!wallet.connected || !wallet.standardWallet || !wallet.standardAccount || !wallet.publicKey) {
+			walletPayState = 'error';
+			walletPayMessage = 'Connect a wallet first.';
+			return;
+		}
+
+		const signAndSend = wallet.standardWallet.wallet.features[SolanaSignAndSendTransaction] as
+			| {
+					signAndSendTransaction(input: {
+						account: typeof wallet.standardAccount;
+						chain: string;
+						transaction: Uint8Array;
+					}): Promise<{ signature: string | Uint8Array } | readonly { signature: string | Uint8Array }[]>;
+			  }
+			| undefined;
+
+		if (!signAndSend) {
+			walletPayState = 'error';
+			walletPayMessage = 'Connected wallet cannot submit transactions from this browser.';
+			return;
+		}
+
+		try {
+			walletPayState = 'sending';
+			walletPayMessage = null;
+			const connection = new Connection(wallet.rpcEndpoint, 'confirmed');
+			const fromPubkey = new PublicKey(wallet.publicKey);
+			const recipient = new PublicKey(data.payment_link.recipient);
+			const reference = new PublicKey(data.payment_link.reference);
+			const transfer = SystemProgram.transfer({
+				fromPubkey,
+				toPubkey: recipient,
+				lamports: lamportsFromSol(data.payment_link.amount)
+			});
+			transfer.keys.push({ pubkey: reference, isSigner: false, isWritable: false });
+
+			const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+			const transaction = new Transaction({
+				feePayer: fromPubkey,
+				blockhash,
+				lastValidBlockHeight
+			}).add(transfer);
+			const serialized = transaction.serialize({
+				requireAllSignatures: false,
+				verifySignatures: false
+			});
+			const result = await signAndSend.signAndSendTransaction({
+				account: wallet.standardAccount,
+				chain: 'solana:mainnet',
+				transaction: serialized
+			});
+			const signature = Array.isArray(result)
+				? (result as readonly { signature: string | Uint8Array }[])[0]?.signature
+				: (result as { signature: string | Uint8Array }).signature;
+			walletPayState = 'sent';
+			walletPayMessage = signature
+				? `Transaction submitted: ${signatureLabel(signature)}`
+				: 'Transaction submitted.';
+			window.setTimeout(() => invalidateAll(), 2500);
+		} catch (error) {
+			walletPayState = 'error';
+			walletPayMessage = error instanceof Error ? error.message : 'Payment failed.';
+		}
 	}
 
 	function checkoutStatusCopy() {
@@ -162,7 +256,11 @@
 			</div>
 
 			<div class="action-row">
+				<WalletButton />
 				{#if canPay()}
+					<button class="pay-button" type="button" onclick={payWithConnectedWallet} disabled={walletPayState === 'sending'}>
+						{walletPayState === 'sending' ? 'Sending...' : 'Pay with connected wallet'}
+					</button>
 					<a class="pay-button" href={data.payment_link.solana_pay_url}>Open wallet</a>
 				{/if}
 				<button
@@ -176,6 +274,11 @@
 					Refresh status
 				</button>
 			</div>
+			{#if walletPayMessage}
+				<p class:confirmed={walletPayState === 'sent'} class:error={walletPayState === 'error'} class="status-note">
+					{walletPayMessage}
+				</p>
+			{/if}
 
 			<div class="command-box">
 				<code>{data.payment_link.solana_pay_url}</code>

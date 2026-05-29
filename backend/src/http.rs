@@ -10,8 +10,8 @@ use crate::{
         PaymentLink, PaymentLinkCheckoutResponse, ProgramDisassemblyResponse,
         ProgramIdlVersionsResponse, ProgramSignerStatsResponse, ProgramVersionCatalogSummary,
         ProgramVersionSummariesResponse, ProgramVersionsResponse, PromoCode, PromoCodesResponse,
-        TelegramSubscription, TelegramSubscriptionSummaryResponse, TelegramSubscriptionsResponse,
-        UpsertFirewatchUserRequest,
+        TelegramConfigSessionResponse, TelegramSubscription, TelegramSubscriptionSummaryResponse,
+        TelegramSubscriptionsResponse, UpsertFirewatchUserRequest,
     },
     name_service, protocols, telegram,
 };
@@ -115,6 +115,10 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
         .route(
             "/api/payment-links/by-token/{token}",
             get(get_payment_link_checkout),
+        )
+        .route(
+            "/api/config-sessions/by-token/{token}",
+            get(get_config_session),
         )
         .route(
             "/api/telegram-subscriptions",
@@ -1162,6 +1166,34 @@ async fn get_payment_link_checkout(
     };
 
     Ok(Json(PaymentLinkCheckoutResponse { payment_link, user }))
+}
+
+async fn get_config_session(
+    State(state): State<SharedState>,
+    Path(token): Path<String>,
+) -> ApiResult<TelegramConfigSessionResponse> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Config session not found.",
+        ));
+    }
+
+    let token_hash = token_hash(token);
+    let Some((session, user)) = state
+        .db
+        .telegram_config_session_by_token_hash(&token_hash, crate::models::now_ts())
+        .await
+        .map_err(internal_error)?
+    else {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Config session not found or expired.",
+        ));
+    };
+
+    Ok(Json(TelegramConfigSessionResponse { session, user }))
 }
 
 async fn create_telegram_subscription(

@@ -14,7 +14,8 @@ use crate::{
         ProgramDisassemblyRecord, ProgramIdlDataWrite, ProgramIdlVersionRecord, ProgramRiskSummary,
         ProgramSignerStat, ProgramVersionCatalogSummary, ProgramVersionLatestSummary,
         ProgramVersionRecord, ProgramVersionSummary, PromoCode, ProtocolMetricObservation,
-        TelegramEventScope, TelegramSubscription, UserEntitlement, event_kind, now_ts,
+        TelegramConfigSession, TelegramEventScope, TelegramSubscription, UserEntitlement,
+        event_kind, now_ts,
     },
 };
 use anyhow::{Context, Result, bail};
@@ -731,6 +732,33 @@ impl Database {
             r#"
             CREATE INDEX IF NOT EXISTS idx_payment_links_user_created
             ON payment_links (user_id, created_at DESC);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS telegram_config_sessions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                chat_id TEXT NOT NULL,
+                chat_title TEXT,
+                chat_type TEXT,
+                token_hash TEXT NOT NULL UNIQUE,
+                expires_at INTEGER NOT NULL,
+                used_at INTEGER,
+                created_at INTEGER NOT NULL
+            );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_telegram_config_sessions_token
+            ON telegram_config_sessions (token_hash, expires_at);
             "#,
         )
         .execute(&self.pool)
@@ -4402,6 +4430,89 @@ impl Database {
         .transpose()
     }
 
+    pub async fn create_telegram_config_session(
+        &self,
+        user_id: &str,
+        chat_id: &str,
+        chat_title: Option<&str>,
+        chat_type: Option<&str>,
+        token_hash: &str,
+        expires_at: i64,
+    ) -> Result<TelegramConfigSession> {
+        let created_at = now_ts();
+        let row = sqlx::query(
+            r#"
+            INSERT INTO telegram_config_sessions (
+                id,
+                user_id,
+                chat_id,
+                chat_title,
+                chat_type,
+                token_hash,
+                expires_at,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id, user_id, chat_id, chat_title, chat_type, expires_at, used_at, created_at;
+            "#,
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(user_id)
+        .bind(chat_id)
+        .bind(chat_title)
+        .bind(chat_type)
+        .bind(token_hash)
+        .bind(expires_at)
+        .bind(created_at)
+        .fetch_one(&self.pool)
+        .await?;
+
+        row_to_telegram_config_session(row)
+    }
+
+    pub async fn telegram_config_session_by_token_hash(
+        &self,
+        token_hash: &str,
+        now: i64,
+    ) -> Result<Option<(TelegramConfigSession, FirewatchUser)>> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                s.id AS session_id,
+                s.user_id AS session_user_id,
+                s.chat_id AS session_chat_id,
+                s.chat_title AS session_chat_title,
+                s.chat_type AS session_chat_type,
+                s.expires_at AS session_expires_at,
+                s.used_at AS session_used_at,
+                s.created_at AS session_created_at,
+                u.id AS user_id,
+                u.telegram_user_id AS user_telegram_user_id,
+                u.telegram_username AS user_telegram_username,
+                u.label AS user_label,
+                u.created_at AS user_created_at,
+                u.updated_at AS user_updated_at
+            FROM telegram_config_sessions s
+            JOIN firewatch_users u ON u.id = s.user_id
+            WHERE s.token_hash = ?
+              AND s.expires_at > ?
+            LIMIT 1;
+            "#,
+        )
+        .bind(token_hash)
+        .bind(now)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(|row| {
+            Ok((
+                row_to_telegram_config_session_prefixed(&row, "session_")?,
+                row_to_firewatch_user_prefixed(&row, "user_")?,
+            ))
+        })
+        .transpose()
+    }
+
     pub async fn pending_payment_links_by_references(
         &self,
         references: &[String],
@@ -6600,6 +6711,26 @@ fn row_to_payment_link_prefixed(
         status: row.try_get(format!("{prefix}status").as_str())?,
         expires_at: row.try_get(format!("{prefix}expires_at").as_str())?,
         paid_at: row.try_get(format!("{prefix}paid_at").as_str())?,
+        created_at: row.try_get(format!("{prefix}created_at").as_str())?,
+    })
+}
+
+fn row_to_telegram_config_session(row: sqlx::sqlite::SqliteRow) -> Result<TelegramConfigSession> {
+    row_to_telegram_config_session_prefixed(&row, "")
+}
+
+fn row_to_telegram_config_session_prefixed(
+    row: &sqlx::sqlite::SqliteRow,
+    prefix: &str,
+) -> Result<TelegramConfigSession> {
+    Ok(TelegramConfigSession {
+        id: row.try_get(format!("{prefix}id").as_str())?,
+        user_id: row.try_get(format!("{prefix}user_id").as_str())?,
+        chat_id: row.try_get(format!("{prefix}chat_id").as_str())?,
+        chat_title: row.try_get(format!("{prefix}chat_title").as_str())?,
+        chat_type: row.try_get(format!("{prefix}chat_type").as_str())?,
+        expires_at: row.try_get(format!("{prefix}expires_at").as_str())?,
+        used_at: row.try_get(format!("{prefix}used_at").as_str())?,
         created_at: row.try_get(format!("{prefix}created_at").as_str())?,
     })
 }

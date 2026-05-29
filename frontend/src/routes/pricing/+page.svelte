@@ -64,10 +64,10 @@
 		<article class="panel">
 			<h2>Custom Plan setup</h2>
 			<ol>
-				<li>Choose the Telegram bot identity and private delivery channel.</li>
-				<li>Select exact programs, multisigs, wallets, or protocol bundles to watch.</li>
-				<li>Pick alert types, thresholds, and escalation rules for that bot.</li>
-				<li>Run a test alert before the rule set is considered live.</li>
+				<li>Add the bot to Telegram and run <code>/config</code> as a group admin.</li>
+				<li>Open the private setup link from the bot DM.</li>
+				<li>Select protocols, programs, instruction tags, amount triggers, wallets, and .sol watches.</li>
+				<li>Pay monthly or yearly; yearly access includes one month discounted.</li>
 			</ol>
 		</article>
 

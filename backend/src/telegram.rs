@@ -6,6 +6,7 @@ use crate::{
 };
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use solana_sdk::pubkey::Pubkey;
 use std::str::FromStr;
 use std::time::Duration;
@@ -16,6 +17,7 @@ const HELP_MESSAGE: &str = concat!(
     "FireWatch commands:\n",
     "/help - show this message\n",
     "/info - show FireWatch live status for the indexer\n",
+    "/config - DM a private setup link to a group admin\n",
     "/list - list FireWatch rules in this chat\n",
     "/watch - open quick watch actions\n",
     "/watch defi - subscribe this chat to the free unfiltered DeFi alert stream\n",
@@ -79,6 +81,8 @@ struct TelegramMessageUser {
 struct TelegramChat {
     id: i64,
     title: Option<String>,
+    #[serde(rename = "type")]
+    chat_type: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -98,6 +102,12 @@ struct TelegramCallbackQuery {
 #[derive(Deserialize)]
 struct TelegramChatMember {
     status: String,
+}
+
+#[derive(Serialize)]
+struct TelegramGetChatMemberRequest<'a> {
+    chat_id: &'a str,
+    user_id: i64,
 }
 
 #[derive(Deserialize)]
@@ -351,6 +361,9 @@ async fn handle_message(state: &SharedState, message: &TelegramMessage) -> Resul
             )
             .await?;
         }
+        "config" => {
+            handle_config(state, message).await?;
+        }
         "list" => {
             let reply = build_list_message(state, message).await?;
             delivery::send_telegram_text(
@@ -560,6 +573,102 @@ async fn handle_callback_query(
         }
         _ => {
             answer_callback_query(state, &callback_query.id, Some("Unknown action.")).await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_config(state: &SharedState, message: &TelegramMessage) -> Result<()> {
+    let chat_id = message.chat.id.to_string();
+    let Some(from) = message.from.as_ref() else {
+        send_message(
+            state,
+            &chat_id,
+            message.message_thread_id,
+            "Only a Telegram group admin can request a FireWatch config link.",
+            None,
+        )
+        .await?;
+        return Ok(());
+    };
+
+    if message.chat.chat_type.as_deref() == Some("private") {
+        send_message(
+            state,
+            &chat_id,
+            None,
+            "Add FireWatch to your group, then run /config there as a group admin. I will DM you a private setup link.",
+            None,
+        )
+        .await?;
+        return Ok(());
+    }
+
+    if !is_group_admin(state, &chat_id, from.id).await? {
+        send_message(
+            state,
+            &chat_id,
+            message.message_thread_id,
+            "Only group admins can open FireWatch config for this chat.",
+            None,
+        )
+        .await?;
+        return Ok(());
+    }
+
+    let user = firewatch_user_for_message(state, message).await?;
+    let token = generate_config_token();
+    let token_hash = token_hash(&token);
+    let expires_at = crate::models::now_ts() + 15 * 60;
+    state
+        .db
+        .create_telegram_config_session(
+            &user.id,
+            &chat_id,
+            message.chat.title.as_deref(),
+            message.chat.chat_type.as_deref(),
+            &token_hash,
+            expires_at,
+        )
+        .await?;
+
+    let config_url = format!(
+        "{}/config/{}",
+        state.config.firewatch_web_base_url.trim_end_matches('/'),
+        token
+    );
+    let dm_text = format!(
+        "FireWatch config for {}.\n\nOpen this link within 15 minutes:\n{}",
+        message
+            .chat
+            .title
+            .as_deref()
+            .unwrap_or("this Telegram chat"),
+        config_url
+    );
+
+    match send_message(state, &from.id.to_string(), None, &dm_text, None).await {
+        Ok(()) => {
+            send_message(
+                state,
+                &chat_id,
+                message.message_thread_id,
+                "I sent the private FireWatch config link to your Telegram DMs.",
+                None,
+            )
+            .await?;
+        }
+        Err(error) => {
+            warn!(error = %error, "failed to DM Telegram config link");
+            send_message(
+                state,
+                &chat_id,
+                message.message_thread_id,
+                "I could not DM you yet. Open a private chat with the FireWatch bot once, then run /config here again.",
+                None,
+            )
+            .await?;
         }
     }
 
@@ -1197,6 +1306,10 @@ async fn register_bot_commands(state: &SharedState) -> Result<()> {
                 description: "Open quick watch actions",
             },
             TelegramBotCommand {
+                command: "config",
+                description: "DM a private setup link to a group admin",
+            },
+            TelegramBotCommand {
                 command: "list",
                 description: "List FireWatch rules in this chat",
             },
@@ -1258,6 +1371,52 @@ fn telegram_method_url(state: &SharedState, method: &str) -> Result<String> {
         "{}/bot{bot_token}/{method}",
         state.config.telegram_api_base.trim_end_matches('/')
     ))
+}
+
+async fn is_group_admin(state: &SharedState, chat_id: &str, user_id: i64) -> Result<bool> {
+    let response = state
+        .http_client
+        .post(telegram_method_url(state, "getChatMember")?)
+        .json(&TelegramGetChatMemberRequest { chat_id, user_id })
+        .send()
+        .await?;
+    let status = response.status();
+    let text = response.text().await?;
+
+    if !status.is_success() {
+        return Err(anyhow!(
+            "telegram getChatMember returned {status}: {}",
+            text.trim()
+        ));
+    }
+
+    let parsed = serde_json::from_str::<TelegramApiEnvelope<TelegramChatMember>>(&text)?;
+    if !parsed.ok {
+        return Err(anyhow!(
+            "{}",
+            parsed
+                .description
+                .unwrap_or_else(|| "telegram getChatMember failed".to_owned())
+        ));
+    }
+
+    Ok(matches!(
+        parsed.result.status.as_str(),
+        "administrator" | "creator"
+    ))
+}
+
+fn generate_config_token() -> String {
+    format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    )
+}
+
+fn token_hash(token: &str) -> String {
+    let digest = Sha256::digest(token.as_bytes());
+    hex::encode(digest)
 }
 
 fn normalize_command(raw: &str) -> String {

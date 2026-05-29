@@ -329,6 +329,24 @@ pub struct PaymentLinkCheckoutResponse {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TelegramConfigSession {
+    pub id: String,
+    pub user_id: String,
+    pub chat_id: String,
+    pub chat_title: Option<String>,
+    pub chat_type: Option<String>,
+    pub expires_at: i64,
+    pub used_at: Option<i64>,
+    pub created_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TelegramConfigSessionResponse {
+    pub session: TelegramConfigSession,
+    pub user: FirewatchUser,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CreateTelegramSubscriptionRequest {
     pub label: String,
     pub chat_id: String,

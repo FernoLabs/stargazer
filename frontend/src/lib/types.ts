@@ -201,6 +201,22 @@ export interface PaymentLinkCheckoutResponse {
 	user: FirewatchUser;
 }
 
+export interface TelegramConfigSession {
+	id: string;
+	user_id: string;
+	chat_id: string;
+	chat_title: string | null;
+	chat_type: string | null;
+	expires_at: number;
+	used_at: number | null;
+	created_at: number;
+}
+
+export interface TelegramConfigSessionResponse {
+	session: TelegramConfigSession;
+	user: FirewatchUser;
+}
+
 export type ProtocolCoverage = 'address_only' | 'admin_signals' | 'deep_decode';
 
 export interface ProgramRiskSummary {
