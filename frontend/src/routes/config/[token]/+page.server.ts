@@ -1,7 +1,29 @@
 import { fail, redirect } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
 import { backendOriginRequest, readBackendError } from '$lib/server/backend';
 import type { PaymentLink, TelegramConfigSessionResponse } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+
+const DEFAULT_CUSTOM_PLAN_MONTHLY_SOL_AMOUNT = '5';
+
+function customPlanAmountForBilling(billing: string) {
+	const monthlyAmount =
+		env.SOLANA_PAY_CUSTOM_PLAN_MONTHLY_AMOUNT?.trim() ||
+		env.SOLANA_PAY_CUSTOM_PLAN_AMOUNT?.trim() ||
+		env.SOLANA_PAY_AMOUNT?.trim() ||
+		DEFAULT_CUSTOM_PLAN_MONTHLY_SOL_AMOUNT;
+
+	if (billing !== 'year') return monthlyAmount;
+
+	return (
+		env.SOLANA_PAY_CUSTOM_PLAN_YEARLY_AMOUNT?.trim() ||
+		formatSolAmount(Number(monthlyAmount) * 11)
+	);
+}
+
+function formatSolAmount(amount: number) {
+	return Number.isFinite(amount) ? amount.toFixed(9).replace(/\.?0+$/, '') : DEFAULT_CUSTOM_PLAN_MONTHLY_SOL_AMOUNT;
+}
 
 export const load = (async ({ fetch, params, cookies }) => {
 	const token = params.token.trim();
@@ -57,7 +79,7 @@ export const actions = {
 			body: JSON.stringify({
 				user_id: sessionPayload.user.id,
 				plan_id: billing === 'year' ? 'paid-year' : 'paid',
-				amount: null
+				amount: customPlanAmountForBilling(billing)
 			})
 		});
 

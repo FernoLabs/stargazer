@@ -94,8 +94,10 @@ impl Config {
                 .ok()
                 .map(|value| value.trim().to_owned())
                 .filter(|value| !value.is_empty()),
-            solana_pay_custom_plan_amount: env::var("SOLANA_PAY_CUSTOM_PLAN_AMOUNT")
+            solana_pay_custom_plan_amount: env::var("SOLANA_PAY_CUSTOM_PLAN_MONTHLY_AMOUNT")
+                .or_else(|_| env::var("SOLANA_PAY_CUSTOM_PLAN_AMOUNT"))
                 .or_else(|_| env::var("SOLANA_PAY_AMOUNT"))
+                .or_else(|_| Ok::<_, env::VarError>("5".to_owned()))
                 .ok()
                 .map(|value| value.trim().to_owned())
                 .filter(|value| !value.is_empty()),

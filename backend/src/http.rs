@@ -1132,7 +1132,7 @@ async fn create_payment_link(
         .ok_or_else(|| {
             error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
-                "SOLANA_PAY_CUSTOM_PLAN_AMOUNT or SOLANA_PAY_AMOUNT is not configured.",
+                "SOLANA_PAY_CUSTOM_PLAN_MONTHLY_AMOUNT, SOLANA_PAY_CUSTOM_PLAN_AMOUNT, or SOLANA_PAY_AMOUNT is not configured.",
             )
         })?;
 
@@ -1434,7 +1434,7 @@ pub(crate) async fn create_solana_payment_link_for_user(
         .ok_or_else(|| {
             error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
-                "SOLANA_PAY_CUSTOM_PLAN_AMOUNT or SOLANA_PAY_AMOUNT is not configured.",
+                "SOLANA_PAY_CUSTOM_PLAN_MONTHLY_AMOUNT, SOLANA_PAY_CUSTOM_PLAN_AMOUNT, or SOLANA_PAY_AMOUNT is not configured.",
             )
         })?;
 

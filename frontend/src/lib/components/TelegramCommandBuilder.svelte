@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { watchDefiCommand, watchProgramCommand, watchProtocolCommand } from '$lib/bot-commands';
+	import {
+		joinCommandLines,
+		watchDefiCommand,
+		watchProgramCommand,
+		watchProtocolCommand
+	} from '$lib/bot-commands';
 	import { shortAddress } from '$lib/format';
 	import {
 		firewatchPlanById,
@@ -53,6 +58,7 @@
 	let programQuery = $state('');
 	let selectedProgramId = $state('');
 	let selectedProtocolSlug = $state('');
+	let selectedProtocolSlugs = $state<string[]>([]);
 	let solDomainLabel = $state('');
 	let walletAddress = $state('');
 	let walletTrigger = $state<WalletTrigger>('any');
@@ -87,6 +93,11 @@
 
 	function selectedProtocol() {
 		return protocolOptions().find((protocol) => protocol.slug === selectedProtocolSlug) ?? null;
+	}
+
+	function selectedProtocols() {
+		const selected = new Set(selectedProtocolSlugs);
+		return protocolOptions().filter((protocol) => selected.has(protocol.slug));
 	}
 
 	function selectedDeploymentPlan() {
@@ -159,6 +170,12 @@
 		return mode === 'protocol' ? selectedProtocol() : selectedProgram()?.protocol ?? null;
 	}
 
+	function currentProtocols() {
+		if (effectiveMode() !== 'protocol') return [];
+		const protocols = selectedProtocols();
+		return protocols.length ? protocols : selectedProtocol() ? [selectedProtocol()!] : [];
+	}
+
 	function visiblePrograms() {
 		const query = programQuery.trim().toLowerCase();
 		const options = programOptions();
@@ -196,8 +213,10 @@
 		}
 
 		if (mode === 'protocol') {
-			const protocol = selectedProtocol();
-			return protocol ? watchProtocolCommand(protocol.slug) : '';
+			const protocols = currentProtocols();
+			return protocols.length
+				? joinCommandLines(protocols.map((protocol) => watchProtocolCommand(protocol.slug)))
+				: '';
 		}
 
 		const option = selectedProgram();
@@ -235,7 +254,9 @@
 		}
 
 		if (mode === 'protocol') {
-			return selectedProtocol()?.name ?? 'Select a protocol';
+			const protocols = currentProtocols();
+			if (protocols.length > 1) return `${protocols.length} protocols`;
+			return protocols[0]?.name ?? 'Select protocols';
 		}
 
 		const option = selectedProgram();
@@ -260,8 +281,17 @@
 		}
 
 		if (mode === 'protocol') {
-			const protocol = selectedProtocol();
-			if (!protocol) return 'Protocol rule';
+			const protocols = currentProtocols();
+			if (protocols.length > 1) {
+				const programCount = protocols.reduce((count, protocol) => count + protocol.programs.length, 0);
+				const solDomainCount = protocols.reduce(
+					(count, protocol) => count + protocol.sol_domains.length,
+					0
+				);
+				return `${programCount} programs${solDomainCount ? ` · ${solDomainCount} .sol domains` : ''}`;
+			}
+			const protocol = protocols[0];
+			if (!protocol) return 'Protocol bundle';
 			const parts = [
 				protocol.programs.length ? `${protocol.programs.length} programs` : '',
 				protocol.sol_domains.length ? `${protocol.sol_domains.length} .sol domains` : '',
@@ -275,7 +305,11 @@
 	}
 
 	function catalogDomains() {
-		return (currentProtocol()?.sol_domains ?? []).slice(0, 8);
+		const domains =
+			effectiveMode() === 'protocol'
+				? currentProtocols().flatMap((protocol) => protocol.sol_domains)
+				: (currentProtocol()?.sol_domains ?? []);
+		return Array.from(new Set(domains)).slice(0, 8);
 	}
 
 	function chooseProgram(option: ProgramOption) {
@@ -290,6 +324,9 @@
 		if (!hasCustomAccess()) return;
 		mode = 'protocol';
 		selectedProtocolSlug = slug;
+		selectedProtocolSlugs = selectedProtocolSlugs.includes(slug)
+			? selectedProtocolSlugs.filter((selected) => selected !== slug)
+			: [...selectedProtocolSlugs, slug];
 		copiedState = 'idle';
 	}
 
@@ -334,6 +371,14 @@
 			!protocolList.some((protocol) => protocol.slug === selectedProtocolSlug)
 		) {
 			selectedProtocolSlug = protocolList[0].slug;
+		}
+
+		if (protocolList.length > 0) {
+			const availableSlugs = new Set(protocolList.map((protocol) => protocol.slug));
+			selectedProtocolSlugs = selectedProtocolSlugs.filter((slug) => availableSlugs.has(slug));
+			if (selectedProtocolSlugs.length === 0 && selectedProtocolSlug) {
+				selectedProtocolSlugs = [selectedProtocolSlug];
+			}
 		}
 	});
 </script>
@@ -460,10 +505,15 @@
 				{/each}
 			</div>
 		{:else if effectiveMode() === 'protocol'}
+			<div class="selection-summary">
+				<strong>{currentProtocols().length} selected</strong>
+				<span>Each selected protocol creates one Telegram watch command.</span>
+			</div>
 			<div class="protocol-list" role="list" aria-label="Protocols">
 				{#each protocolOptions() as protocol}
 					<button
-						class:active={selectedProtocolSlug === protocol.slug}
+						aria-pressed={selectedProtocolSlugs.includes(protocol.slug)}
+						class:active={selectedProtocolSlugs.includes(protocol.slug)}
 						class="protocol-option"
 						type="button"
 						onclick={() => chooseProtocol(protocol.slug)}
@@ -843,6 +893,29 @@
 		max-height: 26rem;
 		overflow: auto;
 		padding-right: 0.12rem;
+	}
+
+	.selection-summary {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.8rem;
+		padding: 0.62rem 0.72rem;
+		border: 1px solid rgba(23, 32, 42, 0.08);
+		border-radius: 8px;
+		background: #fbfaf8;
+	}
+
+	.selection-summary strong {
+		font-size: 0.86rem;
+	}
+
+	.selection-summary span {
+		color: #62707d;
+		font-size: 0.78rem;
+		font-weight: 700;
+		line-height: 1.35;
+		text-align: right;
 	}
 
 	.trigger-grid,
