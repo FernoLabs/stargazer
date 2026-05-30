@@ -26,6 +26,7 @@ pub struct Config {
     pub ferno_block_base_url: String,
     pub solana_pay_recipient: Option<String>,
     pub solana_pay_custom_plan_amount: Option<String>,
+    pub solana_pay_custom_plan_yearly_amount: Option<String>,
     pub solana_pay_spl_token: Option<String>,
     pub solana_pay_label: String,
     pub solana_pay_link_ttl_hours: i64,
@@ -98,6 +99,10 @@ impl Config {
                 .or_else(|_| env::var("SOLANA_PAY_CUSTOM_PLAN_AMOUNT"))
                 .or_else(|_| env::var("SOLANA_PAY_AMOUNT"))
                 .or_else(|_| Ok::<_, env::VarError>("5".to_owned()))
+                .ok()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty()),
+            solana_pay_custom_plan_yearly_amount: env::var("SOLANA_PAY_CUSTOM_PLAN_YEARLY_AMOUNT")
                 .ok()
                 .map(|value| value.trim().to_owned())
                 .filter(|value| !value.is_empty()),

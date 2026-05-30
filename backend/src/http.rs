@@ -1128,7 +1128,8 @@ async fn create_payment_link(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .or(state.config.solana_pay_custom_plan_amount.as_deref())
+        .map(str::to_owned)
+        .or_else(|| configured_payment_amount_for_plan(&state, plan_id))
         .ok_or_else(|| {
             error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -1136,7 +1137,7 @@ async fn create_payment_link(
             )
         })?;
 
-    let payment_link = build_and_store_payment_link(&state, &user, plan_id, amount).await?;
+    let payment_link = build_and_store_payment_link(&state, &user, plan_id, &amount).await?;
     Ok(Json(payment_link))
 }
 
@@ -1427,10 +1428,7 @@ pub(crate) async fn create_solana_payment_link_for_user(
     user: &FirewatchUser,
     plan_id: &str,
 ) -> Result<PaymentLink, (StatusCode, Json<serde_json::Value>)> {
-    let amount = state
-        .config
-        .solana_pay_custom_plan_amount
-        .as_deref()
+    let amount = configured_payment_amount_for_plan(state, plan_id)
         .ok_or_else(|| {
             error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -1438,7 +1436,34 @@ pub(crate) async fn create_solana_payment_link_for_user(
             )
         })?;
 
-    build_and_store_payment_link(state, user, plan_id, amount).await
+    build_and_store_payment_link(state, user, plan_id, &amount).await
+}
+
+fn configured_payment_amount_for_plan(state: &SharedState, plan_id: &str) -> Option<String> {
+    let monthly_amount = state.config.solana_pay_custom_plan_amount.as_deref()?;
+    if plan_id != "paid-year" {
+        return Some(monthly_amount.to_owned());
+    }
+
+    state
+        .config
+        .solana_pay_custom_plan_yearly_amount
+        .clone()
+        .or_else(|| multiply_sol_amount(monthly_amount, 11))
+}
+
+fn multiply_sol_amount(amount: &str, multiplier: u32) -> Option<String> {
+    let value = amount.parse::<f64>().ok()? * f64::from(multiplier);
+    if !value.is_finite() {
+        return None;
+    }
+
+    Some(
+        format!("{value:.9}")
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_owned(),
+    )
 }
 
 async fn resolve_payment_link_user(

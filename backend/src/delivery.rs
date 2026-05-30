@@ -1027,6 +1027,7 @@ mod tests {
             ferno_block_base_url: "https://block.ferno.ag/block".to_owned(),
             solana_pay_recipient: None,
             solana_pay_custom_plan_amount: None,
+            solana_pay_custom_plan_yearly_amount: None,
             solana_pay_spl_token: None,
             solana_pay_label: "FireWatch".to_owned(),
             solana_pay_link_ttl_hours: 72,
