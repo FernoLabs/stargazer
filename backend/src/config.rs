@@ -3,6 +3,8 @@ use anyhow::{Context, Result};
 use reqwest::Url;
 use std::{env, fs, path::PathBuf};
 
+const DEFAULT_SOLANA_PAY_RECIPIENT: &str = "9r1Vm5VLywCeCaTqLiJVzvKPup3ywe5CeLdYynR1KkSA";
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub http_bind: String,
@@ -94,7 +96,8 @@ impl Config {
             solana_pay_recipient: env::var("SOLANA_PAY_RECIPIENT")
                 .ok()
                 .map(|value| value.trim().to_owned())
-                .filter(|value| !value.is_empty()),
+                .filter(|value| !value.is_empty())
+                .or_else(|| Some(DEFAULT_SOLANA_PAY_RECIPIENT.to_owned())),
             solana_pay_custom_plan_amount: env::var("SOLANA_PAY_CUSTOM_PLAN_MONTHLY_AMOUNT")
                 .or_else(|_| env::var("SOLANA_PAY_CUSTOM_PLAN_AMOUNT"))
                 .or_else(|_| env::var("SOLANA_PAY_AMOUNT"))
