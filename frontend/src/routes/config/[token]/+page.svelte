@@ -14,6 +14,7 @@
 	}
 
 	function chatLabel() {
+		if (data.session?.chat_type === 'private') return 'Direct message';
 		return data.session?.chat_title ?? 'Telegram chat';
 	}
 

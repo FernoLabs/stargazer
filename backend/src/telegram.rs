@@ -17,7 +17,7 @@ const HELP_MESSAGE: &str = concat!(
     "FireWatch commands:\n",
     "/help - show this message\n",
     "/info - show FireWatch live status for the indexer\n",
-    "/config - DM a private setup link to a group admin\n",
+    "/config - open setup in DM, or DM a group admin link from a group\n",
     "/list - list FireWatch rules in this chat\n",
     "/watch - open quick watch actions\n",
     "/watch defi - subscribe this chat to the free unfiltered DeFi alert stream\n",
@@ -594,11 +594,16 @@ async fn handle_config(state: &SharedState, message: &TelegramMessage) -> Result
     };
 
     if message.chat.chat_type.as_deref() == Some("private") {
+        let user = firewatch_user_for_message(state, message).await?;
+        let config_url = create_config_session_url(state, message, &user).await?;
         send_message(
             state,
             &chat_id,
             None,
-            "Add FireWatch to your group, then run /config there as a group admin. I will DM you a private setup link.",
+            &format!(
+                "FireWatch config is ready.\n\nOpen this link within 15 minutes:\n{}\n\nFor a group-specific setup, add FireWatch to the group and run /config there as a group admin.",
+                config_url
+            ),
             None,
         )
         .await?;
@@ -618,26 +623,7 @@ async fn handle_config(state: &SharedState, message: &TelegramMessage) -> Result
     }
 
     let user = firewatch_user_for_message(state, message).await?;
-    let token = generate_config_token();
-    let token_hash = token_hash(&token);
-    let expires_at = crate::models::now_ts() + 15 * 60;
-    state
-        .db
-        .create_telegram_config_session(
-            &user.id,
-            &chat_id,
-            message.chat.title.as_deref(),
-            message.chat.chat_type.as_deref(),
-            &token_hash,
-            expires_at,
-        )
-        .await?;
-
-    let config_url = format!(
-        "{}/config/{}",
-        state.config.firewatch_web_base_url.trim_end_matches('/'),
-        token
-    );
+    let config_url = create_config_session_url(state, message, &user).await?;
     let dm_text = format!(
         "FireWatch config for {}.\n\nOpen this link within 15 minutes:\n{}",
         message
@@ -673,6 +659,33 @@ async fn handle_config(state: &SharedState, message: &TelegramMessage) -> Result
     }
 
     Ok(())
+}
+
+async fn create_config_session_url(
+    state: &SharedState,
+    message: &TelegramMessage,
+    user: &FirewatchUser,
+) -> Result<String> {
+    let token = generate_config_token();
+    let token_hash = token_hash(&token);
+    let expires_at = crate::models::now_ts() + 15 * 60;
+    state
+        .db
+        .create_telegram_config_session(
+            &user.id,
+            &message.chat.id.to_string(),
+            message.chat.title.as_deref(),
+            message.chat.chat_type.as_deref(),
+            &token_hash,
+            expires_at,
+        )
+        .await?;
+
+    Ok(format!(
+        "{}/config/{}",
+        state.config.firewatch_web_base_url.trim_end_matches('/'),
+        token
+    ))
 }
 
 async fn handle_watch_all(state: &SharedState, message: &TelegramMessage) -> Result<()> {
