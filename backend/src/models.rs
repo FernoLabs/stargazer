@@ -347,6 +347,26 @@ pub struct TelegramConfigSessionResponse {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SaveTelegramConfigRequest {
+    #[serde(default)]
+    pub protocol_slugs: Vec<String>,
+    #[serde(default)]
+    pub program_ids: Vec<String>,
+    #[serde(default)]
+    pub wallet_addresses: Vec<String>,
+    #[serde(default)]
+    pub sol_domains: Vec<String>,
+    pub billing: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SaveTelegramConfigResponse {
+    pub saved_count: usize,
+    pub status: String,
+    pub payment_link: Option<PaymentLink>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CreateTelegramSubscriptionRequest {
     pub label: String,
     pub chat_id: String,

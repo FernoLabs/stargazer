@@ -217,6 +217,12 @@ export interface TelegramConfigSessionResponse {
 	user: FirewatchUser;
 }
 
+export interface SaveTelegramConfigResponse {
+	saved_count: number;
+	status: string;
+	payment_link: PaymentLink | null;
+}
+
 export type ProtocolCoverage = 'address_only' | 'admin_signals' | 'deep_decode';
 
 export interface ProgramRiskSummary {

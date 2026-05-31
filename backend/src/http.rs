@@ -10,8 +10,9 @@ use crate::{
         PaymentLink, PaymentLinkCheckoutResponse, ProgramDisassemblyResponse,
         ProgramIdlVersionsResponse, ProgramSignerStatsResponse, ProgramVersionCatalogSummary,
         ProgramVersionSummariesResponse, ProgramVersionsResponse, PromoCode, PromoCodesResponse,
-        TelegramConfigSessionResponse, TelegramSubscription, TelegramSubscriptionSummaryResponse,
-        TelegramSubscriptionsResponse, UpsertFirewatchUserRequest,
+        SaveTelegramConfigRequest, SaveTelegramConfigResponse, TelegramConfigSessionResponse,
+        TelegramSubscription, TelegramSubscriptionSummaryResponse, TelegramSubscriptionsResponse,
+        UpsertFirewatchUserRequest,
     },
     name_service, protocols, telegram,
 };
@@ -119,6 +120,10 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
         .route(
             "/api/config-sessions/by-token/{token}",
             get(get_config_session),
+        )
+        .route(
+            "/api/config-sessions/by-token/{token}/save",
+            axum::routing::post(save_config_session),
         )
         .route(
             "/api/telegram-subscriptions",
@@ -1195,6 +1200,211 @@ async fn get_config_session(
     };
 
     Ok(Json(TelegramConfigSessionResponse { session, user }))
+}
+
+async fn save_config_session(
+    State(state): State<SharedState>,
+    Path(token): Path<String>,
+    Json(payload): Json<SaveTelegramConfigRequest>,
+) -> ApiResult<SaveTelegramConfigResponse> {
+    if state.config.telegram_bot_token.is_none() {
+        return Err(error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "TELEGRAM_BOT_TOKEN is not configured on the backend.",
+        ));
+    }
+
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Config session not found.",
+        ));
+    }
+
+    let token_hash = token_hash(token);
+    let Some((session, user)) = state
+        .db
+        .telegram_config_session_by_token_hash(&token_hash, crate::models::now_ts())
+        .await
+        .map_err(internal_error)?
+    else {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Config session not found or expired.",
+        ));
+    };
+
+    let requested_rules = config_rules_from_request(&payload)?;
+    if requested_rules.is_empty() {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Select at least one protocol, program, wallet, or .sol domain.",
+        ));
+    }
+
+    let has_entitlement = state
+        .db
+        .user_has_active_custom_entitlement(&user.id, crate::models::now_ts())
+        .await
+        .map_err(internal_error)?;
+    let status = if has_entitlement {
+        "active"
+    } else {
+        "pending_payment"
+    };
+
+    let mut saved_count = 0usize;
+    for rule in requested_rules {
+        state
+            .db
+            .create_telegram_subscription(
+                &uuid::Uuid::new_v4().to_string(),
+                &rule.label,
+                Some(&user.id),
+                &session.chat_id,
+                None,
+                rule.scope,
+                rule.target_address.as_deref(),
+                &rule.required_tags,
+                status,
+                None,
+            )
+            .await
+            .map_err(internal_error)?;
+        saved_count += 1;
+    }
+
+    let payment_link = if has_entitlement {
+        None
+    } else {
+        let plan_id = if payload.billing.as_deref() == Some("year") {
+            "paid-year"
+        } else {
+            "paid"
+        };
+        Some(create_solana_payment_link_for_user(&state, &user, plan_id).await?)
+    };
+
+    Ok(Json(SaveTelegramConfigResponse {
+        saved_count,
+        status: status.to_owned(),
+        payment_link,
+    }))
+}
+
+struct ConfigRuleDraft {
+    label: String,
+    scope: crate::models::TelegramEventScope,
+    target_address: Option<String>,
+    required_tags: Vec<String>,
+}
+
+fn config_rules_from_request(
+    payload: &SaveTelegramConfigRequest,
+) -> Result<Vec<ConfigRuleDraft>, (StatusCode, Json<serde_json::Value>)> {
+    let mut rules = Vec::new();
+    let mut seen = HashSet::new();
+
+    for raw_slug in &payload.protocol_slugs {
+        let slug = raw_slug.trim();
+        if slug.is_empty() {
+            continue;
+        }
+        let Some(protocol) = protocols::curated_protocol_descriptor(slug) else {
+            return Err(error_response(
+                StatusCode::BAD_REQUEST,
+                "Unknown protocol selected.",
+            ));
+        };
+        let key = format!("protocol:{}", protocol.slug);
+        if seen.insert(key.clone()) {
+            rules.push(ConfigRuleDraft {
+                label: format!("Config /watch protocol - {}", protocol.name),
+                scope: crate::models::TelegramEventScope::DefiWatch,
+                target_address: None,
+                required_tags: vec![key],
+            });
+        }
+    }
+
+    for raw_program in &payload.program_ids {
+        let program = raw_program.trim();
+        if program.is_empty() {
+            continue;
+        }
+        let normalized = Pubkey::from_str(program)
+            .map_err(|_| error_response(StatusCode::BAD_REQUEST, "Program address is invalid."))?
+            .to_string();
+        let key = format!("program:{normalized}");
+        if seen.insert(key) {
+            rules.push(ConfigRuleDraft {
+                label: format!("Config /watch program - {normalized}"),
+                scope: crate::models::TelegramEventScope::ProgramUpdates,
+                target_address: Some(normalized),
+                required_tags: Vec::new(),
+            });
+        }
+    }
+
+    for raw_wallet in &payload.wallet_addresses {
+        let wallet = raw_wallet.trim();
+        if wallet.is_empty() {
+            continue;
+        }
+        let normalized = Pubkey::from_str(wallet)
+            .map_err(|_| error_response(StatusCode::BAD_REQUEST, "Wallet address is invalid."))?
+            .to_string();
+        let key = format!("wallet:{normalized}");
+        if seen.insert(key) {
+            rules.push(ConfigRuleDraft {
+                label: format!("Config /watch wallet - {normalized}"),
+                scope: crate::models::TelegramEventScope::WalletActivity,
+                target_address: Some(normalized),
+                required_tags: Vec::new(),
+            });
+        }
+    }
+
+    for raw_domain in &payload.sol_domains {
+        let domain = normalize_sol_domain(raw_domain);
+        if domain.is_empty() {
+            continue;
+        }
+        let key = format!("sol:{domain}");
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        if let Some(protocol) = protocols::protocol_for_sol_domain(&domain) {
+            rules.push(ConfigRuleDraft {
+                label: format!("Config /watch .sol - {domain}"),
+                scope: crate::models::TelegramEventScope::DefiWatch,
+                target_address: None,
+                required_tags: vec![format!("protocol:{}", protocol.slug)],
+            });
+        } else {
+            rules.push(ConfigRuleDraft {
+                label: format!("Config /watch .sol - {domain}"),
+                scope: crate::models::TelegramEventScope::DefiWatch,
+                target_address: None,
+                required_tags: vec![format!("sol_domain:{domain}")],
+            });
+        }
+    }
+
+    Ok(rules)
+}
+
+fn normalize_sol_domain(value: &str) -> String {
+    let raw = value.trim().trim_start_matches('@').to_ascii_lowercase();
+    if raw.is_empty() {
+        return String::new();
+    }
+    if raw.ends_with(".sol") {
+        raw
+    } else {
+        format!("{raw}.sol")
+    }
 }
 
 async fn create_telegram_subscription(
