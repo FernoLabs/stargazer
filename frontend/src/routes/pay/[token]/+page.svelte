@@ -54,6 +54,14 @@
 		return !isPaid() && !isExpired();
 	}
 
+	function tokenLabel() {
+		return data.payment_link.spl_token ? 'USDC' : 'SOL';
+	}
+
+	function supportsConnectedWalletPayment() {
+		return !data.payment_link.spl_token;
+	}
+
 	function lamportsFromSol(amount: string) {
 		const [whole, fraction = ''] = amount.split('.');
 		const fractionPadded = `${fraction}000000000`.slice(0, 9);
@@ -149,7 +157,7 @@
 	function setupChecklist() {
 		return [
 			`FireWatch Custom Plan setup for ${userLabel()}`,
-			`Amount: ${data.payment_link.amount} SOL`,
+			`Amount: ${data.payment_link.amount} ${tokenLabel()}`,
 			`Recipient: ${data.payment_link.recipient}`,
 			`Reference: ${data.payment_link.reference}`,
 			`Memo: ${data.payment_link.memo}`,
@@ -249,7 +257,7 @@
 			<div class="payment-head">
 				<div>
 					<span>Custom Plan</span>
-					<h2>{data.payment_link.amount} SOL</h2>
+					<h2>{data.payment_link.amount} {tokenLabel()}</h2>
 					<p>{userLabel()}</p>
 				</div>
 				<span class={`status status-${data.payment_link.status}`}>{statusLabel()}</span>
@@ -257,10 +265,12 @@
 
 			<div class="action-row">
 				<WalletButton />
-				{#if canPay()}
+				{#if canPay() && supportsConnectedWalletPayment()}
 					<button class="pay-button" type="button" onclick={payWithConnectedWallet} disabled={walletPayState === 'sending'}>
 						{walletPayState === 'sending' ? 'Sending...' : 'Pay with connected wallet'}
 					</button>
+				{/if}
+				{#if canPay()}
 					<a class="pay-button" href={data.payment_link.solana_pay_url}>Open wallet</a>
 				{/if}
 				<button
@@ -297,6 +307,10 @@
 		<aside class="panel detail-panel">
 			<h2>Payment details</h2>
 			<ul>
+				<li>
+					<strong>Token</strong>
+					<span>{tokenLabel()}</span>
+				</li>
 				<li>
 					<strong>Recipient</strong>
 					<span>{shortAddress(data.payment_link.recipient)}</span>
@@ -356,7 +370,7 @@
 				<div>
 					<strong>Pay this link</strong>
 					<p>
-						Pay the exact SOL amount with the reference intact. FireWatch uses that reference
+						Pay the exact {tokenLabel()} amount with the reference intact. FireWatch uses that reference
 						to match the transaction.
 					</p>
 				</div>

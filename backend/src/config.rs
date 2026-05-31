@@ -4,6 +4,8 @@ use reqwest::Url;
 use std::{env, fs, path::PathBuf};
 
 const DEFAULT_SOLANA_PAY_RECIPIENT: &str = "9r1Vm5VLywCeCaTqLiJVzvKPup3ywe5CeLdYynR1KkSA";
+const DEFAULT_SOLANA_PAY_AMOUNT: &str = "0.42";
+const DEFAULT_SOLANA_PAY_SPL_TOKEN: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -101,7 +103,7 @@ impl Config {
             solana_pay_custom_plan_amount: env::var("SOLANA_PAY_CUSTOM_PLAN_MONTHLY_AMOUNT")
                 .or_else(|_| env::var("SOLANA_PAY_CUSTOM_PLAN_AMOUNT"))
                 .or_else(|_| env::var("SOLANA_PAY_AMOUNT"))
-                .or_else(|_| Ok::<_, env::VarError>("5".to_owned()))
+                .or_else(|_| Ok::<_, env::VarError>(DEFAULT_SOLANA_PAY_AMOUNT.to_owned()))
                 .ok()
                 .map(|value| value.trim().to_owned())
                 .filter(|value| !value.is_empty()),
@@ -112,7 +114,8 @@ impl Config {
             solana_pay_spl_token: env::var("SOLANA_PAY_SPL_TOKEN")
                 .ok()
                 .map(|value| value.trim().to_owned())
-                .filter(|value| !value.is_empty()),
+                .filter(|value| !value.is_empty())
+                .or_else(|| Some(DEFAULT_SOLANA_PAY_SPL_TOKEN.to_owned())),
             solana_pay_label: env::var("SOLANA_PAY_LABEL")
                 .ok()
                 .map(|value| value.trim().to_owned())

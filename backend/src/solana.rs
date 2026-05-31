@@ -43,6 +43,9 @@ use solana_sdk::{
 
 const FILTER_LABEL: &str = "firewatch";
 const BLOCK_META_FILTER_LABEL: &str = "firewatch-block-meta";
+const TOKEN_PROGRAM_ID: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+const ASSOCIATED_TOKEN_PROGRAM_ID: &str = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
+const SPL_TOKEN_DECIMALS: usize = 6;
 const KAMINO_LEND_SLUG: &str = "kamino_lend";
 const ORCA_WHIRLPOOLS_SLUG: &str = "orca_whirlpools";
 const BLOCK_TIME_REPAIR_CONCURRENCY: usize = 8;
@@ -887,10 +890,6 @@ async fn detect_solana_payments(
         return Ok(0);
     };
 
-    if !tx.account_keys.iter().any(|account| account == &recipient) {
-        return Ok(0);
-    }
-
     let references = tx
         .account_keys
         .iter()
@@ -905,20 +904,31 @@ async fn detect_solana_payments(
         return Ok(0);
     }
 
-    let paid_lamports = sol_transferred_to_recipient(tx, &recipient);
     let paid_at = block_time.unwrap_or(now);
     let mut detected = 0;
 
     for payment_link in pending_links {
-        if payment_link.spl_token.is_some() {
-            continue;
-        }
-
-        let Some(expected_lamports) = sol_amount_to_lamports(&payment_link.amount) else {
-            continue;
+        let payment_matches = if let Some(spl_token) = payment_link.spl_token.as_deref() {
+            let Some(mint) = Pubkey::from_str(spl_token).ok() else {
+                continue;
+            };
+            let Some(expected_amount) =
+                decimal_amount_to_base_units(&payment_link.amount, SPL_TOKEN_DECIMALS)
+            else {
+                continue;
+            };
+            spl_token_amount_transferred(tx, &mint, &recipient) >= expected_amount
+        } else {
+            if !tx.account_keys.iter().any(|account| account == &recipient) {
+                continue;
+            }
+            let Some(expected_lamports) = sol_amount_to_lamports(&payment_link.amount) else {
+                continue;
+            };
+            sol_transferred_to_recipient(tx, &recipient) >= expected_lamports
         };
 
-        if paid_lamports < expected_lamports {
+        if !payment_matches {
             continue;
         }
 
@@ -943,13 +953,93 @@ async fn detect_solana_payments(
                 reference = %payment_link.reference,
                 user_id = %payment_link.user_id,
                 amount = %payment_link.amount,
-                paid_lamports,
+                spl_token = ?payment_link.spl_token,
                 "confirmed Solana Pay payment",
             );
         }
     }
 
     Ok(detected)
+}
+
+fn spl_token_amount_transferred(
+    tx: &ResolvedTransaction,
+    mint: &Pubkey,
+    recipient: &Pubkey,
+) -> u64 {
+    let Some(token_program_id) = Pubkey::from_str(TOKEN_PROGRAM_ID).ok() else {
+        return 0;
+    };
+    let Some(recipient_token_account) = associated_token_account(recipient, mint) else {
+        return 0;
+    };
+    let mut amount = 0_u64;
+    for instruction in tx.top_level_instructions.iter().chain(
+        tx.inner_instruction_sets
+            .iter()
+            .flat_map(|set| set.instructions.iter()),
+    ) {
+        if program_id(tx, instruction) != Some(token_program_id) {
+            continue;
+        }
+
+        if token_transfer_checked_mint(tx, instruction) != Some(*mint) {
+            continue;
+        }
+
+        if token_transfer_checked_destination(tx, instruction) != Some(recipient_token_account) {
+            continue;
+        }
+
+        if let Some(value) = token_transfer_checked_amount(&instruction.data) {
+            amount = amount.saturating_add(value);
+        }
+    }
+
+    amount
+}
+
+fn token_transfer_checked_mint(
+    tx: &ResolvedTransaction,
+    instruction: &ResolvedInstruction,
+) -> Option<Pubkey> {
+    if instruction.data.first().copied()? != 12 {
+        return None;
+    }
+
+    instruction_account(tx, instruction, 1).ok()
+}
+
+fn token_transfer_checked_destination(
+    tx: &ResolvedTransaction,
+    instruction: &ResolvedInstruction,
+) -> Option<Pubkey> {
+    if instruction.data.first().copied()? != 12 {
+        return None;
+    }
+
+    instruction_account(tx, instruction, 2).ok()
+}
+
+fn token_transfer_checked_amount(data: &[u8]) -> Option<u64> {
+    if data.first().copied()? != 12 {
+        return None;
+    }
+
+    let amount = data.get(1..9)?.try_into().ok()?;
+    Some(u64::from_le_bytes(amount))
+}
+
+fn associated_token_account(owner: &Pubkey, mint: &Pubkey) -> Option<Pubkey> {
+    let token_program_id = Pubkey::from_str(TOKEN_PROGRAM_ID).ok()?;
+    let associated_token_program_id = Pubkey::from_str(ASSOCIATED_TOKEN_PROGRAM_ID).ok()?;
+    Some(
+        Pubkey::find_program_address(
+            &[owner.as_ref(), token_program_id.as_ref(), mint.as_ref()],
+            &associated_token_program_id,
+        )
+        .0,
+    )
 }
 
 fn sol_transferred_to_recipient(tx: &ResolvedTransaction, recipient: &Pubkey) -> u64 {
@@ -989,6 +1079,10 @@ fn system_transfer_lamports(data: &[u8]) -> Option<u64> {
 }
 
 fn sol_amount_to_lamports(amount: &str) -> Option<u64> {
+    decimal_amount_to_base_units(amount, 9)
+}
+
+fn decimal_amount_to_base_units(amount: &str, decimals: usize) -> Option<u64> {
     let amount = amount.trim();
     if amount.is_empty() || amount.starts_with('-') {
         return None;
@@ -998,22 +1092,23 @@ fn sol_amount_to_lamports(amount: &str) -> Option<u64> {
     if whole.is_empty() || !whole.chars().all(|character| character.is_ascii_digit()) {
         return None;
     }
-    if !fraction.chars().all(|character| character.is_ascii_digit()) || fraction.len() > 9 {
+    if !fraction.chars().all(|character| character.is_ascii_digit()) || fraction.len() > decimals {
         return None;
     }
 
-    let whole_lamports = whole.parse::<u64>().ok()?.checked_mul(1_000_000_000)?;
+    let unit = 10_u64.checked_pow(decimals as u32)?;
+    let whole_units = whole.parse::<u64>().ok()?.checked_mul(unit)?;
     let mut fractional = fraction.to_owned();
-    while fractional.len() < 9 {
+    while fractional.len() < decimals {
         fractional.push('0');
     }
-    let fractional_lamports = if fractional.is_empty() {
+    let fractional_units = if fractional.is_empty() {
         0
     } else {
         fractional.parse::<u64>().ok()?
     };
 
-    whole_lamports.checked_add(fractional_lamports)
+    whole_units.checked_add(fractional_units)
 }
 
 async fn parse_instruction(

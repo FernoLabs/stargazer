@@ -4,7 +4,7 @@ import { backendOriginRequest, readBackendError } from '$lib/server/backend';
 import type { PaymentLink, SaveTelegramConfigResponse, TelegramConfigSessionResponse } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
-const DEFAULT_CUSTOM_PLAN_MONTHLY_SOL_AMOUNT = '5';
+const DEFAULT_CUSTOM_PLAN_MONTHLY_SOL_AMOUNT = '0.42';
 
 function customPlanAmountForBilling(billing: string) {
 	const monthlyAmount =

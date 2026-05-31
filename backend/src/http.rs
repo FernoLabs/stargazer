@@ -1743,13 +1743,14 @@ async fn build_and_store_payment_link(
             )
         })?;
     let recipient = validate_pubkey_string(recipient, "SOLANA_PAY_RECIPIENT")?;
-    if state.config.solana_pay_spl_token.is_some() {
-        return Err(error_response(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "SPL-token Solana Pay links are not enabled for auto-confirmation yet. Use a SOL amount for watcher-confirmed payments.",
-        ));
-    }
-    let spl_token: Option<String> = None;
+    let spl_token = state
+        .config
+        .solana_pay_spl_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| validate_pubkey_string(value, "SOLANA_PAY_SPL_TOKEN"))
+        .transpose()?;
     validate_amount_string(amount)?;
 
     let token = generate_payment_token();
