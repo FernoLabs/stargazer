@@ -13,6 +13,9 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
+const TELEGRAM_LONG_POLL_TIMEOUT_SECONDS: i64 = 20;
+const TELEGRAM_API_TIMEOUT: Duration = Duration::from_secs(8);
+
 const HELP_MESSAGE: &str = concat!(
     "FireWatch commands:\n",
     "/help - show this message\n",
@@ -206,6 +209,7 @@ pub async fn bot_profile(state: &SharedState) -> Result<Option<TelegramBotProfil
     let response = state
         .http_client
         .get(telegram_method_url(state, "getMe")?)
+        .timeout(TELEGRAM_API_TIMEOUT)
         .send()
         .await?;
     let status = response.status();
@@ -240,16 +244,40 @@ async fn poll_updates_forever(state: SharedState) -> Result<()> {
 
     loop {
         let updates = fetch_updates(&state, next_update_id).await?;
+        if updates.is_empty() {
+            continue;
+        }
 
+        let mut handles = Vec::with_capacity(updates.len());
         for update in updates {
             let advance_to = update.update_id + 1;
+            let state = state.clone();
+            handles.push(tokio::spawn(async move {
+                let result = handle_update(&state, &update).await;
+                (advance_to, update.update_id, result)
+            }));
+        }
 
-            if let Err(error) = handle_update(&state, &update).await {
-                warn!(update_id = update.update_id, error = %error, "failed to handle telegram update");
+        let mut next_advance = next_update_id;
+        for handle in handles {
+            match handle.await {
+                Ok((advance_to, update_id, Ok(()))) => {
+                    next_advance = next_advance.max(advance_to);
+                    debug_assert!(advance_to > update_id);
+                }
+                Ok((advance_to, update_id, Err(error))) => {
+                    warn!(update_id, error = %error, "failed to handle telegram update");
+                    next_advance = next_advance.max(advance_to);
+                }
+                Err(error) => {
+                    warn!(error = %error, "telegram update task failed");
+                }
             }
+        }
 
-            state.db.set_telegram_last_update_id(advance_to).await?;
-            next_update_id = advance_to;
+        if next_advance > next_update_id {
+            state.db.set_telegram_last_update_id(next_advance).await?;
+            next_update_id = next_advance;
         }
     }
 }
@@ -257,7 +285,7 @@ async fn poll_updates_forever(state: SharedState) -> Result<()> {
 async fn fetch_updates(state: &SharedState, offset: i64) -> Result<Vec<TelegramUpdate>> {
     let body = TelegramGetUpdatesRequest {
         offset,
-        timeout: 25,
+        timeout: TELEGRAM_LONG_POLL_TIMEOUT_SECONDS,
         allowed_updates: vec![
             "message",
             "channel_post",
@@ -269,6 +297,9 @@ async fn fetch_updates(state: &SharedState, offset: i64) -> Result<Vec<TelegramU
         .http_client
         .post(telegram_method_url(state, "getUpdates")?)
         .json(&body)
+        .timeout(Duration::from_secs(
+            TELEGRAM_LONG_POLL_TIMEOUT_SECONDS as u64 + 5,
+        ))
         .send()
         .await?;
     let status = response.status();
@@ -1348,6 +1379,7 @@ async fn register_bot_commands(state: &SharedState) -> Result<()> {
         .http_client
         .post(telegram_method_url(state, "setMyCommands")?)
         .json(&body)
+        .timeout(TELEGRAM_API_TIMEOUT)
         .send()
         .await?;
     let status = response.status();
@@ -1391,6 +1423,7 @@ async fn is_group_admin(state: &SharedState, chat_id: &str, user_id: i64) -> Res
         .http_client
         .post(telegram_method_url(state, "getChatMember")?)
         .json(&TelegramGetChatMemberRequest { chat_id, user_id })
+        .timeout(TELEGRAM_API_TIMEOUT)
         .send()
         .await?;
     let status = response.status();
@@ -1536,6 +1569,7 @@ async fn send_message(
             message_thread_id: thread_id,
             reply_markup,
         })
+        .timeout(TELEGRAM_API_TIMEOUT)
         .send()
         .await?;
     let status = response.status();
@@ -1573,6 +1607,7 @@ async fn answer_callback_query(
             callback_query_id,
             text,
         })
+        .timeout(TELEGRAM_API_TIMEOUT)
         .send()
         .await?;
     let status = response.status();
@@ -1613,6 +1648,7 @@ async fn close_menu_message(
             text,
             disable_web_page_preview: true,
         })
+        .timeout(TELEGRAM_API_TIMEOUT)
         .send()
         .await?;
     let status = response.status();

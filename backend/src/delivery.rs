@@ -12,6 +12,8 @@ use std::{str::FromStr, time::Duration};
 use tokio::time::sleep;
 use tracing::{debug, warn};
 
+const TELEGRAM_API_TIMEOUT: Duration = Duration::from_secs(8);
+
 #[derive(Deserialize)]
 struct TelegramApiResponse {
     ok: bool,
@@ -176,7 +178,13 @@ async fn send_telegram_message(
         }),
         message_thread_id: thread_id,
     };
-    let response = state.http_client.post(endpoint).json(&body).send().await?;
+    let response = state
+        .http_client
+        .post(endpoint)
+        .json(&body)
+        .timeout(TELEGRAM_API_TIMEOUT)
+        .send()
+        .await?;
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
 
