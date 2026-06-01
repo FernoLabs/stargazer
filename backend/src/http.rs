@@ -118,6 +118,10 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
             get(get_payment_link_checkout),
         )
         .route(
+            "/api/payment-links/by-token/{token}/solana-rpc",
+            axum::routing::post(solana_rpc_proxy),
+        )
+        .route(
             "/api/config-sessions/by-token/{token}",
             get(get_config_session),
         )
@@ -1320,6 +1324,72 @@ async fn get_payment_link_checkout(
     };
 
     Ok(Json(PaymentLinkCheckoutResponse { payment_link, user }))
+}
+
+async fn solana_rpc_proxy(
+    State(state): State<SharedState>,
+    Path(token): Path<String>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Payment link not found.",
+        ));
+    }
+
+    let token_hash = token_hash(token);
+    let Some((payment_link, _user)) = state
+        .db
+        .payment_link_by_token_hash(&token_hash)
+        .await
+        .map_err(internal_error)?
+    else {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Payment link not found.",
+        ));
+    };
+
+    if payment_link.status == "paid" || payment_link.expires_at <= crate::models::now_ts() {
+        return Err(error_response(
+            StatusCode::GONE,
+            "Payment link is no longer payable.",
+        ));
+    }
+
+    let method = payload
+        .get("method")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| error_response(StatusCode::BAD_REQUEST, "Solana RPC method is required."))?;
+
+    if !matches!(
+        method,
+        "getLatestBlockhash" | "getAccountInfo" | "sendTransaction" | "getSignatureStatuses"
+    ) {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "This Solana RPC method is not available from FireWatch checkout.",
+        ));
+    }
+
+    let upstream = state
+        .http_client
+        .post(&state.config.solana_rpc_http_url)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(internal_error)?;
+    let status =
+        StatusCode::from_u16(upstream.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let body = upstream.text().await.map_err(internal_error)?;
+    let mut response = (status, body).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    Ok(response)
 }
 
 async fn get_config_session(

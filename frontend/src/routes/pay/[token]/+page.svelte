@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import {
 		SolanaSignAndSendTransaction,
@@ -54,6 +55,7 @@
 	});
 	let walletPayState = $state<'idle' | 'preparing' | 'sending' | 'sent' | 'error'>('idle');
 	let walletPayMessage = $state<string | null>(null);
+	let walletPayDetail = $state<string | null>(null);
 
 	function userLabel() {
 		if (data.user.telegram_username) return `@${data.user.telegram_username}`;
@@ -215,10 +217,63 @@
 			.join('');
 	}
 
+	function walletErrorMessage(error: unknown) {
+		const raw = error instanceof Error ? error.message : String(error || 'Payment failed.');
+		const normalized = raw.toLowerCase();
+
+		if (normalized.includes('user rejected') || normalized.includes('declined')) {
+			return {
+				message: 'Payment was cancelled in the wallet.',
+				detail: raw
+			};
+		}
+
+		if (normalized.includes('insufficient')) {
+			return {
+				message: `Not enough ${tokenLabel()} or SOL fees in this wallet.`,
+				detail: raw
+			};
+		}
+
+		if (normalized.includes('403') || normalized.includes('forbidden')) {
+			return {
+				message: 'The Solana RPC rejected the payment request. Refresh the page and try again.',
+				detail: raw
+			};
+		}
+
+		if (normalized.includes('decode') || normalized.includes('#8100002')) {
+			return {
+				message: 'The wallet could not decode this payment transaction. Try updating the wallet app or use another Solana wallet.',
+				detail: raw
+			};
+		}
+
+		if (normalized.includes('blockhash') || normalized.includes('expired')) {
+			return {
+				message: 'The transaction expired before it was sent. Try signing again.',
+				detail: raw
+			};
+		}
+
+		if (normalized.includes('simulation') || normalized.includes('preflight')) {
+			return {
+				message: 'The payment simulation failed before sending. Check the token, balance, and wallet network.',
+				detail: raw
+			};
+		}
+
+		return {
+			message: 'Payment failed. Try again or use another wallet.',
+			detail: raw
+		};
+	}
+
 	async function payWithConnectedWallet() {
 		if (!wallet.connected || !wallet.standardWallet || !wallet.standardAccount || !wallet.publicKey) {
 			walletPayState = 'error';
 			walletPayMessage = 'Connect a wallet first.';
+			walletPayDetail = null;
 			return;
 		}
 
@@ -244,29 +299,24 @@
 		if (!signAndSend && !signTransaction) {
 			walletPayState = 'error';
 			walletPayMessage = 'Connected wallet cannot sign payment transactions from this browser.';
+			walletPayDetail = null;
 			return;
 		}
 
 		try {
 			walletPayState = 'preparing';
 			walletPayMessage = null;
-			const rpc = createSolanaRpc(wallet.rpcEndpoint as RpcEndpoint);
+			walletPayDetail = null;
+			const rpc = createSolanaRpc(
+				`${data.backendBaseUrl}/api/payment-links/by-token/${data.checkout_token}/solana-rpc` as RpcEndpoint
+			);
 			const payer = createNoopSigner(asAddress(wallet.publicKey));
 			const serialized = await buildPaymentTransactionBytes(rpc, payer);
 			const chain = wallet.standardAccount.chains.find((value) => value.startsWith('solana:')) ?? 'solana:mainnet';
 			walletPayState = 'sending';
 			let signature: string | Uint8Array | undefined;
 
-			if (signAndSend) {
-				const result = await signAndSend.signAndSendTransaction({
-					account: wallet.standardAccount,
-					chain,
-					transaction: serialized
-				});
-				signature = Array.isArray(result)
-					? (result as readonly { signature: string | Uint8Array }[])[0]?.signature
-					: (result as { signature: string | Uint8Array }).signature;
-			} else if (signTransaction) {
+			if (signTransaction) {
 				const [result] = await signTransaction.signTransaction({
 					account: wallet.standardAccount,
 					chain,
@@ -279,16 +329,28 @@
 						preflightCommitment: 'confirmed'
 					})
 					.send();
+			} else if (signAndSend) {
+				const result = await signAndSend.signAndSendTransaction({
+					account: wallet.standardAccount,
+					chain,
+					transaction: serialized
+				});
+				signature = Array.isArray(result)
+					? (result as readonly { signature: string | Uint8Array }[])[0]?.signature
+					: (result as { signature: string | Uint8Array }).signature;
 			}
 
 			walletPayState = 'sent';
 			walletPayMessage = signature
 				? `Transaction submitted: ${signatureLabel(signature)}`
 				: 'Transaction submitted.';
+			walletPayDetail = null;
 			window.setTimeout(() => invalidateAll(), 2500);
 		} catch (error) {
+			const failure = walletErrorMessage(error);
 			walletPayState = 'error';
-			walletPayMessage = error instanceof Error ? error.message : 'Payment failed.';
+			walletPayMessage = failure.message;
+			walletPayDetail = failure.detail === failure.message ? null : failure.detail;
 		}
 	}
 
@@ -414,8 +476,9 @@
 			</div>
 
 			<div class="action-row">
-				<WalletButton />
-				{#if canPay()}
+				{#if canPay() && !wallet.connected}
+					<WalletButton />
+				{:else if canPay()}
 					<button
 						class="pay-button"
 						type="button"
@@ -426,10 +489,8 @@
 							Preparing transaction...
 						{:else if walletPayState === 'sending'}
 							Waiting for signature...
-						{:else if wallet.connected}
-							Sign and send payment
 						{:else}
-							Connect wallet to pay
+							Sign and send payment
 						{/if}
 					</button>
 				{/if}
@@ -438,9 +499,20 @@
 				</button>
 			</div>
 			{#if walletPayMessage}
-				<p class:confirmed={walletPayState === 'sent'} class:error={walletPayState === 'error'} class="status-note">
-					{walletPayMessage}
-				</p>
+				<div
+					aria-live="polite"
+					class:confirmed={walletPayState === 'sent'}
+					class:error={walletPayState === 'error'}
+					class="status-note wallet-status"
+				>
+					<strong>{walletPayMessage}</strong>
+					{#if walletPayDetail}
+						<details>
+							<summary>Technical details</summary>
+							<code>{walletPayDetail}</code>
+						</details>
+					{/if}
+				</div>
 			{/if}
 
 			<div class="wallet-help">
@@ -520,7 +592,7 @@
 						Use the command builder for a wallet rule such as
 						<code>/watch wallet &lt;wallet&gt; any-transfer</code>.
 					</p>
-					<a href="/pricing#custom-plan">Open command builder</a>
+					<a href={resolve('/pricing#custom-plan')}>Open command builder</a>
 				</div>
 			</article>
 			<article>
@@ -563,6 +635,7 @@
 	.payment-grid {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) minmax(280px, 0.42fr);
+		align-items: start;
 		gap: 1rem;
 	}
 
@@ -580,6 +653,12 @@
 	.onboarding-panel {
 		display: grid;
 		gap: 0.85rem;
+		min-width: 0;
+	}
+
+	.payment-panel,
+	.detail-panel {
+		align-content: start;
 	}
 
 	.payment-head {
@@ -587,6 +666,7 @@
 		align-items: flex-start;
 		justify-content: space-between;
 		gap: 1rem;
+		min-width: 0;
 	}
 
 	h2,
@@ -599,6 +679,7 @@
 	h2 {
 		font-size: 1.4rem;
 		line-height: 1.15;
+		overflow-wrap: anywhere;
 	}
 
 	p,
@@ -615,6 +696,9 @@
 		background: #fbfaf8;
 		font-size: 0.9rem;
 		font-weight: 650;
+		min-width: 0;
+		max-width: 100%;
+		overflow-wrap: anywhere;
 	}
 
 	.status-note.confirmed {
@@ -627,6 +711,35 @@
 		border-color: rgba(156, 57, 41, 0.18);
 		background: rgba(156, 57, 41, 0.08);
 		color: #9c3929;
+	}
+
+	.wallet-status {
+		display: grid;
+		gap: 0.55rem;
+	}
+
+	.wallet-status details {
+		display: grid;
+		gap: 0.42rem;
+		min-width: 0;
+		font-size: 0.82rem;
+	}
+
+	.wallet-status summary {
+		width: fit-content;
+		cursor: pointer;
+		color: inherit;
+		font-weight: 800;
+	}
+
+	.wallet-status code {
+		display: block;
+		max-height: 8rem;
+		overflow: auto;
+		padding: 0.58rem 0.62rem;
+		border-radius: 8px;
+		background: rgba(255, 255, 255, 0.64);
+		white-space: pre-wrap;
 	}
 
 	.status,
@@ -656,10 +769,13 @@
 	.pay-button {
 		min-height: 2.6rem;
 		width: fit-content;
+		max-width: 100%;
 		padding: 0 1rem;
 		background: #bd4a17;
 		color: #fff;
 		text-decoration: none;
+		text-align: center;
+		white-space: normal;
 	}
 
 	.secondary-button,
@@ -679,7 +795,14 @@
 	.action-row {
 		display: flex;
 		flex-wrap: wrap;
+		align-items: center;
 		gap: 0.52rem;
+		min-width: 0;
+		max-width: 100%;
+	}
+
+	.action-row :global(*) {
+		max-width: 100%;
 	}
 
 	.command-box {
@@ -715,12 +838,14 @@
 		display: grid;
 		grid-template-columns: minmax(5.5rem, 0.32fr) minmax(0, 1fr) auto;
 		align-items: center;
-		gap: 1rem;
+		gap: 0.75rem;
 		border-bottom: 1px solid rgba(23, 32, 42, 0.08);
 		padding-bottom: 0.5rem;
 	}
 
 	.detail-panel li span {
+		justify-self: end;
+		max-width: 14rem;
 		text-align: right;
 		overflow-wrap: anywhere;
 	}
@@ -783,6 +908,20 @@
 	}
 
 	@media (max-width: 620px) {
+		.page-shell {
+			width: min(100%, calc(100vw - 1rem));
+			padding-top: 0.5rem;
+		}
+
+		.panel {
+			padding: 0.92rem;
+		}
+
+		.payment-head {
+			display: grid;
+			gap: 0.58rem;
+		}
+
 		.detail-panel li {
 			grid-template-columns: 1fr;
 			gap: 0.34rem;
@@ -795,6 +934,11 @@
 		.pay-button,
 		.secondary-button {
 			width: 100%;
+		}
+
+		.action-row {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr);
 		}
 	}
 </style>

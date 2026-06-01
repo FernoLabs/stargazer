@@ -22,5 +22,8 @@ export const load = (async ({ fetch, params, cookies }) => {
 		maxAge: 60 * 60 * 24 * 7
 	});
 
-	return (await response.json()) as PaymentLinkCheckoutResponse;
+	return {
+		...((await response.json()) as PaymentLinkCheckoutResponse),
+		checkout_token: token
+	};
 }) satisfies PageServerLoad;
