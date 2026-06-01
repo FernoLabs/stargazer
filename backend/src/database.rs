@@ -127,7 +127,7 @@ struct CompleteIdlVersionBytes {
     idl_bytes: Vec<u8>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct BlobMigrationReport {
     pub program_versions: u64,
     pub program_data_writes: u64,
@@ -135,6 +135,25 @@ pub struct BlobMigrationReport {
     pub program_idl_version_texts: u64,
     pub disassemblies: u64,
     pub bytes_moved: u64,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct DatabaseStorageReport {
+    pub database_path: Option<String>,
+    pub page_size: i64,
+    pub page_count: i64,
+    pub freelist_count: i64,
+    pub total_bytes: i64,
+    pub free_bytes: i64,
+    pub used_bytes: i64,
+    pub tables: Vec<DatabaseTableStorageStat>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct DatabaseTableStorageStat {
+    pub name: String,
+    pub bytes: i64,
+    pub pages: i64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -5652,6 +5671,74 @@ impl Database {
         Ok(())
     }
 
+    pub async fn storage_report(&self) -> Result<DatabaseStorageReport> {
+        let database_path = sqlx::query(
+            r#"
+            PRAGMA database_list;
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .find_map(|row| {
+            let name = row.try_get::<String, _>("name").ok()?;
+            (name == "main")
+                .then(|| row.try_get::<String, _>("file").ok())
+                .flatten()
+        })
+        .filter(|path| !path.is_empty());
+
+        let page_size = pragma_i64(&self.pool, "PRAGMA page_size;").await?;
+        let page_count = pragma_i64(&self.pool, "PRAGMA page_count;").await?;
+        let freelist_count = pragma_i64(&self.pool, "PRAGMA freelist_count;").await?;
+        let total_bytes = page_size.saturating_mul(page_count);
+        let free_bytes = page_size.saturating_mul(freelist_count);
+        let used_bytes = total_bytes.saturating_sub(free_bytes);
+        let tables = self.table_storage_stats().await?;
+
+        Ok(DatabaseStorageReport {
+            database_path,
+            page_size,
+            page_count,
+            freelist_count,
+            total_bytes,
+            free_bytes,
+            used_bytes,
+            tables,
+        })
+    }
+
+    async fn table_storage_stats(&self) -> Result<Vec<DatabaseTableStorageStat>> {
+        let rows = match sqlx::query(
+            r#"
+            SELECT name, SUM(pgsize) AS bytes, COUNT(*) AS pages
+            FROM dbstat
+            WHERE name NOT LIKE 'sqlite_%'
+            GROUP BY name
+            ORDER BY bytes DESC, name ASC;
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(error) => {
+                tracing::warn!(error = %error, "SQLite dbstat storage report unavailable");
+                return Ok(Vec::new());
+            }
+        };
+
+        rows.into_iter()
+            .map(|row| {
+                Ok(DatabaseTableStorageStat {
+                    name: row.try_get("name")?,
+                    bytes: row.try_get("bytes")?,
+                    pages: row.try_get("pages")?,
+                })
+            })
+            .collect()
+    }
+
     async fn migrate_program_version_blobs(&self, report: &mut BlobMigrationReport) -> Result<()> {
         loop {
             let rows = sqlx::query(
@@ -7484,6 +7571,11 @@ async fn update_missing_block_time(
 
     let result = builder.build().execute(pool).await?;
     Ok(result.rows_affected())
+}
+
+async fn pragma_i64(pool: &SqlitePool, statement: &str) -> Result<i64> {
+    let row = sqlx::query(statement).fetch_one(pool).await?;
+    row.try_get::<i64, _>(0).context("read SQLite pragma value")
 }
 
 fn push_high_condition(builder: &mut QueryBuilder<'_, Sqlite>) {

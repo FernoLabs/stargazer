@@ -137,6 +137,11 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
             "/api/telegram-subscriptions/{id}",
             delete(delete_telegram_subscription),
         )
+        .route("/api/admin/storage", get(database_storage))
+        .route(
+            "/api/admin/storage/migrate-blobs",
+            axum::routing::post(migrate_blobs_and_vacuum),
+        )
         .with_state(state.clone())
         .layer(from_fn(apply_cache_control))
         .layer(from_fn_with_state(state.clone(), require_origin_token));
@@ -563,6 +568,30 @@ async fn telegram_subscriptions_summary(
         subscription_count,
         telegram_enabled: state.config.telegram_bot_token.is_some(),
     }))
+}
+
+async fn database_storage(State(state): State<SharedState>) -> ApiResult<serde_json::Value> {
+    let storage = state.db.storage_report().await.map_err(internal_error)?;
+    Ok(Json(json!({ "storage": storage })))
+}
+
+async fn migrate_blobs_and_vacuum(
+    State(state): State<SharedState>,
+) -> ApiResult<serde_json::Value> {
+    let before = state.db.storage_report().await.map_err(internal_error)?;
+    let migration = state
+        .db
+        .migrate_inline_blobs()
+        .await
+        .map_err(internal_error)?;
+    state.db.vacuum().await.map_err(internal_error)?;
+    let after = state.db.storage_report().await.map_err(internal_error)?;
+
+    Ok(Json(json!({
+        "migration": migration,
+        "before": before,
+        "after": after,
+    })))
 }
 
 async fn list_protocols(

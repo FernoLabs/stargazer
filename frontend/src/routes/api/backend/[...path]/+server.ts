@@ -146,6 +146,8 @@ function isProtectedBackendPath(path: string) {
 		path === 'api/users' ||
 		path.startsWith('api/users/') ||
 		path === 'api/payment-links' ||
+		path === 'api/admin/storage' ||
+		path === 'api/admin/storage/migrate-blobs' ||
 		path === 'api/telegram-subscriptions' ||
 		path.startsWith('api/telegram-subscriptions/')
 	);
