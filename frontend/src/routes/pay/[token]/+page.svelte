@@ -183,15 +183,18 @@
 					mint,
 					tokenProgram: TOKEN_PROGRAM_ADDRESS
 				}),
-				getTransferCheckedInstruction({
-					source,
-					mint,
-					destination,
-					authority: payer,
-					amount,
-					decimals
-				}),
-				withReadonlyReference(getAddMemoInstruction({ memo: data.payment_link.memo }), reference)
+				withReadonlyReference(
+					getTransferCheckedInstruction({
+						source,
+						mint,
+						destination,
+						authority: payer,
+						amount,
+						decimals
+					}),
+					reference
+				),
+				getAddMemoInstruction({ memo: data.payment_link.memo })
 			);
 		}
 
@@ -252,6 +255,13 @@
 		if (normalized.includes('blockhash') || normalized.includes('expired')) {
 			return {
 				message: 'The transaction expired before it was sent. Try signing again.',
+				detail: raw
+			};
+		}
+
+		if (normalized.includes('missing required signature')) {
+			return {
+				message: 'The payment transaction is missing a required signature. Refresh the page and try again.',
 				detail: raw
 			};
 		}
