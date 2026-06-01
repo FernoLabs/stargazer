@@ -121,7 +121,7 @@
 			return 'Send the generated command in Telegram. If this Telegram user does not have Custom Plan access yet, the bot saves the monitor as pending and replies with a payment link.';
 		}
 
-		return 'Company response adds reviewed signals, security review, and a Smart Account action path after policy approval.';
+		return 'Company response adds dedicated infra and a non-custodial on-chain Smart Wallet flow: withdraw on critical signals, redeploy after alert clearance under approved policy.';
 	}
 
 	function canCopyCommand() {

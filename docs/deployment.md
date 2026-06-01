@@ -242,22 +242,23 @@ sudo systemctl start firewatch-backup.service
 journalctl -u firewatch-backup.service -n 80
 ```
 
-## Next Cost Lever
+## Blob Storage
 
-Large immutable payloads are stored outside SQLite when `BLOB_STORE_DIR` is set. Dokploy mounts `firewatch-blob-data` at `/blobs`; SQLite keeps object keys, hashes, sizes, and metadata. Raw write chunks stay in SQLite for now because storing hundreds of thousands of tiny chunks as individual filesystem objects wastes disk blocks and makes R2 sync noisy.
+Large immutable payloads are stored outside SQLite when `BLOB_STORE_DIR` is set. Dokploy mounts `firewatch-blob-data` at `/blobs`; SQLite keeps object keys, hashes, sizes, and metadata.
 
-For live S3/R2 blob storage, set `R2_BLOB_BUCKET` plus credentials, or set the more specific `BLOB_STORE_S3_BUCKET` vars. The backend writes generated program bytes, IDLs, and split-view disassemblies to S3/R2 as soon as they are produced, while keeping `/blobs` as the hot local cache when `BLOB_STORE_DIR` is also set. For Cloudflare R2, use `R2_BLOB_PREFIX=blobs`, set `R2_ACCOUNT_ID` or `BLOB_STORE_S3_ENDPOINT_URL`, and use `AWS_DEFAULT_REGION=auto`.
+For live S3/R2 blob storage, set `R2_BLOB_BUCKET` plus credentials, or set the more specific `BLOB_STORE_S3_BUCKET` vars. The backend writes generated program bytes, IDLs, split-view disassemblies, and textual program diffs to S3/R2 as soon as they are produced, while keeping `/blobs` as the hot local cache when `BLOB_STORE_DIR` is also set. For Cloudflare R2, use `R2_BLOB_PREFIX=blobs`, set `R2_ACCOUNT_ID` or `BLOB_STORE_S3_ENDPOINT_URL`, and use `AWS_DEFAULT_REGION=auto`.
 
 Current blob layout:
 
 ```text
-program-bytes/{program}/{sha256}.bin
+programs/{program}/versions/{slot}-{version_id}/program-{sha256}.bin
+programs/{program}/diffs/{slot}-{version_id}/{before_sha}..{after_sha}-{diff_sha}.patch
+programs/{program}/disassembly/{program_sha256}/{asm_sha256}.asm
 idl-bytes/{program}/{sha256}.bin
 idl-text/{program}/{sha256}.json
-disassembly/{program}/{program_sha256}/{asm_sha256}.asm
 ```
 
-The R2 bucket for off-machine copies is `firewatch-blobs`. If live S3/R2 storage is not enabled, keep the local volume as the hot store for the indexer and sync/copy the blob tree to R2 for backups instead of FUSE-mounting R2 as a live filesystem.
+After a complete full-version bytecode snapshot is assembled and stored, raw loader write payloads are compacted out of SQLite while write metadata, offsets, lengths, hashes, and ordering remain in SQLite. The R2 bucket for off-machine copies is `firewatch-blobs`. If live S3/R2 storage is not enabled, keep the local volume as the hot store for the indexer and sync/copy the blob tree to R2 for backups instead of FUSE-mounting R2 as a live filesystem.
 
 After enabling the volume on an existing SQLite DB, pause the live indexer and run:
 

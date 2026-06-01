@@ -20,88 +20,79 @@ export type ProResponseStep = {
 export const firewatchPlans: FireWatchPlan[] = [
 	{
 		id: 'watch',
-		name: 'Free DeFi Alert',
+		name: 'Free DeFi watcher',
 		price: '$0',
-		priceNote: 'shared feed',
-		description: 'Free users can subscribe to the unfiltered FireWatch DeFi alert feed.',
+		priceNote: 'default',
+		description: 'Default shared /watch defi coverage for Telegram groups.',
 		features: [
-			'Shared Telegram bot',
-			'Unfiltered /watch defi alert feed',
-			'Curated DeFi risk signals',
-			'Program upgrades and IDL drift inside the shared feed',
-			'Public activity stream'
+			'Shared Telegram feed with /watch defi',
+			'Default DeFi protocol safety alerts',
+			'No setup or payment required'
 		],
-		limits: [
-			'No program filters',
-			'No protocol-only filters',
-			'No wallet or threshold rules',
-			'No custom bot'
-		],
+		limits: ['No custom filters or wallet tracking', 'Shared feed only'],
 		ctaLabel: 'Copy free command',
-		ctaHref: '/#free-alert'
+		ctaHref: '/#get-started'
 	},
 	{
 		id: 'paid',
-		name: 'Custom Plan',
-		price: 'From $750',
+		name: 'Paid custom auto-tracked watcher',
+		price: '0.42 USDC',
 		priceNote: 'per month',
 		description:
-			'Paid users can save custom program, protocol, wallet, and alert filters through Telegram.',
+			'Custom watcher rules plus automatic protocol subscription when tracked wallets touch supported protocols.',
 		features: [
-			'Custom program watch',
-			'Protocol and program filters',
-			'Wallet and threshold alert drafts',
-			'Telegram-saved pending monitors',
-			'Solana Pay link generated in bot',
-			'Private setup and test alert',
-			'Included for Ferno members',
-			'Superteam promo eligible for 12 months free'
+			'Custom rules for protocols, programs, wallets, and .sol domains',
+			'Auto protocol watch from wallet interactions',
+			'Group setup through /config',
+			'Monthly or yearly billing'
 		],
-		limits: ['Smart Account response not included', 'FireWatch review signal available as add-on'],
+		limits: ['Alerting only (no fund movement actions)'],
 		ctaLabel: 'Build custom monitor',
-		ctaHref: '/#custom-monitor'
+		ctaHref: '/pricing#custom-plan'
 	},
 	{
 		id: 'pro',
-		name: 'Pro Response',
+		name: 'On-demand Smart Wallet response',
 		price: 'On demand',
 		priceNote: 'incident or retainer',
 		description:
-			'Company response for reviewed signals and authorized Smart Account action paths.',
+			'We take emergency action on your funds through a safe on-chain non-custodial Smart Wallet policy.',
 		features: [
-			'Reviewed signal access',
-			'Extra alert and security coverage',
-			'Issue-detection withdrawal runbook',
-			'Team review before redeploy',
-			'Supported-app redeploy policies',
-			'Response channel for urgent events'
+			'Non-custodial on-chain policy: withdraw on critical alerts',
+			'Redeploy only once the alert is over and safety is confirmed',
+			'Dedicated infra: DoubleZero shred stream',
+			'Dedicated infra: custom send + multi-tenant tx sender',
+			'0-slot delay inclusion target'
 		],
-		limits: ['Requires explicit authorization', 'Requires custody and policy review before activation'],
-		ctaLabel: 'Review response flow',
-		ctaHref: '/pricing#pro-response'
+		limits: [
+			'Requires explicit authorization to move funds',
+			'Policy and custody review required before activation'
+		],
+		ctaLabel: 'Contact us',
+		ctaHref: 'mailto:contact@ferno.ag?subject=FireWatch%20infra'
 	}
 ];
 
 export const proResponseSteps: ProResponseStep[] = [
 	{
-		title: 'Issue detected',
+		title: 'Critical signal',
 		description:
 			'FireWatch raises a critical signal from program, IDL, multisig, dependency, or review-layer evidence.'
 	},
 	{
-		title: 'Liquidity exits',
+		title: 'Smart Wallet exits',
 		description:
-			'The Smart Account follows the preapproved policy and attempts the fastest supported withdrawal path.'
+			'The on-chain Smart Wallet executes the preapproved emergency withdrawal policy.'
 	},
 	{
-		title: 'Team review',
+		title: 'Safety review',
 		description:
-			'The FireWatch team checks the event context before the account is cleared for redeployment.'
+			'The FireWatch team validates incident state before redeploy is allowed.'
 	},
 	{
 		title: 'Funds redeploy',
 		description:
-			'When the issue is reviewed and cleared, the Smart Account can redeploy under the approved policy.'
+			'When safety conditions are met, funds redeploy on-chain under the approved policy.'
 	}
 ];
 

@@ -1,9 +1,10 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { programPageHref, protocolPageHref } from '$lib/catalog';
 	import ProtocolIdentity from '$lib/components/ProtocolIdentity.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import { formatTimestamp, shortAddress } from '$lib/format';
-	import { programCriticalHref, programRiskSummary, riskGradeTone } from '$lib/risk';
+	import { programCriticalHref, programRiskSummary, projectRiskSummary } from '$lib/risk';
 	import type {
 		DefiProtocolDescriptor,
 		ProtocolCoverage,
@@ -21,8 +22,14 @@
 		'admin_signals',
 		'address_only'
 	];
-	let query = $state('');
-	let filter = $state<ProgramFilter>('all');
+
+	function initialFilter() {
+		const filterParam = page.url.searchParams.get('filter') as ProgramFilter | null;
+		return filterParam && filterOptions.includes(filterParam) ? filterParam : 'all';
+	}
+
+	let query = $state(page.url.searchParams.get('search') ?? '');
+	let filter = $state<ProgramFilter>(initialFilter());
 	let rows = $derived.by(() =>
 		data.defiProtocols
 			.flatMap((protocol) =>
@@ -112,7 +119,7 @@
 		if (nextFilter === 'all') return 'All';
 		if (nextFilter === 'diffable') return 'Has diff';
 		if (nextFilter === 'idl') return 'IDL';
-		if (nextFilter === 'deep_decode') return 'Deep decode';
+		if (nextFilter === 'deep_decode') return 'Instructions parsed';
 		if (nextFilter === 'admin_signals') return 'Admin signals';
 		return 'Address only';
 	}
@@ -193,12 +200,13 @@
 		{#if visibleRows.length === 0}
 			<p class="empty-state">No tracked program matches this view.</p>
 		{:else}
-			<div class="program-list" role="list">
-				{#each visibleRows as row}
-					{@const summary = versionSummary(row.program.program_id)}
-					{@const risk = programRiskSummary(row.program)}
-					{@const diffHref = latestDiffHref(row)}
-					<article class="program-row" role="listitem">
+				<div class="program-list" role="list">
+					{#each visibleRows as row}
+						{@const summary = versionSummary(row.program.program_id)}
+						{@const risk = programRiskSummary(row.program)}
+						{@const projectRisk = projectRiskSummary(row.protocol)}
+						{@const diffHref = latestDiffHref(row)}
+						<article class="program-row" role="listitem">
 						<div class="program-main">
 							<ProtocolIdentity
 								slug={row.protocol.slug}
@@ -212,10 +220,13 @@
 							<code>{shortAddress(row.program.program_id)}</code>
 						</div>
 
-						<a class="risk-strip" href={programCriticalHref(row.program.program_id)}>
-							<span class={`risk-grade grade-${riskGradeTone(risk)}`}>Rug {risk.grade}</span>
-							<span>Score <strong>{risk.score}</strong></span>
-							<span>Critical <strong>{risk.critical_total}</strong></span>
+						<a class="risk-strip" href={protocolPageHref(row.protocol.slug)}>
+							<span class={`risk-grade grade-${projectRisk.grade.toLowerCase()}`}>
+								Project {projectRisk.grade}
+							</span>
+							<span>Project score <strong>{projectRisk.score}</strong></span>
+							<span>Program critical <strong>{risk.critical_total}</strong></span>
+							<span>Program unresolved <strong>{risk.unreviewed_critical}</strong></span>
 						</a>
 
 						<div class="version-cell">
@@ -231,14 +242,17 @@
 							{/if}
 						</div>
 
-						<div class="row-actions">
-							<a class="primary-link compact-link" href={programPageHref(row.program.program_id)}>
-								Versions
-							</a>
-							{#if diffHref}
-								<a class="secondary-link compact-link" href={diffHref}>Latest diff</a>
-							{/if}
-						</div>
+							<div class="row-actions">
+								<a class="primary-link compact-link" href={programPageHref(row.program.program_id)}>
+									Versions
+								</a>
+								<a class="secondary-link compact-link" href={programCriticalHref(row.program.program_id)}>
+									Proof
+								</a>
+								{#if diffHref}
+									<a class="secondary-link compact-link" href={diffHref}>Latest diff</a>
+								{/if}
+							</div>
 					</article>
 				{/each}
 			</div>

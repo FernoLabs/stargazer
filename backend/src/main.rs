@@ -181,6 +181,10 @@ async fn main() -> Result<()> {
             println!("Migrated inline blobs to {}", blob_store_label(&config));
             println!("Program versions: {}", report.program_versions);
             println!(
+                "Program data writes compacted: {}",
+                report.program_data_writes
+            );
+            println!(
                 "Program IDL version bytes: {}",
                 report.program_idl_version_bytes
             );

@@ -1,6 +1,7 @@
 use crate::blob_store::BlobStore;
 use crate::program_bytes::{
-    ProgramDataChunk, assemble_program_bytes, instruction_order_key, sha256_hex,
+    ProgramByteAssembly, ProgramDataChunk, assemble_program_bytes, instruction_order_key,
+    sha256_hex,
 };
 use crate::program_disassembly::{
     DISASSEMBLY_FORMAT, KnownProgramInstruction, disassemble_program_bytes,
@@ -13,9 +14,9 @@ use crate::{
         MetricAlertRule, PaymentLink, PendingTelegramDelivery, ProgramDataWrite,
         ProgramDisassemblyRecord, ProgramIdlDataWrite, ProgramIdlVersionRecord, ProgramRiskSummary,
         ProgramSignerStat, ProgramVersionCatalogSummary, ProgramVersionLatestSummary,
-        ProgramVersionRecord, ProgramVersionSummary, PromoCode, ProtocolMetricObservation,
-        TelegramConfigSession, TelegramEventScope, TelegramSubscription, UserEntitlement,
-        event_kind, now_ts,
+        ProgramVersionRecord, ProgramVersionSummary, PromoCode, ProtocolActivitySummary,
+        ProtocolMetricObservation, TelegramConfigSession, TelegramEventScope, TelegramSubscription,
+        UserEntitlement, event_kind, now_ts,
     },
 };
 use anyhow::{Context, Result, bail};
@@ -43,6 +44,8 @@ pub struct EventListFilters<'a> {
     pub severity: Option<&'a str>,
     pub known_defi_only: bool,
     pub tag: Option<&'a str>,
+    pub from_ts: Option<i64>,
+    pub before_ts: Option<i64>,
 }
 
 #[derive(Clone, Debug)]
@@ -127,6 +130,7 @@ struct CompleteIdlVersionBytes {
 #[derive(Clone, Debug, Default)]
 pub struct BlobMigrationReport {
     pub program_versions: u64,
+    pub program_data_writes: u64,
     pub program_idl_version_bytes: u64,
     pub program_idl_version_texts: u64,
     pub disassemblies: u64,
@@ -440,6 +444,35 @@ impl Database {
         .await?;
         self.ensure_column("program_version_disassemblies", "asm_text_blob_key", "TEXT")
             .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS program_version_diffs (
+                version_id TEXT PRIMARY KEY,
+                program_address TEXT NOT NULL,
+                previous_version_id TEXT NOT NULL,
+                before_program_sha256 TEXT NOT NULL,
+                after_program_sha256 TEXT NOT NULL,
+                format TEXT NOT NULL,
+                diff_sha256 TEXT NOT NULL,
+                diff_text TEXT NOT NULL DEFAULT '',
+                diff_text_blob_key TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_program_version_diffs_program
+            ON program_version_diffs (program_address, version_id);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
 
         sqlx::query(
             r#"
@@ -1573,23 +1606,44 @@ impl Database {
         } else {
             None
         };
-        let chunks = self
-            .program_data_chunks_for_source(
-                &source.source_account,
-                previous_source_order.as_ref(),
-                source.slot,
-                &source.instruction_order,
-            )
+        let existing_bytes = self
+            .complete_program_version_bytes_by_id(&source.program_address, &source.id)
             .await?;
-        let assembly = assemble_program_bytes(base_bytes, chunks);
+        let assembly = match existing_bytes {
+            Some(existing) => ProgramByteAssembly {
+                program_len: Some(existing.program_bytes.len() as i64),
+                program_sha256: Some(existing.program_sha256),
+                bytes: Some(existing.program_bytes),
+                complete: true,
+                chunk_count: 0,
+                missing_ranges: Vec::new(),
+            },
+            _ => {
+                let chunks = self
+                    .program_data_chunks_for_source(
+                        &source.source_account,
+                        previous_source_order.as_ref(),
+                        source.slot,
+                        &source.instruction_order,
+                    )
+                    .await?;
+                assemble_program_bytes(base_bytes, chunks)
+            }
+        };
         let missing_ranges_json = serde_json::to_string(&assembly.missing_ranges)?;
         let program_bytes_blob_key = match (
             assembly.bytes.as_deref(),
             assembly.program_sha256.as_deref(),
         ) {
             (Some(bytes), Some(program_sha256)) => {
-                self.put_program_version_blob(&source.program_address, program_sha256, bytes)
-                    .await?
+                self.put_program_version_blob(
+                    &source.program_address,
+                    source.slot,
+                    &source.id,
+                    program_sha256,
+                    bytes,
+                )
+                .await?
             }
             _ => None,
         };
@@ -1692,6 +1746,37 @@ impl Database {
                 error = %error,
                 "failed to disassemble program version",
             );
+        }
+
+        if assembly.complete {
+            if let Err(error) = self
+                .upsert_program_text_diff_for_version(&source.program_address, &source.id)
+                .await
+            {
+                tracing::warn!(
+                    version_id = %source.id,
+                    program_address = %source.program_address,
+                    error = %error,
+                    "failed to store program version text diff",
+                );
+            }
+
+            if let Err(error) = self
+                .prune_program_data_write_bytes_for_source(
+                    &source.source_account,
+                    previous_source_order.as_ref(),
+                    source.slot,
+                    &source.instruction_order,
+                )
+                .await
+            {
+                tracing::warn!(
+                    version_id = %source.id,
+                    source_account = %source.source_account,
+                    error = %error,
+                    "failed to prune raw program data write bytes after version assembly",
+                );
+            }
         }
 
         let summary = ProgramVersionSummary {
@@ -2749,6 +2834,104 @@ impl Database {
         }
     }
 
+    async fn upsert_program_text_diff_for_version(
+        &self,
+        program_id: &str,
+        version_id: &str,
+    ) -> Result<()> {
+        let Some(version) = self.program_version_lookup(program_id, version_id).await? else {
+            return Ok(());
+        };
+        let Some(previous) = self
+            .previous_program_version_metadata(program_id, version.slot, &version.instruction_order)
+            .await?
+        else {
+            return Ok(());
+        };
+
+        let Some(before) = self
+            .program_version_disassembly(program_id, version_id, ProgramVersionByteSide::Before)
+            .await?
+        else {
+            return Ok(());
+        };
+        let Some(after) = self
+            .program_version_disassembly(program_id, version_id, ProgramVersionByteSide::After)
+            .await?
+        else {
+            return Ok(());
+        };
+
+        if before.program_sha256 == after.program_sha256 {
+            return Ok(());
+        }
+
+        let diff_text =
+            unified_asm_diff(&previous.id, version_id, &before.asm_text, &after.asm_text);
+        let diff_sha256 = sha256_hex(diff_text.as_bytes());
+        let diff_text_blob_key = self
+            .put_program_diff_blob(
+                program_id,
+                version.slot,
+                version_id,
+                &before.program_sha256,
+                &after.program_sha256,
+                &diff_sha256,
+                &diff_text,
+            )
+            .await?;
+        let diff_text_inline = if diff_text_blob_key.is_some() {
+            ""
+        } else {
+            diff_text.as_str()
+        };
+        let now = now_ts();
+
+        sqlx::query(
+            r#"
+            INSERT INTO program_version_diffs (
+                version_id,
+                program_address,
+                previous_version_id,
+                before_program_sha256,
+                after_program_sha256,
+                format,
+                diff_sha256,
+                diff_text,
+                diff_text_blob_key,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(version_id) DO UPDATE SET
+                program_address = excluded.program_address,
+                previous_version_id = excluded.previous_version_id,
+                before_program_sha256 = excluded.before_program_sha256,
+                after_program_sha256 = excluded.after_program_sha256,
+                format = excluded.format,
+                diff_sha256 = excluded.diff_sha256,
+                diff_text = excluded.diff_text,
+                diff_text_blob_key = excluded.diff_text_blob_key,
+                updated_at = excluded.updated_at;
+            "#,
+        )
+        .bind(version_id)
+        .bind(program_id)
+        .bind(&previous.id)
+        .bind(&before.program_sha256)
+        .bind(&after.program_sha256)
+        .bind(DISASSEMBLY_FORMAT)
+        .bind(&diff_sha256)
+        .bind(diff_text_inline)
+        .bind(diff_text_blob_key.as_deref())
+        .bind(now)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     async fn previous_program_version_order_for_source(
         &self,
         source_account: &str,
@@ -2887,6 +3070,106 @@ impl Database {
             });
         }
         Ok(chunks)
+    }
+
+    async fn prune_program_data_write_bytes_for_source(
+        &self,
+        source_account: &str,
+        lower_bound: Option<&ProgramVersionOrder>,
+        slot: i64,
+        instruction_order: &str,
+    ) -> Result<()> {
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            r#"
+            UPDATE program_data_writes
+            SET bytes = X'', bytes_blob_key = NULL
+            WHERE write_account =
+            "#,
+        );
+        builder.push_bind(source_account.to_owned());
+
+        if let Some(lower_bound) = lower_bound {
+            builder.push(
+                r#"
+                AND (
+                       slot >
+                "#,
+            );
+            builder.push_bind(lower_bound.slot);
+            builder.push(" OR (slot = ");
+            builder.push_bind(lower_bound.slot);
+            builder.push(" AND instruction_order > ");
+            builder.push_bind(lower_bound.instruction_order.clone());
+            builder.push("))");
+        }
+
+        builder.push(
+            r#"
+              AND (
+                    slot <
+            "#,
+        );
+        builder.push_bind(slot);
+        builder.push(" OR (slot = ");
+        builder.push_bind(slot);
+        builder.push(" AND instruction_order <= ");
+        builder.push_bind(instruction_order.to_owned());
+        builder.push(")) AND length(bytes) > 0");
+
+        builder.build().execute(&self.pool).await?;
+        Ok(())
+    }
+
+    async fn program_data_write_bytes_len_for_source(
+        &self,
+        source_account: &str,
+        lower_bound: Option<&ProgramVersionOrder>,
+        slot: i64,
+        instruction_order: &str,
+    ) -> Result<u64> {
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            r#"
+            SELECT COALESCE(SUM(length(bytes)), 0) AS bytes_len
+            FROM program_data_writes
+            WHERE write_account =
+            "#,
+        );
+        builder.push_bind(source_account.to_owned());
+
+        if let Some(lower_bound) = lower_bound {
+            builder.push(
+                r#"
+                AND (
+                       slot >
+                "#,
+            );
+            builder.push_bind(lower_bound.slot);
+            builder.push(" OR (slot = ");
+            builder.push_bind(lower_bound.slot);
+            builder.push(" AND instruction_order > ");
+            builder.push_bind(lower_bound.instruction_order.clone());
+            builder.push("))");
+        }
+
+        builder.push(
+            r#"
+              AND (
+                    slot <
+            "#,
+        );
+        builder.push_bind(slot);
+        builder.push(" OR (slot = ");
+        builder.push_bind(slot);
+        builder.push(" AND instruction_order <= ");
+        builder.push_bind(instruction_order.to_owned());
+        builder.push("))");
+
+        let bytes_len = builder
+            .build()
+            .fetch_one(&self.pool)
+            .await?
+            .try_get::<i64, _>("bytes_len")?;
+        Ok(bytes_len.max(0) as u64)
     }
 
     async fn program_idl_chunks_for_source(
@@ -3488,6 +3771,8 @@ impl Database {
                 COALESCE(SUM(CASE WHEN
                     (tags_json LIKE '%"severity:critical"%' OR tags_json LIKE '%"signal:unknown_instruction"%')
                 THEN 1 ELSE 0 END), 0) AS critical_count,
+                COALESCE(SUM(CASE WHEN tags_json LIKE '%"severity:high"%' THEN 1 ELSE 0 END), 0) AS high_count,
+                COALESCE(SUM(CASE WHEN tags_json LIKE '%"severity:standard"%' THEN 1 ELSE 0 END), 0) AS standard_count,
                 COALESCE(SUM(CASE WHEN tags_json LIKE '%"watch:defi"%' THEN 1 ELSE 0 END), 0) AS defi_count,
                 COALESCE(SUM(CASE WHEN kind IN (
                     'program_deployed',
@@ -3521,11 +3806,46 @@ impl Database {
         Ok(EventScopeCounts {
             all: row.try_get::<i64, _>("all_count")?,
             critical: row.try_get::<i64, _>("critical_count")?,
+            high: row.try_get::<i64, _>("high_count")?,
+            standard: row.try_get::<i64, _>("standard_count")?,
             defi: row.try_get::<i64, _>("defi_count")?,
             programs: row.try_get::<i64, _>("programs_count")?,
             idl: row.try_get::<i64, _>("idl_count")?,
             multisig: row.try_get::<i64, _>("multisig_count")?,
         })
+    }
+
+    pub async fn protocol_activity_summaries(&self) -> Result<Vec<ProtocolActivitySummary>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                substr(protocol_tag.value, length('protocol:') + 1) AS slug,
+                COUNT(*) AS total_count,
+                COALESCE(SUM(CASE WHEN
+                    (events.tags_json LIKE '%"severity:critical"%' OR events.tags_json LIKE '%"signal:unknown_instruction"%')
+                THEN 1 ELSE 0 END), 0) AS critical_count,
+                COALESCE(SUM(CASE WHEN events.tags_json LIKE '%"severity:high"%' THEN 1 ELSE 0 END), 0) AS high_count,
+                COALESCE(SUM(CASE WHEN events.tags_json LIKE '%"severity:standard"%' THEN 1 ELSE 0 END), 0) AS standard_count
+            FROM events, json_each(events.tags_json) AS protocol_tag
+            WHERE protocol_tag.value LIKE 'protocol:%'
+            GROUP BY slug
+            ORDER BY total_count DESC, critical_count DESC, slug ASC;
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(|row| {
+                Ok(ProtocolActivitySummary {
+                    slug: row.try_get("slug")?,
+                    total: row.try_get("total_count")?,
+                    critical: row.try_get("critical_count")?,
+                    high: row.try_get("high_count")?,
+                    standard: row.try_get("standard_count")?,
+                })
+            })
+            .collect()
     }
 
     pub async fn program_risk_summaries(
@@ -4832,6 +5152,7 @@ impl Database {
     pub async fn ensure_telegram_subscription(
         &self,
         label: &str,
+        user_id: Option<&str>,
         chat_id: &str,
         thread_id: Option<i64>,
         scope: TelegramEventScope,
@@ -4881,7 +5202,7 @@ impl Database {
             self.create_telegram_subscription(
                 &uuid::Uuid::new_v4().to_string(),
                 label,
-                None,
+                user_id,
                 chat_id,
                 thread_id,
                 scope,
@@ -5316,6 +5637,8 @@ impl Database {
 
         let mut report = BlobMigrationReport::default();
         self.migrate_program_version_blobs(&mut report).await?;
+        self.compact_complete_program_data_write_bytes(&mut report)
+            .await?;
         self.migrate_program_idl_version_blobs(&mut report).await?;
         self.migrate_disassembly_blobs(&mut report).await?;
         Ok(report)
@@ -5333,7 +5656,7 @@ impl Database {
         loop {
             let rows = sqlx::query(
                 r#"
-                SELECT id, program_address, program_sha256, program_bytes
+                SELECT id, program_address, slot, program_sha256, program_bytes
                 FROM program_versions
                 WHERE program_bytes_blob_key IS NULL
                   AND program_sha256 IS NOT NULL
@@ -5351,11 +5674,12 @@ impl Database {
             for row in rows {
                 let id = row.try_get::<String, _>("id")?;
                 let program_address = row.try_get::<String, _>("program_address")?;
+                let slot = row.try_get::<i64, _>("slot")?;
                 let program_sha256 = row.try_get::<String, _>("program_sha256")?;
                 let bytes = row.try_get::<Vec<u8>, _>("program_bytes")?;
                 let bytes_len = bytes.len() as u64;
                 let blob_key = self
-                    .put_program_version_blob(&program_address, &program_sha256, &bytes)
+                    .put_program_version_blob(&program_address, slot, &id, &program_sha256, &bytes)
                     .await?
                     .context("program version blob store disabled")?;
 
@@ -5377,6 +5701,59 @@ impl Database {
                 }
             }
         }
+    }
+
+    async fn compact_complete_program_data_write_bytes(
+        &self,
+        report: &mut BlobMigrationReport,
+    ) -> Result<()> {
+        let rows = sqlx::query(
+            r#"
+            SELECT source_account, slot, instruction_order
+            FROM program_versions
+            WHERE complete = 1
+              AND (program_bytes IS NOT NULL OR program_bytes_blob_key IS NOT NULL)
+            ORDER BY slot ASC, instruction_order ASC, id ASC;
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        for row in rows {
+            let source_account = row.try_get::<String, _>("source_account")?;
+            let slot = row.try_get::<i64, _>("slot")?;
+            let instruction_order = row.try_get::<String, _>("instruction_order")?;
+            let lower_bound = self
+                .previous_program_version_order_for_source(
+                    &source_account,
+                    slot,
+                    &instruction_order,
+                )
+                .await?;
+            let bytes_len = self
+                .program_data_write_bytes_len_for_source(
+                    &source_account,
+                    lower_bound.as_ref(),
+                    slot,
+                    &instruction_order,
+                )
+                .await?;
+            if bytes_len == 0 {
+                continue;
+            }
+
+            self.prune_program_data_write_bytes_for_source(
+                &source_account,
+                lower_bound.as_ref(),
+                slot,
+                &instruction_order,
+            )
+            .await?;
+            report.program_data_writes += 1;
+            report.bytes_moved += bytes_len;
+        }
+
+        Ok(())
     }
 
     async fn migrate_program_idl_version_blobs(
@@ -5546,11 +5923,13 @@ impl Database {
     async fn put_program_version_blob(
         &self,
         program_address: &str,
+        slot: i64,
+        version_id: &str,
         program_sha256: &str,
         bytes: &[u8],
     ) -> Result<Option<String>> {
         self.put_blob(
-            program_version_blob_key(program_address, program_sha256),
+            program_version_blob_key(program_address, slot, version_id, program_sha256),
             bytes,
             "program version",
         )
@@ -5596,6 +5975,31 @@ impl Database {
             disassembly_blob_key(program_address, program_sha256, asm_sha256),
             asm_text.as_bytes(),
             "program disassembly",
+        )
+        .await
+    }
+
+    async fn put_program_diff_blob(
+        &self,
+        program_address: &str,
+        slot: i64,
+        version_id: &str,
+        before_program_sha256: &str,
+        after_program_sha256: &str,
+        diff_sha256: &str,
+        diff_text: &str,
+    ) -> Result<Option<String>> {
+        self.put_blob(
+            program_diff_blob_key(
+                program_address,
+                slot,
+                version_id,
+                before_program_sha256,
+                after_program_sha256,
+                diff_sha256,
+            ),
+            diff_text.as_bytes(),
+            "program diff",
         )
         .await
     }
@@ -5677,10 +6081,17 @@ impl Database {
     }
 }
 
-fn program_version_blob_key(program_address: &str, program_sha256: &str) -> String {
+fn program_version_blob_key(
+    program_address: &str,
+    slot: i64,
+    version_id: &str,
+    program_sha256: &str,
+) -> String {
     format!(
-        "program-bytes/{}/{}.bin",
+        "programs/{}/versions/{}-{}/program-{}.bin",
         safe_path_component(program_address),
+        slot,
+        safe_path_component(version_id),
         safe_path_component(program_sha256)
     )
 }
@@ -5703,11 +6114,110 @@ fn idl_text_blob_key(program_address: &str, idl_sha256: &str) -> String {
 
 fn disassembly_blob_key(program_address: &str, program_sha256: &str, asm_sha256: &str) -> String {
     format!(
-        "disassembly/{}/{}/{}.asm",
+        "programs/{}/disassembly/{}/{}.asm",
         safe_path_component(program_address),
         safe_path_component(program_sha256),
         safe_path_component(asm_sha256)
     )
+}
+
+fn program_diff_blob_key(
+    program_address: &str,
+    slot: i64,
+    version_id: &str,
+    before_program_sha256: &str,
+    after_program_sha256: &str,
+    diff_sha256: &str,
+) -> String {
+    format!(
+        "programs/{}/diffs/{}-{}/{}..{}-{}.patch",
+        safe_path_component(program_address),
+        slot,
+        safe_path_component(version_id),
+        safe_path_component(&short_hash(before_program_sha256)),
+        safe_path_component(&short_hash(after_program_sha256)),
+        safe_path_component(diff_sha256)
+    )
+}
+
+fn short_hash(value: &str) -> String {
+    value.chars().take(12).collect()
+}
+
+fn unified_asm_diff(
+    before_label: &str,
+    after_label: &str,
+    before_text: &str,
+    after_text: &str,
+) -> String {
+    const CONTEXT_LINES: usize = 4;
+
+    let before = before_text.lines().collect::<Vec<_>>();
+    let after = after_text.lines().collect::<Vec<_>>();
+    let max_len = before.len().max(after.len());
+    let changed = (0..max_len)
+        .filter(|index| before.get(*index) != after.get(*index))
+        .collect::<Vec<_>>();
+
+    let mut output = String::new();
+    output.push_str(&format!("--- previous.asm {before_label}\n"));
+    output.push_str(&format!("+++ current.asm {after_label}\n"));
+    if changed.is_empty() {
+        return output;
+    }
+
+    let mut ranges = Vec::<(usize, usize)>::new();
+    for index in changed {
+        let start = index.saturating_sub(CONTEXT_LINES);
+        let end = (index + CONTEXT_LINES + 1).min(max_len);
+        if let Some((_, previous_end)) = ranges.last_mut()
+            && start <= *previous_end
+        {
+            *previous_end = (*previous_end).max(end);
+            continue;
+        }
+        ranges.push((start, end));
+    }
+
+    for (start, end) in ranges {
+        output.push_str(&format!(
+            "@@ -{},{} +{},{} @@\n",
+            start + 1,
+            end.saturating_sub(start),
+            start + 1,
+            end.saturating_sub(start)
+        ));
+        for index in start..end {
+            match (before.get(index), after.get(index)) {
+                (Some(left), Some(right)) if left == right => {
+                    output.push(' ');
+                    output.push_str(right);
+                    output.push('\n');
+                }
+                (Some(left), Some(right)) => {
+                    output.push('-');
+                    output.push_str(left);
+                    output.push('\n');
+                    output.push('+');
+                    output.push_str(right);
+                    output.push('\n');
+                }
+                (Some(left), None) => {
+                    output.push('-');
+                    output.push_str(left);
+                    output.push('\n');
+                }
+                (None, Some(right)) => {
+                    output.push('+');
+                    output.push_str(right);
+                    output.push('\n');
+                }
+                (None, None) => {}
+            }
+        }
+    }
+
+    output
 }
 
 fn safe_path_component(value: &str) -> String {
@@ -6641,7 +7151,7 @@ mod tests {
         .fetch_one(&db.pool)
         .await?;
 
-        assert_eq!(inline_write_bytes, 6);
+        assert_eq!(inline_write_bytes, 0);
         assert_eq!(inline_version_bytes, 0);
         assert_eq!(blob_key_count, 1);
 
@@ -6826,6 +7336,20 @@ fn push_event_filters(
     if let Some(tag) = filters.tag.map(str::trim).filter(|value| !value.is_empty()) {
         push_where_prefix(builder, has_where);
         push_like_expression(builder, "tags_json", &like_pattern(tag));
+    }
+
+    if let Some(from_ts) = filters.from_ts {
+        push_where_prefix(builder, has_where);
+        builder
+            .push("COALESCE(block_time, indexed_at) >= ")
+            .push_bind(from_ts);
+    }
+
+    if let Some(before_ts) = filters.before_ts {
+        push_where_prefix(builder, has_where);
+        builder
+            .push("COALESCE(block_time, indexed_at) < ")
+            .push_bind(before_ts);
     }
 
     if let Some(search) = filters

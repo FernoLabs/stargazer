@@ -53,7 +53,7 @@ function cachePolicyFor(path: string, searchParams: URLSearchParams): CachePolic
 	}
 
 	if (path === 'api/events') {
-		const offset = Number.parseInt(searchParams.get('offset') ?? '0', 10);
+		const offset = Number.parseInt(searchParams.get('page[offset]') ?? '0', 10);
 		const hasFocusedFilter = [
 			'protocol',
 			'target_address',

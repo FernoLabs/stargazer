@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { nextPageOffset } from '$lib/api-pagination';
 	import { protocolDisplayName, protocolPageHref } from '$lib/catalog';
 	import ActivityEventRow from '$lib/components/ActivityEventRow.svelte';
 	import type { ChainEvent, EventsResponse } from '$lib/types';
@@ -66,6 +67,8 @@
 	const emptyScopeCounts: EventsResponse['scope_counts'] = {
 		all: 0,
 		critical: 0,
+		high: 0,
+		standard: 0,
 		defi: 0,
 		programs: 0,
 		idl: 0,
@@ -143,8 +146,8 @@
 
 	function buildSearchParams(offset: number, queryState: EventQueryState) {
 		const search = new URLSearchParams({
-			limit: String(data.pageSize),
-			offset: String(offset)
+			'page[size]': String(data.pageSize),
+			'page[offset]': String(offset)
 		});
 
 		if (queryState.protocol) {
@@ -200,7 +203,7 @@
 			summary = payload.summary;
 			totalCount = responseTotalCount(payload);
 			scopeCounts = responseScopeCounts(payload);
-			nextOffset = payload.next_offset;
+			nextOffset = nextPageOffset(payload.links);
 			lastQuerySignature = expectedSignature;
 		} catch (error) {
 			if (requestId === filterRequestId) {
@@ -233,7 +236,7 @@
 			summary = payload.summary;
 			totalCount = responseTotalCount(payload);
 			scopeCounts = responseScopeCounts(payload);
-			nextOffset = payload.next_offset;
+			nextOffset = nextPageOffset(payload.links);
 		} catch (error) {
 			loadMoreError = error instanceof Error ? error.message : 'Could not load more events';
 		} finally {

@@ -4,8 +4,8 @@ use crate::{
     link_preview,
     models::{
         AdminUsersResponse, ChainEvent, CreateMetricAlertRuleRequest, CreatePaymentLinkRequest,
-        CreatePromoCodeRequest, CreateTelegramSubscriptionRequest, DefiProtocolsResponse,
-        EventScopeCounts, EventsResponse, EventsSummary, FirewatchUser,
+        CreatePromoCodeRequest, CreateTelegramSubscriptionRequest, DefiProtocolsIncluded,
+        DefiProtocolsResponse, EventScopeCounts, EventsResponse, EventsSummary, FirewatchUser,
         GrantUserEntitlementRequest, LiveStatusResponse, MetricAlertRule, MetricAlertsResponse,
         PaymentLink, PaymentLinkCheckoutResponse, ProgramDisassemblyResponse,
         ProgramIdlVersionsResponse, ProgramSignerStatsResponse, ProgramVersionCatalogSummary,
@@ -19,7 +19,7 @@ use crate::{
 use axum::{
     Json, Router,
     extract::{Path, Query, Request, State},
-    http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header},
+    http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri, header},
     middleware::{Next, from_fn, from_fn_with_state},
     response::{IntoResponse, Response},
     routing::{delete, get},
@@ -227,7 +227,8 @@ fn cache_control_for_api_path(
 }
 
 fn event_list_cache_control(query: Option<&str>) -> &'static str {
-    let offset = query_value(query, "offset")
+    let offset = query_value(query, "page[offset]")
+        .or_else(|| query_value(query, "page%5Boffset%5D"))
         .and_then(|value| value.parse::<i64>().ok())
         .unwrap_or(0);
     let has_focused_filter = [
@@ -257,9 +258,12 @@ fn query_value<'a>(query: Option<&'a str>, key: &str) -> Option<&'a str> {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct EventsQuery {
-    limit: Option<i64>,
-    offset: Option<i64>,
+    #[serde(rename = "page[size]")]
+    page_size: Option<i64>,
+    #[serde(rename = "page[offset]")]
+    page_offset: Option<i64>,
     protocol: Option<String>,
     target_address: Option<String>,
     scope: Option<String>,
@@ -267,7 +271,15 @@ struct EventsQuery {
     severity: Option<String>,
     coverage: Option<String>,
     tag: Option<String>,
+    from_ts: Option<i64>,
+    before_ts: Option<i64>,
     include_related_multisigs: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProtocolsQuery {
+    include: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -280,10 +292,11 @@ type ApiResult<T> = Result<Json<T>, (StatusCode, Json<serde_json::Value>)>;
 async fn list_events(
     State(state): State<SharedState>,
     Query(query): Query<EventsQuery>,
+    uri: Uri,
 ) -> Result<Json<EventsResponse>, StatusCode> {
     let started_at = Instant::now();
-    let limit = query.limit.unwrap_or(100).clamp(1, 500);
-    let offset = query.offset.unwrap_or(0).max(0);
+    let limit = query.page_size.unwrap_or(100).clamp(1, 500);
+    let offset = query.page_offset.unwrap_or(0).max(0);
     let normalized_protocol = query
         .protocol
         .as_deref()
@@ -333,6 +346,8 @@ async fn list_events(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
+    let from_ts = query.from_ts.filter(|value| *value >= 0);
+    let before_ts = query.before_ts.filter(|value| *value >= 0);
     let filters = EventListFilters {
         protocol_slug: normalized_protocol.as_deref(),
         related_multisigs: &related_multisigs,
@@ -342,6 +357,8 @@ async fn list_events(
         severity: normalized_severity,
         known_defi_only,
         tag: normalized_tag,
+        from_ts,
+        before_ts,
     };
 
     let (items, scope_counts, summary) = tokio::try_join!(
@@ -367,6 +384,8 @@ async fn list_events(
         search = normalized_search.unwrap_or(""),
         severity = normalized_severity.unwrap_or(""),
         tag = normalized_tag.unwrap_or(""),
+        from_ts = from_ts.unwrap_or_default(),
+        before_ts = before_ts.unwrap_or_default(),
         "served events page",
     );
 
@@ -375,7 +394,12 @@ async fn list_events(
         summary,
         total_count,
         scope_counts,
-        next_offset,
+        links: Some(page_links(&uri, limit, offset, next_offset)),
+        meta: Some(crate::models::CollectionMeta {
+            total: total_count,
+            page_size: Some(limit),
+            page_offset: Some(offset),
+        }),
     }))
 }
 
@@ -455,11 +479,59 @@ async fn event_preview_card(
 fn count_for_scope(scope: Option<&str>, counts: &EventScopeCounts) -> i64 {
     match scope {
         Some("critical") => counts.critical,
+        Some("high") => counts.high,
+        Some("standard") => counts.standard,
         Some("defi") => counts.defi,
         Some("programs") => counts.programs,
         Some("idl") => counts.idl,
         Some("multisig") => counts.multisig,
         _ => counts.all,
+    }
+}
+
+fn request_self_link(uri: &Uri) -> String {
+    uri.path_and_query()
+        .map(|path_and_query| path_and_query.as_str().to_owned())
+        .unwrap_or_else(|| uri.path().to_owned())
+}
+
+fn page_link(uri: &Uri, limit: i64, offset: i64) -> String {
+    let path = uri.path();
+    let mut params = url::form_urlencoded::Serializer::new(String::new());
+    let mut has_page_size = false;
+    if let Some(query) = uri.query() {
+        for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
+            if key == "page[offset]" {
+                continue;
+            }
+            if key == "page[size]" {
+                has_page_size = true;
+            }
+            params.append_pair(&key, &value);
+        }
+    }
+    if !has_page_size {
+        params.append_pair("page[size]", &limit.to_string());
+    }
+    params.append_pair("page[offset]", &offset.to_string());
+    let query = params.finish();
+    if query.is_empty() {
+        path.to_owned()
+    } else {
+        format!("{path}?{query}")
+    }
+}
+
+fn page_links(
+    uri: &Uri,
+    limit: i64,
+    offset: i64,
+    next_offset: Option<i64>,
+) -> crate::models::ApiLinks {
+    crate::models::ApiLinks {
+        self_link: request_self_link(uri),
+        next: next_offset.map(|next| page_link(uri, limit, next)),
+        prev: (offset > 0).then(|| page_link(uri, limit, (offset - limit).max(0))),
     }
 }
 
@@ -493,7 +565,11 @@ async fn telegram_subscriptions_summary(
     }))
 }
 
-async fn list_protocols(State(state): State<SharedState>) -> ApiResult<DefiProtocolsResponse> {
+async fn list_protocols(
+    State(state): State<SharedState>,
+    Query(query): Query<ProtocolsQuery>,
+    uri: Uri,
+) -> ApiResult<DefiProtocolsResponse> {
     let mut items = protocols::curated_protocol_descriptors();
     let program_ids = items
         .iter()
@@ -514,7 +590,50 @@ async fn list_protocols(State(state): State<SharedState>) -> ApiResult<DefiProto
         }
     }
 
-    Ok(Json(DefiProtocolsResponse { items }))
+    let included = if query
+        .include
+        .as_deref()
+        .is_some_and(|include| includes_resource(include, "activitySummary"))
+    {
+        let known_slugs = items
+            .iter()
+            .map(|protocol| protocol.slug.clone())
+            .collect::<HashSet<_>>();
+        let activity_summaries = state
+            .db
+            .protocol_activity_summaries()
+            .await
+            .map_err(internal_error)?
+            .into_iter()
+            .filter(|summary| known_slugs.contains(&summary.slug))
+            .collect();
+
+        Some(DefiProtocolsIncluded { activity_summaries })
+    } else {
+        None
+    };
+
+    Ok(Json(DefiProtocolsResponse {
+        meta: Some(crate::models::CollectionMeta {
+            total: items.len() as i64,
+            page_size: None,
+            page_offset: None,
+        }),
+        links: Some(crate::models::ApiLinks {
+            self_link: request_self_link(&uri),
+            next: None,
+            prev: None,
+        }),
+        included,
+        items,
+    }))
+}
+
+fn includes_resource(include: &str, needle: &str) -> bool {
+    include
+        .split(',')
+        .map(str::trim)
+        .any(|resource| resource == needle)
 }
 
 async fn program_signer_stats(

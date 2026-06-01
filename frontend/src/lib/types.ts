@@ -32,10 +32,24 @@ export interface EventsSummary {
 export interface EventScopeCounts {
 	all: number;
 	critical: number;
+	high: number;
+	standard: number;
 	defi: number;
 	programs: number;
 	idl: number;
 	multisig: number;
+}
+
+export interface ApiLinks {
+	self: string;
+	next?: string | null;
+	prev?: string | null;
+}
+
+export interface CollectionMeta {
+	total: number;
+	page_size?: number | null;
+	page_offset?: number | null;
 }
 
 export interface EventsResponse {
@@ -43,7 +57,16 @@ export interface EventsResponse {
 	summary: EventsSummary;
 	total_count: number;
 	scope_counts: EventScopeCounts;
-	next_offset: number | null;
+	links?: ApiLinks | null;
+	meta?: CollectionMeta | null;
+}
+
+export interface ProtocolActivitySummary {
+	slug: string;
+	total: number;
+	critical: number;
+	high: number;
+	standard: number;
 }
 
 export type TelegramEventScope =
@@ -262,6 +285,11 @@ export interface DefiProtocolDescriptor {
 
 export interface DefiProtocolsResponse {
 	items: DefiProtocolDescriptor[];
+	included?: {
+		activity_summaries?: ProtocolActivitySummary[];
+	} | null;
+	links?: ApiLinks | null;
+	meta?: CollectionMeta | null;
 }
 
 export interface ProgramSignerStat {

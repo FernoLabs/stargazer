@@ -7,20 +7,28 @@
 		<div class="footer-brand">
 			<BrandLockup compact href="/" />
 			<p>FireWatch is protocol safety tooling for Solana operators.</p>
+			<p class="byline">
+				by
+				<a href="https://ferno.ag" rel="noreferrer" target="_blank">@Ferno_ag</a>
+			</p>
 		</div>
 
 		<nav class="footer-links" aria-label="FireWatch footer">
-			<a href="/pricing">Pricing</a>
-			<a href="/join-the-watch">Join</a>
-			<a href="/docs">Reference</a>
-			<span class="muted-text">GitHub soon</span>
+			<a href="/about">About</a>
+			<a href="/protocols">Protocols</a>
+			<a href="/events">Activity</a>
+			<a href="/programs">Programs</a>
+			<a href="https://ferno.ag" rel="noreferrer" target="_blank">Ferno.ag</a>
+			<a href="https://x.com/ferno_ag" rel="noreferrer" target="_blank">Ferno X</a>
+			<a href="https://github.com/FernoLabs" rel="noreferrer" target="_blank">Ferno GitHub</a>
+			<a href="mailto:contact@ferno.ag?subject=FireWatch%20infra">Contact</a>
 		</nav>
 	</div>
 </footer>
 
 <style>
 	.site-footer {
-		margin-top: 1.2rem;
+		margin-top: 0;
 		border-top: 1px solid rgba(23, 32, 42, 0.08);
 		background: #fff;
 	}
@@ -48,6 +56,18 @@
 		color: #5f6c79;
 	}
 
+	.byline {
+		font-size: 0.8rem;
+		color: #5f6c79;
+	}
+
+	.byline a {
+		color: #5d4c3e;
+		font-weight: 700;
+		text-decoration: underline;
+		text-underline-offset: 0.12em;
+	}
+
 	.footer-links {
 		display: flex;
 		flex-wrap: wrap;
@@ -56,8 +76,7 @@
 		justify-content: flex-end;
 	}
 
-	.footer-links a,
-	.muted-text {
+	.footer-links a {
 		font-size: 0.78rem;
 		font-weight: 600;
 		color: #556473;
@@ -67,10 +86,6 @@
 	.footer-links a {
 		text-decoration: underline;
 		text-underline-offset: 0.12em;
-	}
-
-	.muted-text {
-		color: #8a6d55;
 	}
 
 	@media (max-width: 820px) {

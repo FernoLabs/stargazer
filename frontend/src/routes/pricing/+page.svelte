@@ -1,15 +1,15 @@
 <script lang="ts">
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
-	import {
-		firewatchPlans,
-		proResponseSteps,
-		type FireWatchPlan
-	} from '$lib/monetization';
+	import { firewatchPlans, type FireWatchPlan } from '$lib/monetization';
 
 	function planAnchor(plan: FireWatchPlan) {
 		if (plan.id === 'paid') return 'custom-plan';
 		if (plan.id === 'pro') return 'pro-response';
 		return 'shared-watch';
+	}
+
+	function setupCommand(plan: FireWatchPlan) {
+		return plan.id === 'paid' ? '/config' : '/watch defi';
 	}
 </script>
 
@@ -21,18 +21,18 @@
 	<section class="panel intro-panel">
 		<SectionHeader
 			title="Pricing"
-			description="Free users get the unfiltered DeFi alert feed. The Custom Plan unlocks paid watch customization, with Ferno members included and Superteam promo codes covering 12 months."
+			description="Free is the default DeFi watcher. Paid is the custom auto-tracked watcher. On-demand is emergency on-chain Smart Wallet action on dedicated Ferno infra."
 			level="1"
 		/>
 	</section>
 
-	<section class="plans-grid" aria-label="FireWatch plans">
-		{#each firewatchPlans as plan}
+	<section class="plans-grid" aria-label="FireWatch pricing tiers">
+		{#each firewatchPlans as plan (plan.id)}
 			<article class:featured={plan.id === 'paid'} class="plan-panel" id={planAnchor(plan)}>
 				<div class="plan-head">
 					<div>
 						<h2>{plan.name}</h2>
-						<p>{plan.description}</p>
+						<p class="plan-description">{plan.description}</p>
 					</div>
 					<div class="price-block">
 						<strong>{plan.price}</strong>
@@ -41,68 +41,21 @@
 				</div>
 
 				<ul class="feature-list">
-					{#each plan.features as feature}
+					{#each plan.features as feature (feature)}
 						<li>{feature}</li>
 					{/each}
 				</ul>
 
-				<div class="limit-block">
-					<strong>Access boundary</strong>
-					<ul>
-						{#each plan.limits as limit}
-							<li>{limit}</li>
-						{/each}
-					</ul>
-				</div>
-
-				<a class="plan-action" href={plan.ctaHref}>{plan.ctaLabel}</a>
+				{#if plan.id === 'pro'}
+					<a class="plan-action" href={plan.ctaHref}>{plan.ctaLabel}</a>
+				{:else}
+					<p class="setup-hint">
+						Add <a href="https://t.me/fernowatch_bot" rel="noreferrer" target="_blank">@fernowatch_bot</a>
+						then send <code>{setupCommand(plan)}</code>.
+					</p>
+				{/if}
 			</article>
 		{/each}
-	</section>
-
-	<section class="grid two-up">
-		<article class="panel">
-			<h2>Custom Plan setup</h2>
-			<ol>
-				<li>Add the bot to Telegram and run <code>/config</code> as a group admin.</li>
-				<li>Open the private setup link from the bot DM.</li>
-				<li>Select protocols, programs, instruction tags, amount triggers, wallets, and .sol watches.</li>
-				<li>Pay monthly or yearly; yearly access includes one month discounted.</li>
-			</ol>
-		</article>
-
-		<article class="panel">
-			<h2>What stays free</h2>
-			<p>
-				Unpaid access is the shared, unfiltered <code>/watch defi</code> feed. Ferno members
-				and approved Superteam promo users can use Custom Plan access without paying during
-				their eligibility window.
-			</p>
-		</article>
-	</section>
-
-	<section class="panel response-panel">
-		<SectionHeader
-			title="Pro response"
-			description="Pro access is for teams that want reviewed signals and an authorized Smart Account path for emergency liquidity movement."
-		/>
-
-		<div class="response-flow">
-			{#each proResponseSteps as step, index}
-				<article class="response-step">
-					<span>{index + 1}</span>
-					<div>
-						<h3>{step.title}</h3>
-						<p>{step.description}</p>
-					</div>
-				</article>
-			{/each}
-		</div>
-
-		<p class="response-note">
-			Smart Account actions require explicit authorization, custody review, and a preapproved
-			policy before FireWatch treats any fund movement as enabled.
-		</p>
 	</section>
 </div>
 
@@ -136,7 +89,7 @@
 	.plan-panel {
 		display: grid;
 		align-content: start;
-		gap: 0.9rem;
+		gap: 0.8rem;
 		padding: 1rem;
 		min-width: 0;
 		scroll-margin-top: 7.5rem;
@@ -155,10 +108,9 @@
 	}
 
 	h2,
-	h3,
 	p,
 	ul,
-	ol {
+	li {
 		margin: 0;
 	}
 
@@ -167,18 +119,13 @@
 		line-height: 1.25;
 	}
 
-	h3 {
-		font-size: 0.92rem;
-		line-height: 1.25;
-	}
-
-	p,
+	.plan-description,
 	li {
 		color: #5f6c79;
-		line-height: 1.58;
+		line-height: 1.56;
 	}
 
-	.plan-head p {
+	.plan-description {
 		margin-top: 0.28rem;
 		font-size: 0.88rem;
 	}
@@ -201,29 +148,34 @@
 		font-weight: 700;
 	}
 
-	.feature-list,
-	.limit-block ul,
-	ol {
+	.feature-list {
 		display: grid;
 		gap: 0.34rem;
 		padding-left: 1.1rem;
 	}
 
-	.feature-list li,
-	.limit-block li,
-	ol li {
+	.feature-list li {
 		font-size: 0.88rem;
 	}
 
-	.limit-block {
-		display: grid;
-		gap: 0.36rem;
-		padding-top: 0.78rem;
+	.setup-hint {
+		padding-top: 0.68rem;
 		border-top: 1px solid rgba(23, 32, 42, 0.08);
+		color: #5f6c79;
+		font-size: 0.84rem;
+		line-height: 1.52;
 	}
 
-	.limit-block strong {
-		font-size: 0.82rem;
+	.setup-hint a {
+		color: #5d4c3e;
+		font-weight: 760;
+		text-underline-offset: 0.12em;
+	}
+
+	.setup-hint code {
+		font-family: 'IBM Plex Mono', 'SFMono-Regular', monospace;
+		font-size: 0.8rem;
+		color: #17202a;
 	}
 
 	.plan-action {
@@ -242,71 +194,9 @@
 		text-decoration: none;
 	}
 
-	.grid {
-		display: grid;
-		gap: 1rem;
-	}
-
-	.two-up {
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-	}
-
-	.response-panel {
-		display: grid;
-		gap: 0.9rem;
-		scroll-margin-top: 7.5rem;
-	}
-
-	.response-flow {
-		display: grid;
-		grid-template-columns: repeat(4, minmax(0, 1fr));
-		gap: 0.7rem;
-	}
-
-	.response-step {
-		display: grid;
-		grid-template-columns: 26px minmax(0, 1fr);
-		gap: 0.58rem;
-		padding: 0.76rem;
-		border: 1px solid rgba(23, 32, 42, 0.08);
-		border-radius: 8px;
-		background: #fbfaf8;
-	}
-
-	.response-step span {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 26px;
-		height: 26px;
-		border-radius: 6px;
-		background: #f3ece3;
-		color: #bd4a17;
-		font-size: 0.76rem;
-		font-weight: 800;
-	}
-
-	.response-step p {
-		margin-top: 0.18rem;
-		font-size: 0.84rem;
-	}
-
-	.response-note {
-		padding-top: 0.8rem;
-		border-top: 1px solid rgba(23, 32, 42, 0.08);
-		font-size: 0.88rem;
-	}
-
 	@media (max-width: 980px) {
-		.plans-grid,
-		.response-flow {
-			grid-template-columns: 1fr;
-		}
-	}
-
-	@media (max-width: 820px) {
-		.two-up {
-			grid-template-columns: 1fr;
+		.plans-grid {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
 		}
 	}
 
@@ -314,6 +204,10 @@
 		.page-shell {
 			width: min(100vw - 1rem, var(--fw-page-max));
 			padding-top: 0.8rem;
+		}
+
+		.plans-grid {
+			grid-template-columns: 1fr;
 		}
 
 		.plan-head {

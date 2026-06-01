@@ -1,14 +1,18 @@
 use crate::{
     config::Config,
     context::SharedState,
-    models::{ChainEvent, PendingTelegramDelivery, event_kind, now_ts},
+    models::{ChainEvent, PendingTelegramDelivery, TelegramEventScope, event_kind, now_ts},
     name_service, protocols,
 };
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use solana_sdk::pubkey::Pubkey;
-use std::{str::FromStr, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+    time::Duration,
+};
 use tokio::time::sleep;
 use tracing::{debug, warn};
 
@@ -62,7 +66,16 @@ pub async fn run_retry_loop(state: SharedState) -> Result<()> {
 }
 
 pub async fn enqueue_telegram_deliveries(state: SharedState, event: &ChainEvent) -> Result<()> {
-    let matching_subscriptions = state.db.matching_telegram_subscriptions(event).await?;
+    let mut matching_subscriptions = state.db.matching_telegram_subscriptions(event).await?;
+    let auto_enrolled = auto_enroll_paid_wallet_protocol_subscriptions(
+        state.clone(),
+        event,
+        &matching_subscriptions,
+    )
+    .await?;
+    if auto_enrolled > 0 {
+        matching_subscriptions = state.db.matching_telegram_subscriptions(event).await?;
+    }
     let initial_next_retry_at = now_ts() + state.config.delivery_poll_seconds as i64;
 
     for subscription in matching_subscriptions {
@@ -76,6 +89,109 @@ pub async fn enqueue_telegram_deliveries(state: SharedState, event: &ChainEvent)
     }
 
     Ok(())
+}
+
+async fn auto_enroll_paid_wallet_protocol_subscriptions(
+    state: SharedState,
+    event: &ChainEvent,
+    matching_subscriptions: &[crate::models::TelegramSubscription],
+) -> Result<usize> {
+    let protocol_slugs = supported_protocol_slugs(event);
+    if protocol_slugs.is_empty() {
+        return Ok(0);
+    }
+
+    let mut entitlement_cache = HashMap::<String, bool>::new();
+    let mut attempted_keys = HashSet::<(String, Option<i64>, String)>::new();
+    let mut created_count = 0usize;
+
+    for subscription in matching_subscriptions {
+        if subscription.scope != TelegramEventScope::WalletActivity
+            || subscription.status != "active"
+        {
+            continue;
+        }
+
+        let Some(user_id) = subscription.user_id.as_deref() else {
+            continue;
+        };
+
+        let has_entitlement = if let Some(cached) = entitlement_cache.get(user_id) {
+            *cached
+        } else {
+            let value = state
+                .db
+                .user_has_active_custom_entitlement(user_id, now_ts())
+                .await?;
+            entitlement_cache.insert(user_id.to_owned(), value);
+            value
+        };
+        if !has_entitlement {
+            continue;
+        }
+
+        for protocol_slug in &protocol_slugs {
+            let dedupe_key = (
+                subscription.chat_id.clone(),
+                subscription.thread_id,
+                protocol_slug.clone(),
+            );
+            if !attempted_keys.insert(dedupe_key) {
+                continue;
+            }
+
+            let Some(protocol) = protocols::curated_protocol_descriptor(protocol_slug) else {
+                continue;
+            };
+
+            let (created_subscription, created) = state
+                .db
+                .ensure_telegram_subscription(
+                    &format!("Auto /watch protocol - {}", protocol.name),
+                    Some(user_id),
+                    &subscription.chat_id,
+                    subscription.thread_id,
+                    TelegramEventScope::DefiWatch,
+                    None,
+                    &[format!("protocol:{}", protocol.slug)],
+                )
+                .await?;
+
+            if created {
+                created_count += 1;
+                debug!(
+                    subscription_id = %created_subscription.id,
+                    user_id,
+                    chat_id = %subscription.chat_id,
+                    thread_id = ?subscription.thread_id,
+                    protocol = %protocol.slug,
+                    event_id = %event.id,
+                    "auto-enrolled paid wallet watch into protocol watch",
+                );
+            }
+        }
+    }
+
+    Ok(created_count)
+}
+
+fn supported_protocol_slugs(event: &ChainEvent) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut slugs = Vec::new();
+
+    for tag in &event.tags {
+        let Some(slug) = tag.strip_prefix("protocol:") else {
+            continue;
+        };
+        if slug.is_empty() || !seen.insert(slug) {
+            continue;
+        }
+        if protocols::curated_protocol_descriptor(slug).is_some() {
+            slugs.push(slug.to_owned());
+        }
+    }
+
+    slugs
 }
 
 pub async fn attempt_telegram_delivery(state: SharedState, delivery: PendingTelegramDelivery) {
@@ -1101,5 +1217,18 @@ mod tests {
             percent_encode("sig:0:program_version"),
             "sig%3A0%3Aprogram_version"
         );
+    }
+
+    #[test]
+    fn supported_protocol_slugs_only_keeps_supported_protocol_tags() {
+        let mut event = sample_program_event();
+        event.tags = vec![
+            "watch:defi".to_owned(),
+            "protocol:squads".to_owned(),
+            "protocol:unknown_protocol".to_owned(),
+            "protocol:squads".to_owned(),
+        ];
+
+        assert_eq!(supported_protocol_slugs(&event), vec!["squads".to_owned()]);
     }
 }

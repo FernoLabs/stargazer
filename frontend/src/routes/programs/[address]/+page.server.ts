@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit';
+import { nextPageOffset } from '$lib/api-pagination';
 import type {
 	EventsResponse,
 	ProgramIdlVersionsResponse,
@@ -52,7 +53,7 @@ export const load = (async ({ fetch, params, parent }) => {
 
 	const eventsPromise = (async () => {
 		const search = new URLSearchParams({
-			limit: '120',
+			'page[size]': '120',
 			target_address: match.program.program_id,
 			scope: 'programs'
 		});
@@ -63,7 +64,7 @@ export const load = (async ({ fetch, params, parent }) => {
 		const payload = (await eventsResponse.json()) as EventsResponse;
 		return {
 			events: payload.items,
-			nextOffset: payload.next_offset,
+			nextOffset: nextPageOffset(payload.links),
 			programEventsError: null
 		};
 	})().catch((err) => ({

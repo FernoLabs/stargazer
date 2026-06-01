@@ -3,33 +3,56 @@
 	import { onMount } from 'svelte';
 	import {
 		SolanaSignAndSendTransaction,
+		SolanaSignTransaction,
 		WalletButton,
 		wallet
 	} from '@fernolab/wallet-adapter-svelte';
 	import {
-		Connection,
-		LAMPORTS_PER_SOL,
-		PublicKey,
-		SystemProgram,
-		Transaction
-	} from '@solana/web3.js';
+		AccountRole,
+		address,
+		appendTransactionMessageInstructions,
+		compileTransaction,
+		createNoopSigner,
+		createSolanaRpc,
+		createTransactionMessage,
+		getTransactionDecoder,
+		getTransactionEncoder,
+		setTransactionMessageFeePayer,
+		setTransactionMessageLifetimeUsingBlockhash,
+		type Address,
+		type Base64EncodedWireTransaction,
+		type Instruction,
+		type TransactionSigner
+	} from '@solana/kit';
+	import { getAddMemoInstruction } from '@solana-program/memo';
+	import { getTransferSolInstruction } from '@solana-program/system';
+	import {
+		fetchMint,
+		findAssociatedTokenPda,
+		getCreateAssociatedTokenIdempotentInstruction,
+		getTransferCheckedInstruction,
+		TOKEN_PROGRAM_ADDRESS
+	} from '@solana-program/token';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import { formatTimestamp, shortAddress } from '$lib/format';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
-	type CopyTarget = 'uri' | 'recipient' | 'reference' | 'memo' | 'checklist';
+	type CopyTarget = 'recipient' | 'reference' | 'memo' | 'mint' | 'checklist';
 	type CopyState = 'idle' | 'copied' | 'error';
+	type RpcEndpoint = Parameters<typeof createSolanaRpc>[0];
 
 	const statusRefreshMs = 10_000;
+	const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+	const USDC_DECIMALS = 6;
 	const copyState = $state<Record<CopyTarget, CopyState>>({
-		uri: 'idle',
 		recipient: 'idle',
 		reference: 'idle',
 		memo: 'idle',
+		mint: 'idle',
 		checklist: 'idle'
 	});
-	let walletPayState = $state<'idle' | 'sending' | 'sent' | 'error'>('idle');
+	let walletPayState = $state<'idle' | 'preparing' | 'sending' | 'sent' | 'error'>('idle');
 	let walletPayMessage = $state<string | null>(null);
 
 	function userLabel() {
@@ -55,17 +78,133 @@
 	}
 
 	function tokenLabel() {
-		return data.payment_link.spl_token ? 'USDC' : 'SOL';
+		if (!data.payment_link.spl_token) return 'SOL';
+		return data.payment_link.spl_token === USDC_MINT ? 'USDC' : 'SPL';
 	}
 
-	function supportsConnectedWalletPayment() {
-		return !data.payment_link.spl_token;
+	function baseUnitsFromDecimal(amount: string, decimals: number) {
+		const [wholeRaw, fractionRaw = ''] = amount.trim().split('.');
+		const whole = wholeRaw || '0';
+		if (!/^\d+$/.test(whole) || !/^\d*$/.test(fractionRaw)) {
+			throw new Error('Payment amount is not a valid decimal.');
+		}
+
+		const fraction = `${fractionRaw}${'0'.repeat(decimals)}`.slice(0, decimals);
+		return BigInt(whole) * 10n ** BigInt(decimals) + BigInt(fraction || '0');
 	}
 
 	function lamportsFromSol(amount: string) {
-		const [whole, fraction = ''] = amount.split('.');
-		const fractionPadded = `${fraction}000000000`.slice(0, 9);
-		return Number(whole || '0') * LAMPORTS_PER_SOL + Number(fractionPadded || '0');
+		return baseUnitsFromDecimal(amount, 9);
+	}
+
+	function asAddress(value: string) {
+		return address(value);
+	}
+
+	function withReadonlyReference<TInstruction extends Instruction>(
+		instruction: TInstruction,
+		reference: Address
+	) {
+		return {
+			...instruction,
+			accounts: [
+				...(instruction.accounts ?? []),
+				{
+					address: reference,
+					role: AccountRole.READONLY
+				}
+			]
+		};
+	}
+
+	function base64FromBytes(bytes: Uint8Array) {
+		let binary = '';
+		const chunkSize = 0x8000;
+		for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+			binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+		}
+		return btoa(binary) as Base64EncodedWireTransaction;
+	}
+
+	function transactionBytesToBase64(bytes: Uint8Array) {
+		try {
+			const transaction = getTransactionDecoder().decode(bytes);
+			return base64FromBytes(new Uint8Array(getTransactionEncoder().encode(transaction)));
+		} catch {
+			return base64FromBytes(bytes);
+		}
+	}
+
+	async function splTokenDecimals(rpc: ReturnType<typeof createSolanaRpc>, mint: Address) {
+		if (mint === USDC_MINT) return USDC_DECIMALS;
+		const mintAccount = await fetchMint(rpc, mint, { commitment: 'confirmed' });
+		return mintAccount.data.decimals;
+	}
+
+	async function buildPaymentTransactionBytes(rpc: ReturnType<typeof createSolanaRpc>, payer: TransactionSigner) {
+		const recipient = asAddress(data.payment_link.recipient);
+		const reference = asAddress(data.payment_link.reference);
+		const { value: latestBlockhash } = await rpc.getLatestBlockhash({ commitment: 'confirmed' }).send();
+		const instructions: Instruction[] = [];
+
+		if (!data.payment_link.spl_token) {
+			instructions.push(
+				withReadonlyReference(
+					getTransferSolInstruction({
+						source: payer,
+						destination: recipient,
+						amount: lamportsFromSol(data.payment_link.amount)
+					}),
+					reference
+				)
+			);
+		} else {
+			const mint = asAddress(data.payment_link.spl_token);
+			const decimals = await splTokenDecimals(rpc, mint);
+			const [source] = await findAssociatedTokenPda({
+				mint,
+				owner: payer.address,
+				tokenProgram: TOKEN_PROGRAM_ADDRESS
+			});
+			const [destination] = await findAssociatedTokenPda({
+				mint,
+				owner: recipient,
+				tokenProgram: TOKEN_PROGRAM_ADDRESS
+			});
+			const amount = baseUnitsFromDecimal(data.payment_link.amount, decimals);
+
+			instructions.push(
+				getCreateAssociatedTokenIdempotentInstruction({
+					payer,
+					ata: destination,
+					owner: recipient,
+					mint,
+					tokenProgram: TOKEN_PROGRAM_ADDRESS
+				}),
+				getTransferCheckedInstruction({
+					source,
+					mint,
+					destination,
+					authority: payer,
+					amount,
+					decimals
+				}),
+				withReadonlyReference(getAddMemoInstruction({ memo: data.payment_link.memo }), reference)
+			);
+		}
+
+		const transactionMessage = createTransactionMessage({ version: 0 });
+		const transactionMessageWithFeePayer = setTransactionMessageFeePayer(payer.address, transactionMessage);
+		const transactionMessageWithLifetime = setTransactionMessageLifetimeUsingBlockhash(
+			latestBlockhash,
+			transactionMessageWithFeePayer
+		);
+		const transactionMessageWithInstructions = appendTransactionMessageInstructions(
+			instructions,
+			transactionMessageWithLifetime
+		);
+
+		return new Uint8Array(getTransactionEncoder().encode(compileTransaction(transactionMessageWithInstructions)));
 	}
 
 	function signatureLabel(signature: string | Uint8Array) {
@@ -92,45 +231,56 @@
 					}): Promise<{ signature: string | Uint8Array } | readonly { signature: string | Uint8Array }[]>;
 			  }
 			| undefined;
+		const signTransaction = wallet.standardWallet.wallet.features[SolanaSignTransaction] as
+			| {
+					signTransaction(input: {
+						account: typeof wallet.standardAccount;
+						chain: string;
+						transaction: Uint8Array;
+					}): Promise<readonly { signedTransaction: Uint8Array }[]>;
+			  }
+			| undefined;
 
-		if (!signAndSend) {
+		if (!signAndSend && !signTransaction) {
 			walletPayState = 'error';
-			walletPayMessage = 'Connected wallet cannot submit transactions from this browser.';
+			walletPayMessage = 'Connected wallet cannot sign payment transactions from this browser.';
 			return;
 		}
 
 		try {
-			walletPayState = 'sending';
+			walletPayState = 'preparing';
 			walletPayMessage = null;
-			const connection = new Connection(wallet.rpcEndpoint, 'confirmed');
-			const fromPubkey = new PublicKey(wallet.publicKey);
-			const recipient = new PublicKey(data.payment_link.recipient);
-			const reference = new PublicKey(data.payment_link.reference);
-			const transfer = SystemProgram.transfer({
-				fromPubkey,
-				toPubkey: recipient,
-				lamports: lamportsFromSol(data.payment_link.amount)
-			});
-			transfer.keys.push({ pubkey: reference, isSigner: false, isWritable: false });
+			const rpc = createSolanaRpc(wallet.rpcEndpoint as RpcEndpoint);
+			const payer = createNoopSigner(asAddress(wallet.publicKey));
+			const serialized = await buildPaymentTransactionBytes(rpc, payer);
+			const chain = wallet.standardAccount.chains.find((value) => value.startsWith('solana:')) ?? 'solana:mainnet';
+			walletPayState = 'sending';
+			let signature: string | Uint8Array | undefined;
 
-			const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-			const transaction = new Transaction({
-				feePayer: fromPubkey,
-				blockhash,
-				lastValidBlockHeight
-			}).add(transfer);
-			const serialized = transaction.serialize({
-				requireAllSignatures: false,
-				verifySignatures: false
-			});
-			const result = await signAndSend.signAndSendTransaction({
-				account: wallet.standardAccount,
-				chain: 'solana:mainnet',
-				transaction: serialized
-			});
-			const signature = Array.isArray(result)
-				? (result as readonly { signature: string | Uint8Array }[])[0]?.signature
-				: (result as { signature: string | Uint8Array }).signature;
+			if (signAndSend) {
+				const result = await signAndSend.signAndSendTransaction({
+					account: wallet.standardAccount,
+					chain,
+					transaction: serialized
+				});
+				signature = Array.isArray(result)
+					? (result as readonly { signature: string | Uint8Array }[])[0]?.signature
+					: (result as { signature: string | Uint8Array }).signature;
+			} else if (signTransaction) {
+				const [result] = await signTransaction.signTransaction({
+					account: wallet.standardAccount,
+					chain,
+					transaction: serialized
+				});
+				if (!result?.signedTransaction) throw new Error('Wallet did not return a signed transaction.');
+				signature = await rpc
+					.sendTransaction(transactionBytesToBase64(result.signedTransaction), {
+						encoding: 'base64',
+						preflightCommitment: 'confirmed'
+					})
+					.send();
+			}
+
 			walletPayState = 'sent';
 			walletPayMessage = signature
 				? `Transaction submitted: ${signatureLabel(signature)}`
@@ -161,7 +311,7 @@
 			`Recipient: ${data.payment_link.recipient}`,
 			`Reference: ${data.payment_link.reference}`,
 			`Memo: ${data.payment_link.memo}`,
-			'After payment: return to Telegram and keep your /watch wallet draft ready.'
+			'After payment: return to Telegram. FireWatch activates the pending custom watch after confirmation.'
 		].join('\n');
 	}
 
@@ -265,21 +415,24 @@
 
 			<div class="action-row">
 				<WalletButton />
-				{#if canPay() && supportsConnectedWalletPayment()}
-					<button class="pay-button" type="button" onclick={payWithConnectedWallet} disabled={walletPayState === 'sending'}>
-						{walletPayState === 'sending' ? 'Sending...' : 'Pay with connected wallet'}
+				{#if canPay()}
+					<button
+						class="pay-button"
+						type="button"
+						onclick={payWithConnectedWallet}
+						disabled={!wallet.connected || walletPayState === 'preparing' || walletPayState === 'sending'}
+					>
+						{#if walletPayState === 'preparing'}
+							Preparing transaction...
+						{:else if walletPayState === 'sending'}
+							Waiting for signature...
+						{:else if wallet.connected}
+							Sign and send payment
+						{:else}
+							Connect wallet to pay
+						{/if}
 					</button>
 				{/if}
-				{#if canPay()}
-					<a class="pay-button" href={data.payment_link.solana_pay_url}>Open wallet</a>
-				{/if}
-				<button
-					class="secondary-button"
-					type="button"
-					onclick={() => copyText('uri', data.payment_link.solana_pay_url)}
-				>
-					{copyButtonLabel('uri', 'Copy pay URI')}
-				</button>
 				<button class="secondary-button" type="button" onclick={() => invalidateAll()}>
 					Refresh status
 				</button>
@@ -290,16 +443,12 @@
 				</p>
 			{/if}
 
-			<div class="command-box">
-				<code>{data.payment_link.solana_pay_url}</code>
-			</div>
-
 			<div class="wallet-help">
 				<h2>Wallet setup</h2>
 				<ol>
-					<li>Open this page on the device where your Solana wallet is installed.</li>
-					<li>Use <strong>Open wallet</strong>, or copy the URI into a wallet that supports Solana Pay.</li>
-					<li>Confirm the amount, recipient, memo, and reference before approving.</li>
+					<li>Connect the wallet that will pay the {data.payment_link.amount} {tokenLabel()} invoice.</li>
+					<li>Use <strong>Sign and send payment</strong> to create the transaction in this page.</li>
+					<li>Confirm the token, recipient, memo, and reference inside the wallet before approving.</li>
 				</ol>
 			</div>
 		</article>
@@ -311,6 +460,15 @@
 					<strong>Token</strong>
 					<span>{tokenLabel()}</span>
 				</li>
+				{#if data.payment_link.spl_token}
+					<li>
+						<strong>Mint</strong>
+						<span>{shortAddress(data.payment_link.spl_token)}</span>
+						<button type="button" onclick={() => copyText('mint', data.payment_link.spl_token ?? '')}>
+							{copyButtonLabel('mint', 'Copy')}
+						</button>
+					</li>
+				{/if}
 				<li>
 					<strong>Recipient</strong>
 					<span>{shortAddress(data.payment_link.recipient)}</span>
@@ -362,7 +520,7 @@
 						Use the command builder for a wallet rule such as
 						<code>/watch wallet &lt;wallet&gt; any-transfer</code>.
 					</p>
-					<a href="/join-the-watch#command-builder">Open command builder</a>
+					<a href="/pricing#custom-plan">Open command builder</a>
 				</div>
 			</article>
 			<article>

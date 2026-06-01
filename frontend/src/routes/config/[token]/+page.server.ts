@@ -1,28 +1,92 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { env } from '$env/dynamic/private';
 import { backendOriginRequest, readBackendError } from '$lib/server/backend';
+import { customPlanAmountForBilling, customPlanPricing } from '$lib/server/custom-plan-pricing';
 import type { PaymentLink, SaveTelegramConfigResponse, TelegramConfigSessionResponse } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
-const DEFAULT_CUSTOM_PLAN_MONTHLY_SOL_AMOUNT = '0.42';
+const SOLANA_ADDRESS_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
-function customPlanAmountForBilling(billing: string) {
-	const monthlyAmount =
-		env.SOLANA_PAY_CUSTOM_PLAN_MONTHLY_AMOUNT?.trim() ||
-		env.SOLANA_PAY_CUSTOM_PLAN_AMOUNT?.trim() ||
-		env.SOLANA_PAY_AMOUNT?.trim() ||
-		DEFAULT_CUSTOM_PLAN_MONTHLY_SOL_AMOUNT;
-
-	if (billing !== 'year') return monthlyAmount;
-
-	return (
-		env.SOLANA_PAY_CUSTOM_PLAN_YEARLY_AMOUNT?.trim() ||
-		formatSolAmount(Number(monthlyAmount) * 11)
-	);
+function normalizedWalletAddress(value: string) {
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	return SOLANA_ADDRESS_PATTERN.test(trimmed) ? trimmed : null;
 }
 
-function formatSolAmount(amount: number) {
-	return Number.isFinite(amount) ? amount.toFixed(9).replace(/\.?0+$/, '') : DEFAULT_CUSTOM_PLAN_MONTHLY_SOL_AMOUNT;
+function parseWalletAddressLines(raw: string) {
+	const tokens = raw
+		.split(/[\n,]+/)
+		.map((value) => value.trim())
+		.filter(Boolean);
+	const seen = new Set<string>();
+	const addresses: string[] = [];
+	const invalid: string[] = [];
+
+	for (const token of tokens) {
+		const normalized = normalizedWalletAddress(token);
+		if (!normalized) {
+			invalid.push(token);
+			continue;
+		}
+		if (seen.has(normalized)) continue;
+		seen.add(normalized);
+		addresses.push(normalized);
+	}
+
+	if (invalid.length > 0) {
+		throw new Error(
+			`${invalid.length} invalid wallet ${invalid.length === 1 ? 'address was' : 'addresses were'} provided.`
+		);
+	}
+
+	return addresses;
+}
+
+function parseWalletAddressbook(raw: string) {
+	const payload = JSON.parse(raw) as unknown;
+	const items = Array.isArray(payload)
+		? payload
+		: Array.isArray((payload as { items?: unknown } | null)?.items)
+			? ((payload as { items: unknown[] }).items ?? [])
+			: null;
+
+	if (!items) {
+		throw new Error('Wallet JSON import expects an items array.');
+	}
+
+	const seen = new Set<string>();
+	const addresses: string[] = [];
+	const invalid: string[] = [];
+
+	for (const entry of items) {
+		if (!entry || typeof entry !== 'object') continue;
+		const address = normalizedWalletAddress(String((entry as { address?: unknown }).address ?? ''));
+		if (!address) {
+			invalid.push(String((entry as { address?: unknown }).address ?? ''));
+			continue;
+		}
+		if (seen.has(address)) continue;
+		seen.add(address);
+		addresses.push(address);
+	}
+
+	if (invalid.length > 0) {
+		throw new Error(
+			`Wallet JSON contains ${invalid.length} invalid ${invalid.length === 1 ? 'entry' : 'entries'}.`
+		);
+	}
+
+	return addresses;
+}
+
+function parseWalletAddresses(raw: string) {
+	const trimmed = raw.trim();
+	if (!trimmed) return [];
+
+	if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+		return parseWalletAddressbook(trimmed);
+	}
+
+	return parseWalletAddressLines(trimmed);
 }
 
 export const load = (async ({ fetch, params, cookies }) => {
@@ -52,7 +116,8 @@ export const load = (async ({ fetch, params, cookies }) => {
 	return {
 		error: null,
 		session: payload.session,
-		user: payload.user
+		user: payload.user,
+		customPlanPricing: customPlanPricing()
 	};
 }) satisfies PageServerLoad;
 
@@ -60,10 +125,14 @@ export const actions = {
 	save_config: async ({ request, fetch, params }) => {
 		const token = params.token.trim();
 		const form = await request.formData();
-		const walletAddresses = String(form.get('wallet_addresses') ?? '')
-			.split(/[\n,]+/)
-			.map((value) => value.trim())
-			.filter(Boolean);
+		let walletAddresses: string[] = [];
+		try {
+			walletAddresses = parseWalletAddresses(String(form.get('wallet_addresses') ?? ''));
+		} catch (error) {
+			return fail(400, {
+				error: error instanceof Error ? error.message : 'Wallet address parsing failed.'
+			});
+		}
 		const solDomains = String(form.get('sol_domains') ?? '')
 			.split(/[\n,]+/)
 			.map((value) => value.trim())

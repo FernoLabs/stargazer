@@ -17,7 +17,9 @@ The tunnel profile runs `firewatch-cloudflared` and forwards `firewatch-origin.f
 
 ## Blob Store
 
-The backend stores large assembled program bytes, IDLs, and disassemblies in `BLOB_STORE_DIR=/blobs`. If `BLOB_STORE_S3_BUCKET` is set, it also writes those generated blobs to S3/R2 immediately, which keeps split-view disassembly artifacts available outside SQLite and off the VM volume. Raw write chunks remain in SQLite for now to avoid hundreds of thousands of tiny objects.
+The backend stores large assembled program bytes, IDLs, disassemblies, and generated textual program diffs in `BLOB_STORE_DIR=/blobs`. If `BLOB_STORE_S3_BUCKET` is set, it also writes those generated blobs to S3/R2 immediately, which keeps split-view disassembly artifacts available outside SQLite and off the VM volume.
+
+Program bytecode and diffs are stored under one R2/object-store prefix per program. Full bytecode snapshots use `programs/{program}/versions/{slot}-{version_id}/program-{sha}.bin`; textual diffs use `programs/{program}/diffs/{slot}-{version_id}/...patch`. Raw loader write payloads are compacted out of SQLite after a complete full-version bytecode snapshot has been assembled, while the write metadata, offsets, lengths, hashes, and ordering remain in SQLite.
 
 For Cloudflare R2 live blob storage, set `R2_BLOB_BUCKET=firewatch-blobs`, `R2_BLOB_PREFIX=blobs`, `AWS_DEFAULT_REGION=auto`, `R2_ACCOUNT_ID`, and the R2 `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` pair. `BLOB_STORE_S3_BUCKET`, `BLOB_STORE_S3_PREFIX`, `BLOB_STORE_S3_ENDPOINT_URL`, and `BLOB_STORE_S3_REGION` can override those backup-oriented vars when the live blob store needs a separate bucket or endpoint.
 

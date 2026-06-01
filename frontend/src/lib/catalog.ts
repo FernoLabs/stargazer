@@ -56,6 +56,10 @@ export function protocolPageHref(slug: string) {
 	return `/protocols/${slug}`;
 }
 
+export function protocolActivityPageHref(slug: string) {
+	return `/protocols/${slug}/activity`;
+}
+
 export function programPageHref(address: string) {
 	return `/programs/${address}`;
 }

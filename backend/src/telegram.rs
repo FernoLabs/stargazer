@@ -1095,6 +1095,7 @@ async fn ensure_watch_defi(state: &SharedState, message: &TelegramMessage) -> Re
         .db
         .ensure_telegram_subscription(
             &format!("{label_prefix} /watch defi"),
+            None,
             &chat_id,
             thread_id,
             TelegramEventScope::DefiWatch,

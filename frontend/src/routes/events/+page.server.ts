@@ -1,4 +1,5 @@
 import type { EventsResponse } from '$lib/types';
+import { nextPageOffset } from '$lib/api-pagination';
 import { backendRequest, readBackendError } from '$lib/server/backend';
 import type { PageServerLoad } from './$types';
 
@@ -6,6 +7,8 @@ const PAGE_SIZE = 40;
 const EMPTY_SCOPE_COUNTS = {
 	all: 0,
 	critical: 0,
+	high: 0,
+	standard: 0,
 	defi: 0,
 	programs: 0,
 	idl: 0,
@@ -34,9 +37,11 @@ function isProgramEvent(event: EventItem) {
 function scopeCountsForItems(items: EventsResponse['items']): EventsResponse['scope_counts'] {
 	return items.reduce(
 		(counts, event) => {
-			counts.all += 1;
-			if (isCriticalEvent(event)) counts.critical += 1;
-			if (event.tags.includes('watch:defi')) counts.defi += 1;
+				counts.all += 1;
+				if (isCriticalEvent(event)) counts.critical += 1;
+				if (event.tags.includes('severity:high')) counts.high += 1;
+				if (event.tags.includes('severity:standard')) counts.standard += 1;
+				if (event.tags.includes('watch:defi')) counts.defi += 1;
 			if (isProgramEvent(event)) counts.programs += 1;
 			if (isIdlEvent(event)) counts.idl += 1;
 			if (event.target_type === 'multisig') counts.multisig += 1;
@@ -62,7 +67,7 @@ export const load = (async ({ fetch, url }) => {
 	const tag = url.searchParams.get('tag')?.trim() || '';
 
 	try {
-		const search = new URLSearchParams({ limit: String(PAGE_SIZE), offset: '0' });
+		const search = new URLSearchParams({ 'page[size]': String(PAGE_SIZE), 'page[offset]': '0' });
 		if (protocol) search.set('protocol', protocol);
 		if (target) search.set('target_address', target);
 		if (scope) search.set('scope', scope);
@@ -80,7 +85,7 @@ export const load = (async ({ fetch, url }) => {
 		summary = eventsPayload.summary;
 		totalCount = eventsPayload.total_count ?? eventsPayload.summary?.total_count ?? eventsPayload.items.length;
 		scopeCounts = eventsPayload.scope_counts ?? scopeCountsForItems(eventsPayload.items);
-		nextOffset = eventsPayload.next_offset;
+		nextOffset = nextPageOffset(eventsPayload.links);
 	} catch (error) {
 		eventsBackendError = error instanceof Error ? error.message : 'Unknown backend error';
 	}

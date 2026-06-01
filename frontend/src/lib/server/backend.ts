@@ -6,6 +6,7 @@ import type {
 	LiveStatusResponse,
 	TelegramSubscriptionSummaryResponse
 } from '$lib/types';
+import { customPlanPricing, type CustomPlanPricing } from '$lib/server/custom-plan-pricing';
 
 export const DEFAULT_BACKEND_ORIGIN_URL = 'http://127.0.0.1:8080';
 export const DEFAULT_PUBLIC_BACKEND_BASE_URL = '/api/backend';
@@ -27,6 +28,7 @@ export interface AppShellLoadData {
 	trackedProgramCount: number;
 	idlTrackedProgramCount: number;
 	deepDecodeProtocolCount: number;
+	customPlanPricing: CustomPlanPricing;
 }
 
 type TimedCache<T> = {
@@ -69,7 +71,7 @@ export function backendUrl(path: string) {
 
 export function backendOriginHeaders(headers?: HeadersInit) {
 	const nextHeaders = new Headers(headers);
-	const originToken = privateEnv.BACKEND_ORIGIN_TOKEN;
+	const originToken = privateEnv.BACKEND_ORIGIN_TOKEN || privateEnv.ORIGIN_API_TOKEN;
 	if (originToken) {
 		nextHeaders.set('x-firewatch-origin-token', originToken);
 	}
@@ -241,7 +243,8 @@ export async function loadAppShell(fetch: typeof globalThis.fetch): Promise<AppS
 				count + protocol.programs.filter((program) => program.idl_metadata_address.length > 0).length,
 			0
 		),
-		deepDecodeProtocolCount: defiProtocols.filter((protocol) => protocol.coverage === 'deep_decode').length
+		deepDecodeProtocolCount: defiProtocols.filter((protocol) => protocol.coverage === 'deep_decode').length,
+		customPlanPricing: customPlanPricing()
 	};
 }
 

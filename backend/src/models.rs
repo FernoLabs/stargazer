@@ -132,9 +132,30 @@ pub struct EventsSummary {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ApiLinks {
+    #[serde(rename = "self")]
+    pub self_link: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prev: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CollectionMeta {
+    pub total: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_size: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_offset: Option<i64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EventScopeCounts {
     pub all: i64,
     pub critical: i64,
+    pub high: i64,
+    pub standard: i64,
     pub defi: i64,
     pub programs: i64,
     pub idl: i64,
@@ -147,7 +168,19 @@ pub struct EventsResponse {
     pub summary: EventsSummary,
     pub total_count: i64,
     pub scope_counts: EventScopeCounts,
-    pub next_offset: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub links: Option<ApiLinks>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<CollectionMeta>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProtocolActivitySummary {
+    pub slug: String,
+    pub total: i64,
+    pub critical: i64,
+    pub high: i64,
+    pub standard: i64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -444,8 +477,20 @@ pub struct DefiProtocolDescriptor {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DefiProtocolsIncluded {
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub activity_summaries: Vec<ProtocolActivitySummary>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DefiProtocolsResponse {
     pub items: Vec<DefiProtocolDescriptor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub included: Option<DefiProtocolsIncluded>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub links: Option<ApiLinks>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<CollectionMeta>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

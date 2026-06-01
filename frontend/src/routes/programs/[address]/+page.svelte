@@ -1,12 +1,12 @@
 <script lang="ts">
+	import { nextPageOffset } from '$lib/api-pagination';
 	import { explorerAddressUrl, explorerIdlUrl, explorerTransactionUrl } from '$lib/explorer';
 	import { protocolPageHref } from '$lib/catalog';
-	import { watchProgramCommand } from '$lib/bot-commands';
 	import ActivityEventRow from '$lib/components/ActivityEventRow.svelte';
 	import ProtocolIdentity from '$lib/components/ProtocolIdentity.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
-	import { formatTimestamp, shortAddress } from '$lib/format';
-	import { programCriticalHref, programRiskSummary } from '$lib/risk';
+	import { formatMetricValue, formatTimestamp, readableInstructionName, shortAddress } from '$lib/format';
+	import { eventDetailHref } from '$lib/event-preview';
 	import type {
 		ChainEvent,
 		EventsResponse,
@@ -20,7 +20,14 @@
 	let nextOffsetOverride = $state<number | null | undefined>(undefined);
 	let loadingMore = $state(false);
 	let loadMoreError = $state<string | null>(null);
-	let copiedState = $state<'idle' | 'copied' | 'error'>('idle');
+
+	type InstructionFlagRow = {
+		name: string;
+		admin: boolean;
+		highImpact: boolean;
+		loadedEvents: number;
+		metricEvents: number;
+	};
 
 	function allEvents() {
 		if (appendedEvents.length === 0) return data.events;
@@ -32,26 +39,15 @@
 		return nextOffsetOverride === undefined ? data.nextOffset : nextOffsetOverride;
 	}
 
-	function command() {
-		return watchProgramCommand(data.program.program_id);
-	}
-
 	function protocolHref() {
 		return data.catalogedProgram ? protocolPageHref(data.protocol.slug) : null;
 	}
 
 	function programLede() {
 		if (data.catalogedProgram) {
-			return 'A single watched address for upgrades, IDL changes, admin paths, signer history, and uncommon instruction review.';
+			return 'Program-specific loader history, IDL state, flagged instructions, value rules, and signer activity.';
 		}
-		return 'A watched program address with loader-uploaded versions, upgrade activity, signer history, and raw byte downloads.';
-	}
-
-	function programDetailsDescription() {
-		if (data.program.idl_metadata_address || data.program.anchor_legacy_idl_address) {
-			return 'Explorer links for this program and its on-chain IDL accounts.';
-		}
-		return 'Explorer links for this exact program address.';
+		return 'A watched program address with loader-uploaded versions, raw byte downloads, and indexed activity.';
 	}
 
 	function formatByteCount(value: number | null) {
@@ -86,6 +82,142 @@
 
 	function diffableVersionCount() {
 		return data.versions.filter(canCompareVersion).length;
+	}
+
+	function formatCount(value: number | null | undefined) {
+		return new Intl.NumberFormat('en-US').format(value ?? 0);
+	}
+
+	function latestVersion() {
+		if (data.versions.length === 0) return null;
+		return data.versions.reduce((latest, version) => (version.slot > latest.slot ? version : latest));
+	}
+
+	function latestIdlVersion() {
+		if (data.idlVersions.length === 0) return null;
+		return data.idlVersions.reduce((latest, version) => (version.slot > latest.slot ? version : latest));
+	}
+
+	function latestUpdateSlotLabel() {
+		const version = latestVersion();
+		return version ? formatCount(version.slot) : 'None';
+	}
+
+	function latestUpdateDescription() {
+		const version = latestVersion();
+		if (!version) return 'No loader upload has been extracted for this address yet.';
+		return `${versionLabel(version)} at ${formatTimestamp(version.block_time)}.`;
+	}
+
+	function idlAccountLinks() {
+		const links: Array<{ label: string; address: string; href: string }> = [];
+		if (data.program.idl_metadata_address) {
+			links.push({
+				label: 'Program Metadata IDL',
+				address: data.program.idl_metadata_address,
+				href: explorerIdlUrl(data.program.program_id, data.explorerCluster)
+			});
+		}
+		if (data.program.anchor_legacy_idl_address) {
+			links.push({
+				label: 'Anchor legacy IDL',
+				address: data.program.anchor_legacy_idl_address,
+				href: explorerAddressUrl(data.program.anchor_legacy_idl_address, data.explorerCluster)
+			});
+		}
+		return links;
+	}
+
+	function idlStateDescription() {
+		if (data.idlVersions.length > 0) {
+			return `${data.idlVersions.length} extracted IDL version${data.idlVersions.length === 1 ? '' : 's'} available.`;
+		}
+		if (idlAccountLinks().length > 0) {
+			return 'IDL accounts are known, but no extracted IDL payload is available yet.';
+		}
+		if (data.protocol.catalog_instruction_count > 0) {
+			return 'No IDL account is known; FireWatch uses its cataloged instruction map as a partial view.';
+		}
+		return 'No IDL account or cataloged instruction map is available for this program yet.';
+	}
+
+	function eventPayloadString(event: ChainEvent, key: string) {
+		const value = event.payload[key];
+		return typeof value === 'string' && value.length > 0 ? value : null;
+	}
+
+	function eventPayloadNumber(event: ChainEvent, key: string) {
+		const value = event.payload[key];
+		return typeof value === 'number' ? value : null;
+	}
+
+	function instructionEvents(instruction: string) {
+		return allEvents().filter((event) => eventPayloadString(event, 'instruction_name') === instruction);
+	}
+
+	function metricAlertEvents() {
+		return allEvents().filter(
+			(event) => event.kind === 'program_metric_alert' || event.tags.includes('signal:metric_anomaly')
+		);
+	}
+
+	function unknownInstructionEvents() {
+		return allEvents().filter((event) => event.tags.includes('signal:unknown_instruction'));
+	}
+
+	function instructionFlagRows(): InstructionFlagRow[] {
+		const names = new Set([
+			...data.protocol.admin_instruction_filters,
+			...data.protocol.high_impact_instruction_filters
+		]);
+
+		return [...names]
+			.map((name) => {
+				const events = instructionEvents(name);
+				return {
+					name,
+					admin: data.protocol.admin_instruction_filters.includes(name),
+					highImpact: data.protocol.high_impact_instruction_filters.includes(name),
+					loadedEvents: events.length,
+					metricEvents: events.filter(
+						(event) =>
+							event.kind === 'program_metric_alert' || event.tags.includes('signal:metric_anomaly')
+					).length
+				};
+			})
+			.sort((left, right) => {
+				if (left.highImpact !== right.highImpact) return left.highImpact ? -1 : 1;
+				if (left.admin !== right.admin) return left.admin ? -1 : 1;
+				return left.name.localeCompare(right.name);
+			});
+	}
+
+	function instructionMapDescription() {
+		const rows = instructionFlagRows().length;
+		const unknownCopy = data.protocol.unknown_alerts
+			? ' Unknown discriminators are treated as critical until reviewed.'
+			: '';
+		if (rows > 0) {
+			return `${rows} cataloged admin or high-impact instruction${rows === 1 ? '' : 's'} for this protocol.${unknownCopy}`;
+		}
+		return `No cataloged admin instruction map is attached to this program yet.${unknownCopy}`;
+	}
+
+	function metricEventTitle(event: ChainEvent) {
+		const instruction = eventPayloadString(event, 'instruction_name');
+		const metricLabel = eventPayloadString(event, 'metric_label');
+		if (instruction && metricLabel) {
+			return `${readableInstructionName(instruction)} · ${metricLabel}`;
+		}
+		return event.summary;
+	}
+
+	function metricEventValue(event: ChainEvent) {
+		const metricValue = eventPayloadNumber(event, 'metric_value');
+		if (metricValue === null) return null;
+		const previous = eventPayloadNumber(event, 'previous_metric_value');
+		if (previous === null) return formatMetricValue(metricValue);
+		return `${formatMetricValue(previous)} -> ${formatMetricValue(metricValue)}`;
 	}
 
 	function versionBytesUrl(version: ProgramVersionRecord, side: 'before' | 'after') {
@@ -137,34 +269,20 @@
 	}
 
 	function stats() {
-		const risk = programRiskSummary(data.program);
 		const items = [
 			{ label: 'Program', value: shortAddress(data.program.program_id) },
-			{ label: 'Loaded', value: String(allEvents().length) }
+			{ label: 'Versions', value: formatCount(data.versions.length) },
+			{ label: 'Last update slot', value: latestUpdateSlotLabel() },
+			{ label: 'IDL versions', value: formatCount(data.idlVersions.length) },
+			{ label: 'Known instructions', value: formatCount(data.protocol.catalog_instruction_count) },
+			{ label: 'Diffs', value: `${diffableVersionCount()}` },
+			{ label: 'Loaded events', value: formatCount(allEvents().length) }
 		];
 
 		if (!data.catalogedProgram) {
 			return [{ label: 'Catalog', value: 'Raw address' }, ...items];
 		}
-
-		return [
-			...items.slice(0, 1),
-			{ label: 'Rug check', value: risk.grade },
-			{ label: 'Score', value: `${risk.score}` },
-			{ label: 'Critical', value: `${risk.critical_total}` },
-			{ label: 'Unreviewed', value: `${risk.unreviewed_critical}` },
-			{ label: 'Reviewed', value: `${risk.reviewed_critical}` },
-			...items.slice(1)
-		];
-	}
-
-	async function copyText(text: string) {
-		try {
-			await navigator.clipboard.writeText(text);
-			copiedState = 'copied';
-		} catch {
-			copiedState = 'error';
-		}
+		return items;
 	}
 
 	async function loadMore() {
@@ -176,8 +294,8 @@
 
 		try {
 			const search = new URLSearchParams({
-				limit: '120',
-				offset: String(offset),
+				'page[size]': '120',
+				'page[offset]': String(offset),
 				target_address: data.program.program_id,
 				scope: 'programs'
 			});
@@ -188,7 +306,7 @@
 			const payload = (await response.json()) as EventsResponse;
 			const seenIds = new Set(allEvents().map((event) => event.id));
 			appendedEvents = [...appendedEvents, ...payload.items.filter((event) => !seenIds.has(event.id))];
-			nextOffsetOverride = payload.next_offset;
+			nextOffsetOverride = nextPageOffset(payload.links);
 		} catch (error) {
 			loadMoreError = error instanceof Error ? error.message : 'Unknown backend error';
 		} finally {
@@ -203,35 +321,37 @@
 
 <div class="page-shell">
 	<section class="panel page-top">
-			<div class="title-row">
-				<ProtocolIdentity
-					slug={data.protocol.slug}
-					label={data.protocol.name}
-					href={protocolHref()}
-				/>
-				<div class="title-copy">
-					<h1>{data.program.label}</h1>
-					<p class="lede">{programLede()}</p>
-				</div>
+		<div class="title-row">
+			<ProtocolIdentity
+				slug={data.protocol.slug}
+				label={data.protocol.name}
+				href={protocolHref()}
+			/>
+			<div class="title-copy">
+				<h1>{data.program.label}</h1>
+				<p class="lede">{programLede()}</p>
+			</div>
 		</div>
 
 		<div class="page-actions">
 			<a class="secondary-link" href="/programs">All programs</a>
 			<a class="primary-link" href={`/events?target=${data.program.program_id}&scope=programs`}>Program activity</a>
-			<a class="secondary-link" href={programCriticalHref(data.program.program_id)}>Critical review</a>
+			<a class="secondary-link" href={explorerAddressUrl(data.program.program_id, data.explorerCluster)} rel="noreferrer" target="_blank">
+				Explorer
+			</a>
 			{#if data.catalogedProgram}
 				<a class="secondary-link" href={protocolPageHref(data.protocol.slug)}>Back to protocol</a>
 			{/if}
 		</div>
 
-			<div class="stats-strip">
-				{#each stats() as stat}
-					<span class="stat-item">
-						<strong>{stat.value}</strong>
-						{stat.label}
-					</span>
-				{/each}
-			</div>
+		<div class="stats-strip">
+			{#each stats() as stat (stat.label)}
+				<span class="stat-item">
+					<strong>{stat.value}</strong>
+					{stat.label}
+				</span>
+			{/each}
+		</div>
 
 		{#if data.programEventsError}
 			<p class="flash error">Activity unavailable: {data.programEventsError}</p>
@@ -240,51 +360,50 @@
 
 	<section class="overview-grid">
 		<article class="panel">
-			<SectionHeader
-				title="Custom Plan draft"
-				description="Use this when a Custom Plan user or eligible member wants to track only this program."
-				compact
-			/>
-
-			<div class="command-row">
-				<div class="command-copy">
-					<strong>{data.program.label}</strong>
-					<code>{shortAddress(data.program.program_id)}</code>
-					<code class="command-code">{command()}</code>
-				</div>
-				<button class="ghost-button" type="button" onclick={() => copyText(command())}>Copy draft</button>
-			</div>
-
-			{#if copiedState === 'copied'}
-				<p class="flash success">Setup draft copied.</p>
-			{:else if copiedState === 'error'}
-				<p class="flash error">Clipboard access failed. Copy the command manually.</p>
-			{/if}
-		</article>
-
-		<article class="panel">
-			<SectionHeader
-				title="Program details"
-				description={programDetailsDescription()}
-				compact
-			/>
+			<SectionHeader title="Program state" description={latestUpdateDescription()} compact />
 
 			<div class="surface-list">
 				<a class="surface-link" href={explorerAddressUrl(data.program.program_id, data.explorerCluster)} rel="noreferrer" target="_blank">
-					<strong>Program</strong>
+					<strong>Program address</strong>
 					<span>{shortAddress(data.program.program_id)}</span>
 				</a>
-				{#if data.program.idl_metadata_address}
-					<a class="surface-link" href={explorerIdlUrl(data.program.program_id, data.explorerCluster)} rel="noreferrer" target="_blank">
-						<strong>Program Metadata IDL</strong>
-						<span>{shortAddress(data.program.idl_metadata_address)}</span>
-					</a>
+				<div class="surface-card">
+					<strong>Latest update slot</strong>
+					<span>{latestUpdateSlotLabel()}</span>
+				</div>
+				<div class="surface-card">
+					<strong>Extracted versions</strong>
+					<span>{formatCount(data.versions.length)}</span>
+				</div>
+				{#if latestVersion()}
+					{@const version = latestVersion()!}
+					<code>{shortDigest(version.program_sha256)}</code>
 				{/if}
-				{#if data.program.anchor_legacy_idl_address}
-					<a class="surface-link" href={explorerAddressUrl(data.program.anchor_legacy_idl_address, data.explorerCluster)} rel="noreferrer" target="_blank">
-						<strong>Anchor legacy IDL</strong>
-						<span>{shortAddress(data.program.anchor_legacy_idl_address)}</span>
+			</div>
+		</article>
+
+		<article class="panel">
+			<SectionHeader title="IDL surface" description={idlStateDescription()} compact />
+
+			<div class="surface-list">
+				{#if idlAccountLinks().length === 0 && !latestIdlVersion()}
+					<p class="empty-state">No IDL account is cataloged for this program.</p>
+				{/if}
+
+				{#each idlAccountLinks() as link (link.address)}
+					<a class="surface-link" href={link.href} rel="noreferrer" target="_blank">
+						<strong>{link.label}</strong>
+						<span>{shortAddress(link.address)}</span>
 					</a>
+				{/each}
+
+				{#if latestIdlVersion()}
+					{@const version = latestIdlVersion()!}
+					<div class="surface-card">
+						<strong>Latest extracted IDL</strong>
+						<span>slot {formatCount(version.slot)}</span>
+						<code>{shortDigest(version.idl_sha256)}</code>
+					</div>
 				{/if}
 			</div>
 		</article>
@@ -302,7 +421,7 @@
 				<p class="empty-state">No Squads signer history for this program yet.</p>
 			{:else}
 				<div class="signer-list">
-					{#each data.signerStats as signer}
+					{#each data.signerStats as signer (signer.member)}
 						<div class="signer-row">
 							<div class="signer-copy">
 								<strong>{signer.member_label ?? shortAddress(signer.member)}</strong>
@@ -319,6 +438,105 @@
 		</article>
 	</section>
 
+	<section class="panel instruction-panel">
+		<SectionHeader
+			title="Instruction monitoring"
+			description={instructionMapDescription()}
+			compact
+		/>
+
+		<div class="instruction-grid">
+			<article class="instruction-block">
+				<div class="instruction-head">
+					<h2>Admin and critical flags</h2>
+					<p>Cataloged instructions that FireWatch treats as privileged or high-impact.</p>
+				</div>
+
+				{#if instructionFlagRows().length === 0 && !data.protocol.unknown_alerts}
+					<p class="empty-state">No admin or critical instruction flags are cataloged yet.</p>
+				{:else}
+					<div class="instruction-list">
+						{#each instructionFlagRows() as row (row.name)}
+							<div class="instruction-row">
+								<div class="instruction-copy">
+									<strong>{readableInstructionName(row.name)}</strong>
+									<code>{row.name}</code>
+								</div>
+								<div class="instruction-tags">
+									{#if row.highImpact}
+										<span class="flag critical">High impact</span>
+									{/if}
+									{#if row.admin}
+										<span class="flag">Admin</span>
+									{/if}
+									{#if row.loadedEvents > 0}
+										<span>{row.loadedEvents} loaded</span>
+									{/if}
+									{#if row.metricEvents > 0}
+										<span>{row.metricEvents} metric</span>
+									{/if}
+								</div>
+							</div>
+						{/each}
+						{#if data.protocol.unknown_alerts}
+							<div class="instruction-row">
+								<div class="instruction-copy">
+									<strong>Unknown discriminator</strong>
+									<code>not in current catalog or IDL</code>
+								</div>
+								<div class="instruction-tags">
+									<span class="flag critical">Critical</span>
+									{#if unknownInstructionEvents().length > 0}
+										<span>{unknownInstructionEvents().length} loaded</span>
+									{/if}
+								</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</article>
+
+			<article class="instruction-block">
+				<div class="instruction-head">
+					<h2>Amount and value rules</h2>
+					<p>Rules that only alert when a decoded value crosses an abnormal threshold.</p>
+				</div>
+
+				{#if data.protocol.amount_triggers.length === 0 && metricAlertEvents().length === 0}
+					<p class="empty-state">No amount or value rules are cataloged for this protocol yet.</p>
+				{:else}
+					<div class="instruction-list">
+						{#each data.protocol.amount_triggers as trigger (`${trigger.label}:${trigger.description}`)}
+							<div class="instruction-row">
+								<div class="instruction-copy">
+									<strong>{trigger.label}</strong>
+									<p>{trigger.description}</p>
+								</div>
+								<div class="instruction-tags">
+									<span class="flag">Rule</span>
+								</div>
+							</div>
+						{/each}
+						{#each metricAlertEvents().slice(0, 4) as event (event.id)}
+							<a class="instruction-row event-link" href={eventDetailHref(event)}>
+								<div class="instruction-copy">
+									<strong>{metricEventTitle(event)}</strong>
+									<span>{event.summary}</span>
+								</div>
+								<div class="instruction-tags">
+									<span class="flag critical">Observed</span>
+									{#if metricEventValue(event)}
+										<span>{metricEventValue(event)}</span>
+									{/if}
+								</div>
+							</a>
+						{/each}
+					</div>
+				{/if}
+			</article>
+		</div>
+	</section>
+
 	<section class="panel">
 		<SectionHeader
 			title="Program versions"
@@ -332,7 +550,7 @@
 			<p class="empty-state">No extracted program versions for this address yet.</p>
 		{:else}
 			<div class="version-list">
-				{#each data.versions as version, index}
+				{#each data.versions as version, index (version.id)}
 					<div class="version-row">
 						<div class="version-main">
 							<div class="version-title">
@@ -389,73 +607,73 @@
 		{/if}
 	</section>
 
-	<section class="panel">
-		<SectionHeader
-			title="IDL versions"
-			description={`${data.idlVersions.length} on-chain IDL versions from Program Metadata and legacy Anchor storage.`}
-			compact
-		/>
+	{#if data.idlVersionsError || data.idlVersions.length > 0}
+		<section class="panel">
+			<SectionHeader
+				title="IDL versions"
+				description={`${data.idlVersions.length} on-chain IDL versions from Program Metadata and legacy Anchor storage.`}
+				compact
+			/>
 
-		{#if data.idlVersionsError}
-			<p class="flash error">IDL versions unavailable: {data.idlVersionsError}</p>
-		{:else if data.idlVersions.length === 0}
-			<p class="empty-state">No extracted on-chain IDL versions for this address yet.</p>
-		{:else}
-			<div class="version-list">
-				{#each data.idlVersions as version}
-					<div class="version-row">
-						<div class="version-main">
-							<div class="version-title">
-								<strong>{originLabel(version.origin)}</strong>
-								<span>slot {version.slot}</span>
-								<span>{formatTimestamp(version.block_time)}</span>
-								{#if programTimingLabel(version)}
-									<span>{programTimingLabel(version)}</span>
-								{/if}
-							</div>
-							<div class="version-meta">
-								<a
-									class="version-tx"
-									href={explorerTransactionUrl(version.signature, data.explorerCluster)}
-									rel="noreferrer"
-									target="_blank"
-								>
-									Tx {shortSignature(version.signature)}
-								</a>
-								<span>{version.kind.replace('program_idl_', '').replaceAll('_', ' ')}</span>
-								<span>{formatByteCount(version.idl_len)} bytes</span>
-								<span>{version.chunk_count} chunks</span>
-								<span>{version.compression ?? 'raw'}</span>
-							</div>
-							<code>{shortDigest(version.idl_sha256)}</code>
-						</div>
-						<div class="version-actions">
-							{#if version.complete}
-								{#if version.format === 'json'}
+			{#if data.idlVersionsError}
+				<p class="flash error">IDL versions unavailable: {data.idlVersionsError}</p>
+			{:else}
+				<div class="version-list">
+					{#each data.idlVersions as version (version.id)}
+						<div class="version-row">
+							<div class="version-main">
+								<div class="version-title">
+									<strong>{originLabel(version.origin)}</strong>
+									<span>slot {version.slot}</span>
+									<span>{formatTimestamp(version.block_time)}</span>
+									{#if programTimingLabel(version)}
+										<span>{programTimingLabel(version)}</span>
+									{/if}
+								</div>
+								<div class="version-meta">
 									<a
-										class="secondary-link compact-link"
-										href={idlTextUrl(version)}
-										download={idlDownloadName(version, 'json')}
+										class="version-tx"
+										href={explorerTransactionUrl(version.signature, data.explorerCluster)}
+										rel="noreferrer"
+										target="_blank"
 									>
-										JSON
+										Tx {shortSignature(version.signature)}
 									</a>
+									<span>{version.kind.replace('program_idl_', '').replaceAll('_', ' ')}</span>
+									<span>{formatByteCount(version.idl_len)} bytes</span>
+									<span>{version.chunk_count} chunks</span>
+									<span>{version.compression ?? 'raw'}</span>
+								</div>
+								<code>{shortDigest(version.idl_sha256)}</code>
+							</div>
+							<div class="version-actions">
+								{#if version.complete}
+									{#if version.format === 'json'}
+										<a
+											class="secondary-link compact-link"
+											href={idlTextUrl(version)}
+											download={idlDownloadName(version, 'json')}
+										>
+											JSON
+										</a>
+									{/if}
+									<a
+										class="primary-link compact-link"
+										href={idlBytesUrl(version)}
+										download={idlDownloadName(version, 'bin')}
+									>
+										Bytes
+									</a>
+								{:else}
+									<span class="version-state">Incomplete</span>
 								{/if}
-								<a
-									class="primary-link compact-link"
-									href={idlBytesUrl(version)}
-									download={idlDownloadName(version, 'bin')}
-								>
-									Bytes
-								</a>
-							{:else}
-								<span class="version-state">Incomplete</span>
-							{/if}
+							</div>
 						</div>
-					</div>
-				{/each}
-			</div>
-		{/if}
-	</section>
+					{/each}
+				</div>
+			{/if}
+		</section>
+	{/if}
 
 	<section class="panel">
 		<SectionHeader
@@ -470,7 +688,7 @@
 			<p class="empty-state">No recent events on this program yet.</p>
 		{:else}
 			<div class="event-list">
-				{#each allEvents() as event}
+				{#each allEvents() as event (event.id)}
 					<ActivityEventRow
 						{event}
 						explorerCluster={data.explorerCluster}
@@ -529,6 +747,7 @@
 	}
 
 	h1,
+	h2,
 	strong,
 	p {
 		margin: 0;
@@ -541,9 +760,17 @@
 		overflow-wrap: anywhere;
 	}
 
+	h2 {
+		font-size: 0.96rem;
+		line-height: 1.25;
+	}
+
 	.lede,
 	.empty-state,
 	.flash,
+	.instruction-head p,
+	.instruction-copy p,
+	.instruction-copy span,
 	.signer-row span {
 		color: #5f6c79;
 	}
@@ -595,9 +822,25 @@
 		gap: 0.76rem;
 	}
 
-	.command-row,
+	.instruction-panel,
+	.instruction-block,
+	.instruction-head,
+	.instruction-list,
+	.instruction-copy {
+		display: grid;
+		gap: 0.56rem;
+	}
+
+	.instruction-grid {
+		display: grid;
+		grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+		gap: 0.76rem;
+		align-items: start;
+	}
+
 	.signer-row,
-	.version-row {
+	.version-row,
+	.instruction-row {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) auto;
 		align-items: start;
@@ -608,7 +851,6 @@
 		border: 1px solid rgba(23, 32, 42, 0.08);
 	}
 
-	.command-copy,
 	.signer-copy,
 	.version-main {
 		display: grid;
@@ -670,7 +912,8 @@
 		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 	}
 
-	.surface-link {
+	.surface-link,
+	.surface-card {
 		display: grid;
 		gap: 0.18rem;
 		padding: 0.72rem 0.78rem;
@@ -680,17 +923,67 @@
 		text-decoration: none;
 	}
 
-	.surface-link strong {
+	.surface-card {
+		min-width: 0;
+	}
+
+	.surface-link strong,
+	.surface-card strong {
 		font-size: 0.72rem;
 		font-weight: 600;
 		color: #758492;
 	}
 
-	.surface-link span {
+	.surface-link span,
+	.surface-card span {
 		font-size: 0.84rem;
 		font-weight: 700;
 		color: #1d2730;
 		overflow-wrap: anywhere;
+	}
+
+	.instruction-head p,
+	.instruction-copy p,
+	.instruction-copy span {
+		font-size: 0.82rem;
+		line-height: 1.45;
+	}
+
+	.instruction-row {
+		text-decoration: none;
+		color: inherit;
+	}
+
+	.instruction-tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.32rem;
+		justify-content: flex-end;
+		color: #66737f;
+		font-size: 0.76rem;
+		font-weight: 700;
+	}
+
+	.flag {
+		display: inline-flex;
+		align-items: center;
+		min-height: 1.36rem;
+		padding: 0.08rem 0.38rem;
+		border-radius: 6px;
+		border: 1px solid rgba(23, 32, 42, 0.1);
+		background: #fff;
+		color: #556473;
+	}
+
+	.flag.critical {
+		border-color: rgba(156, 57, 41, 0.22);
+		background: rgba(191, 74, 57, 0.1);
+		color: #9c3929;
+	}
+
+	.event-link:hover strong {
+		text-decoration: underline;
+		text-underline-offset: 0.14em;
 	}
 
 	code {
@@ -698,10 +991,6 @@
 		font-size: 0.8rem;
 		color: #63707c;
 		overflow-wrap: anywhere;
-	}
-
-	.command-code {
-		color: #1c2832;
 	}
 
 	.signer-metrics {
@@ -712,8 +1001,7 @@
 	}
 
 	.primary-link,
-	.secondary-link,
-	.ghost-button {
+	.secondary-link {
 		display: inline-flex;
 		flex: 0 0 auto;
 		align-items: center;
@@ -736,8 +1024,7 @@
 		color: white;
 	}
 
-	.secondary-link,
-	.ghost-button {
+	.secondary-link {
 		background: #fff;
 		color: #556473;
 		border: 1px solid rgba(23, 32, 42, 0.12);
@@ -755,11 +1042,6 @@
 		font-weight: 600;
 	}
 
-	.flash.success {
-		background: rgba(61, 140, 99, 0.14);
-		color: #216d4d;
-	}
-
 	.flash.error {
 		background: rgba(191, 74, 57, 0.14);
 		color: #9c3929;
@@ -770,7 +1052,8 @@
 	}
 
 	@media (max-width: 980px) {
-		.overview-grid {
+		.overview-grid,
+		.instruction-grid {
 			grid-template-columns: 1fr;
 		}
 	}
@@ -785,10 +1068,14 @@
 			grid-template-columns: 1fr;
 		}
 
-		.command-row,
 		.signer-row,
-		.version-row {
+		.version-row,
+		.instruction-row {
 			grid-template-columns: 1fr;
+		}
+
+		.instruction-tags {
+			justify-content: flex-start;
 		}
 
 		.version-actions {

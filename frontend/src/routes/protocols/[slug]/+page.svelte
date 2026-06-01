@@ -1,39 +1,35 @@
 <script lang="ts">
 	import { explorerAddressUrl, explorerIdlUrl } from '$lib/explorer';
-	import {
-		joinCommandLines,
-		watchMultisigCommand,
-		watchProgramCommand,
-		watchProtocolCommand
-	} from '$lib/bot-commands';
-	import { programPageHref, protocolPageHref, syntheticSquadsDescriptor } from '$lib/catalog';
+	import { nextPageOffset } from '$lib/api-pagination';
+	import { programPageHref, protocolActivityPageHref, syntheticSquadsDescriptor } from '$lib/catalog';
 	import ActivityEventRow from '$lib/components/ActivityEventRow.svelte';
 	import ProtocolIdentity from '$lib/components/ProtocolIdentity.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import { shortAddress } from '$lib/format';
-	import { programCriticalHref, programRiskSummary, riskGradeTone } from '$lib/risk';
-	import type { ChainEvent, DefiProtocolDescriptor, EventsResponse } from '$lib/types';
+	import { programCriticalHref, programRiskSummary, projectRiskSummary } from '$lib/risk';
+	import type { ChainEvent, DefiProtocolDescriptor, EventsResponse, ProgramRiskSummary } from '$lib/types';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
 	let appendedEvents = $state<ChainEvent[]>([]);
 	let nextOffsetOverride = $state<number | null | undefined>(undefined);
 	let loadingMore = $state(false);
 	let loadMoreError = $state<string | null>(null);
-	let copiedState = $state<'idle' | 'copied' | 'error'>('idle');
 
-	type WatchTarget = {
-		key: string;
-		label: string;
-		address: string | null;
-		command: string;
-		kind: 'project' | 'program' | 'multisig';
-		reason: string;
-		context: string;
+	type ProtocolRiskRow = {
+		program: DefiProtocolDescriptor['programs'][number];
+		risk: ProgramRiskSummary;
 	};
+
+	type ProjectRiskSnapshot = ProgramRiskSummary & { programs: number };
 
 	function protocol() {
 		return data.protocol as DefiProtocolDescriptor | null;
+	}
+
+	function formatCount(value: number | null | undefined) {
+		return new Intl.NumberFormat('en-US').format(value ?? 0);
 	}
 
 	function catalogProtocols() {
@@ -72,132 +68,50 @@
 		return [...addresses];
 	}
 
-	function coverageReason() {
-		const coverage = protocol()?.coverage;
-		if (coverage === 'deep_decode') {
-			return 'Upgrades, IDL changes, admin instructions, and unknown review on this program.';
-		}
-		if (coverage === 'admin_signals') {
-			return 'Upgrades, IDL changes, and high-impact admin signals on this program.';
-		}
-		return 'Upgrades and FireWatch-known address activity on this program.';
+	function programSurfaceRows(): ProtocolRiskRow[] {
+		return (protocol()?.programs ?? [])
+			.map((program) => ({ program, risk: programRiskSummary(program) }))
+			.sort((left, right) => {
+				if (left.risk.unreviewed_critical !== right.risk.unreviewed_critical) {
+					return right.risk.unreviewed_critical - left.risk.unreviewed_critical;
+				}
+				if (left.risk.critical_total !== right.risk.critical_total) {
+					return right.risk.critical_total - left.risk.critical_total;
+				}
+				return left.program.label.localeCompare(right.program.label);
+			});
 	}
 
-	function multisigEvidence(events: ChainEvent[]) {
-		const hasExecution = events.some((event) =>
-			['multisig_vault_executed', 'multisig_config_executed'].includes(event.kind)
-		);
-		const hasApproval = events.some((event) => event.kind === 'multisig_proposal_approved');
-		const hasActivation = events.some((event) => event.kind === 'multisig_proposal_activated');
-		const hasRejection = events.some((event) =>
-			['multisig_proposal_rejected', 'multisig_proposal_cancelled'].includes(event.kind)
-		);
-
-		if (hasExecution && hasApproval) return 'Seen approving and executing protocol changes.';
-		if (hasExecution) return 'Seen executing protocol changes.';
-		if (hasApproval && hasActivation) return 'Seen creating and approving proposals.';
-		if (hasApproval) return 'Seen approving protocol proposals.';
-		if (hasActivation) return 'Seen creating protocol proposals.';
-		if (hasRejection) return 'Seen handling proposal outcomes.';
-		return 'Seen in governance activity linked to this protocol.';
-	}
-
-	function watchTargets(): WatchTarget[] {
+	function protocolRiskSnapshot(): ProjectRiskSnapshot {
 		const currentProtocol = protocol();
-		if (!currentProtocol) return [];
-
-		const projectTargets = [
-			{
-				key: `project:${currentProtocol.slug}`,
-				label: currentProtocol.name,
-				address: currentProtocol.slug,
-				command: watchProtocolCommand(currentProtocol.slug),
-				kind: 'project' as const,
-				reason: projectWatchReason(currentProtocol),
-				context: 'Protocol rule'
-			}
-		];
-
-		const programTargets = currentProtocol.programs.map((program) => ({
-			key: `program:${program.program_id}`,
-			label: program.label,
-			address: program.program_id,
-			command: watchProgramCommand(program.program_id),
-			kind: 'program' as const,
-			reason: coverageReason(),
-			context: 'Program'
-		}));
-
-		const groupedMultisigs = new Map<string, ChainEvent[]>();
-		for (const event of allEvents()) {
-			const addresses = new Set<string>();
-			if (event.target_type === 'multisig') {
-				addresses.add(event.target_address);
-			}
-			const payloadMultisig = payloadString(event, 'multisig');
-			if (payloadMultisig) {
-				addresses.add(payloadMultisig);
-			}
-
-			for (const address of addresses) {
-				const events = groupedMultisigs.get(address) ?? [];
-				events.push(event);
-				groupedMultisigs.set(address, events);
-			}
-		}
-
-		const multisigTargets = [...groupedMultisigs.entries()]
-			.sort((left, right) => right[1].length - left[1].length)
-			.map(([address, events]) => ({
-				key: `multisig:${address}`,
-				label: shortAddress(address),
-				address,
-				command: watchMultisigCommand(address),
-				kind: 'multisig' as const,
-				reason: multisigEvidence(events),
-				context: `${events.length} governance event${events.length === 1 ? '' : 's'}`
-			}));
-
-		return [...projectTargets, ...programTargets, ...multisigTargets];
-	}
-
-	function projectWatchReason(currentProtocol: DefiProtocolDescriptor) {
-		const parts = [];
-		if (currentProtocol.programs.length > 0) {
-			parts.push(`${currentProtocol.programs.length} program${currentProtocol.programs.length === 1 ? '' : 's'}`);
-		}
-		if (currentProtocol.sol_domains.length > 0) {
-			parts.push(`${currentProtocol.sol_domains.length} SNS domain${currentProtocol.sol_domains.length === 1 ? '' : 's'}`);
-		}
-		if (currentProtocol.amount_triggers.length > 0) {
-			parts.push(`${currentProtocol.amount_triggers.length} amount trigger${currentProtocol.amount_triggers.length === 1 ? '' : 's'}`);
-		}
-		if (parts.length === 0) return 'Tracks this protocol under one protocol rule.';
-		return `Tracks ${parts.join(' and ')} under one protocol rule.`;
-	}
-
-	function commandBlock() {
-		return joinCommandLines(watchTargets().map((item) => item.command));
+		return {
+			...projectRiskSummary(currentProtocol),
+			programs: currentProtocol?.programs.length ?? 0
+		};
 	}
 
 	function stats() {
 		const current = protocol();
+		const snapshot = protocolRiskSnapshot();
 		return [
-			{ label: 'Programs', value: String(current?.programs.length ?? 0) },
-			{ label: 'SNS', value: String(current?.sol_domains.length ?? 0) },
-			{ label: 'Triggers', value: String(current?.amount_triggers.length ?? 0) },
-			{ label: 'Multisigs', value: String(protocolMultisigs().length) },
-			{ label: 'Loaded', value: String(allEvents().length) }
+			{ label: 'Project grade', value: snapshot.grade },
+			{ label: 'Project score', value: formatCount(snapshot.score) },
+			{ label: 'Activity events', value: formatCount(data.protocolEventTotalCount) },
+			{ label: 'Critical alerts', value: formatCount(data.protocolAlertCounts.critical) },
+			{ label: 'High alerts', value: formatCount(data.protocolAlertCounts.high) },
+			{ label: 'Tracked programs', value: formatCount(current?.programs.length ?? 0) },
+			{ label: 'Related multisigs', value: formatCount(protocolMultisigs().length) }
 		];
 	}
 
-	async function copyText(text: string) {
-		try {
-			await navigator.clipboard.writeText(text);
-			copiedState = 'copied';
-		} catch {
-			copiedState = 'error';
-		}
+	function trackedSurfaceStats() {
+		const current = protocol();
+		return [
+			{ label: 'Programs', value: formatCount(current?.programs.length ?? 0) },
+			{ label: '.sol domains', value: formatCount(current?.sol_domains.length ?? 0) },
+			{ label: 'Amount rules', value: formatCount(current?.amount_triggers.length ?? 0) },
+			{ label: 'Related multisigs', value: formatCount(protocolMultisigs().length) }
+		];
 	}
 
 	async function loadMore() {
@@ -208,7 +122,7 @@
 		loadMoreError = null;
 
 		try {
-			const search = new URLSearchParams({ limit: '120', offset: String(offset) });
+			const search = new URLSearchParams({ 'page[size]': '40', 'page[offset]': String(offset) });
 			if (protocol()) {
 				search.set('protocol', protocol()!.slug);
 				search.set('include_related_multisigs', 'true');
@@ -220,7 +134,7 @@
 			const payload = (await response.json()) as EventsResponse;
 			const seenIds = new Set(allEvents().map((event) => event.id));
 			appendedEvents = [...appendedEvents, ...payload.items.filter((event) => !seenIds.has(event.id))];
-			nextOffsetOverride = payload.next_offset;
+			nextOffsetOverride = nextPageOffset(payload.links);
 		} catch (error) {
 			loadMoreError = error instanceof Error ? error.message : 'Unknown backend error';
 		} finally {
@@ -235,158 +149,196 @@
 
 <div class="page-shell">
 	<section class="panel page-top">
-			<div class="title-row">
-				<ProtocolIdentity slug={protocol()?.slug ?? null} label={protocol()?.name ?? 'Protocol'} />
-				<div class="title-copy">
-					<h1>{protocol()?.name}</h1>
-					<p class="lede">Tracked SNS domains, programs, trigger rules, linked multisigs, and recent activity in one place.</p>
-				</div>
+		<div class="title-row">
+			<ProtocolIdentity slug={protocol()?.slug ?? null} label={protocol()?.name ?? 'Protocol'} />
+			<div class="title-copy">
+				<h1>{protocol()?.name}</h1>
+				<p class="lede">
+					Project-grade monitoring with per-program proof, tracked surfaces, and protocol activity.
+				</p>
+			</div>
 		</div>
 
 		<div class="page-actions">
-			<a class="primary-link" href={`/events?protocol=${protocol()?.slug}`}>Protocol activity</a>
-			<a class="secondary-link" href="/docs">Bot reference</a>
+			<a class="primary-link" href={protocolActivityPageHref(protocol()?.slug ?? '')}>Protocol activity</a>
 		</div>
 
-			<div class="stats-strip">
-				{#each stats() as stat}
-					<span class="stat-item">
-						<strong>{stat.value}</strong>
-						{stat.label}
-					</span>
-				{/each}
-			</div>
+		<div class="stats-strip">
+			{#each stats() as stat (stat.label)}
+				<span class="stat-item">
+					<strong>{stat.value}</strong>
+					{stat.label}
+				</span>
+			{/each}
+		</div>
 
 		{#if data.protocolEventsError}
 			<p class="flash error">Activity unavailable: {data.protocolEventsError}</p>
 		{/if}
 	</section>
 
-	<section class="overview-grid">
-		<article class="panel">
-			<SectionHeader
-				title="Watch targets"
-				description="Custom Plan drafts for one project, exact programs, or multisigs."
-				compact
-			/>
+	<section class="panel score-panel">
+		{#if protocol()}
+			{@const snapshot = protocolRiskSnapshot()}
+			<div class="score-head">
+				<div>
+					<h2>Protocol score overview</h2>
+					<p>Grade is assigned at the project level from tracked program proof and alert review state.</p>
+				</div>
+			</div>
 
-			<div class="command-list">
-				{#each watchTargets() as item}
-					<div class="command-row">
-						<div class="command-copy">
-							<div class="command-head">
-								<span class={`command-kind ${item.kind}`}>{item.context}</span>
-								<strong>{item.label}</strong>
-								{#if item.address}
-									<code>{item.kind === 'project' ? item.address : shortAddress(item.address)}</code>
-								{/if}
+			<div class="score-summary">
+				<div class={`grade-box grade-${snapshot.grade.toLowerCase()}`}>
+					<span>Grade</span>
+					<strong>{snapshot.grade}</strong>
+				</div>
+				<div class="score-copy">
+					<strong>Project score {snapshot.score}</strong>
+					<p>Across {formatCount(snapshot.programs)} tracked programs in this protocol.</p>
+					<div class="score-metrics">
+						<span>Critical <strong>{formatCount(snapshot.critical_total)}</strong></span>
+						<span>Unresolved <strong>{formatCount(snapshot.unreviewed_critical)}</strong></span>
+						<span>Reviewed <strong>{formatCount(snapshot.reviewed_critical)}</strong></span>
+					</div>
+				</div>
+			</div>
+		{/if}
+	</section>
+
+	<section class="panel tracked-panel">
+		<SectionHeader
+			title="Tracked surfaces"
+			description="Programs, .sol domains, amount rules, and related multisigs currently attached to this protocol."
+			compact
+		/>
+
+		<div class="surface-summary" aria-label="Tracked surface counts">
+			{#each trackedSurfaceStats() as item (item.label)}
+				<span>
+					<strong>{item.value}</strong>
+					{item.label}
+				</span>
+			{/each}
+		</div>
+
+		<div class="surface-list">
+			{#if programSurfaceRows().length > 0}
+				<div class="surface-group">
+					<div class="surface-group-head">
+						<h3>Programs</h3>
+						<p>Program accounts watched for upgrades, IDL changes, and score proof.</p>
+					</div>
+					{#each programSurfaceRows() as row (row.program.program_id)}
+						<div class="surface-row">
+							<div class="surface-copy">
+								<a class="surface-name" href={programPageHref(row.program.program_id)}>{row.program.label}</a>
+								<code>{shortAddress(row.program.program_id)}</code>
+								<div class="risk-strip compact">
+									<span>Critical <strong>{row.risk.critical_total}</strong></span>
+									<span>Unresolved <strong>{row.risk.unreviewed_critical}</strong></span>
+									<span>Reviewed <strong>{row.risk.reviewed_critical}</strong></span>
+								</div>
 							</div>
-							<p>{item.reason}</p>
-							<code class="command-code">{item.command}</code>
-						</div>
-						<button class="ghost-button" type="button" onclick={() => copyText(item.command)}>Copy draft</button>
-					</div>
-				{/each}
-			</div>
-
-			<div class="panel-actions">
-				<button class="secondary-link button-like" type="button" onclick={() => copyText(commandBlock())}>
-					Copy all drafts
-				</button>
-			</div>
-
-			{#if copiedState === 'copied'}
-				<p class="flash success">Setup draft copied.</p>
-			{:else if copiedState === 'error'}
-				<p class="flash error">Clipboard access failed. Copy the command manually.</p>
-			{/if}
-		</article>
-
-		<article class="panel">
-			<SectionHeader
-				title="Monitors"
-				description="Programs, SNS domains, and proposed amount triggers attached to this project."
-				compact
-			/>
-
-			<div class="surface-list">
-				{#each protocol()?.programs ?? [] as program}
-					{@const risk = programRiskSummary(program)}
-					<div class="surface-row">
-						<div class="surface-copy">
-							<a class="surface-name" href={programPageHref(program.program_id)}>{program.label}</a>
-							<code>{shortAddress(program.program_id)}</code>
-							<a class="risk-strip" href={programCriticalHref(program.program_id)}>
-								<span class={`risk-grade grade-${riskGradeTone(risk)}`}>Rug {risk.grade}</span>
-								<span>Score <strong>{risk.score}</strong></span>
-								<span>Critical <strong>{risk.critical_total}</strong></span>
-								<span>Unreviewed <strong>{risk.unreviewed_critical}</strong></span>
-								<span>Reviewed <strong>{risk.reviewed_critical}</strong></span>
-							</a>
-						</div>
-						<div class="surface-links">
-							<a href={explorerAddressUrl(program.program_id, data.explorerCluster)} rel="noreferrer" target="_blank">
-								Explorer
-							</a>
-							{#if program.idl_metadata_address}
-								<a href={explorerIdlUrl(program.program_id, data.explorerCluster)} rel="noreferrer" target="_blank">
-									IDL
+							<div class="surface-links">
+								<a href={programCriticalHref(row.program.program_id)}>Proof</a>
+								<a href={explorerAddressUrl(row.program.program_id, data.explorerCluster)} rel="noreferrer" target="_blank">
+									Explorer
 								</a>
-							{/if}
-							<a href={programPageHref(program.program_id)}>Open</a>
+								{#if row.program.idl_metadata_address}
+									<a href={explorerIdlUrl(row.program.program_id, data.explorerCluster)} rel="noreferrer" target="_blank">
+										IDL
+									</a>
+								{/if}
+								<a href={programPageHref(row.program.program_id)}>Open</a>
+							</div>
 						</div>
-					</div>
-				{/each}
-
-				{#each protocol()?.sol_domains ?? [] as domain}
-					<div class="surface-row">
-						<div class="surface-copy">
-							<span class="surface-name">{domain}</span>
-							<code>SNS root domain</code>
-						</div>
-						<div class="surface-links">
-							<a href={`/events?protocol=${protocol()?.slug}`}>Activity</a>
-						</div>
-					</div>
-				{/each}
-
-				{#each protocol()?.amount_triggers ?? [] as trigger}
-					<div class="surface-row">
-						<div class="surface-copy">
-							<span class="surface-name">{trigger.label}</span>
-							<p>{trigger.description}</p>
-						</div>
-						<div class="surface-links">
-							<span class="surface-tag">Amount trigger</span>
-						</div>
-					</div>
-				{/each}
-			</div>
-
-			{#if (protocol()?.programs.length ?? 0) === 0 && (protocol()?.sol_domains.length ?? 0) === 0 && (protocol()?.amount_triggers.length ?? 0) === 0}
-				<p class="inline-note">No monitors have been attached to this project yet.</p>
-			{:else if protocolMultisigs().length === 0}
-				<p class="inline-note">No related multisig has been identified in indexed history for this protocol yet.</p>
-			{:else}
-				<p class="inline-note">Related multisigs are listed in the watchable pubkeys panel with the reason FireWatch linked them to this protocol.</p>
+					{/each}
+				</div>
 			{/if}
-		</article>
+
+			{#if (protocol()?.sol_domains.length ?? 0) > 0}
+				<div class="surface-group">
+					<div class="surface-group-head">
+						<h3>.sol domains</h3>
+						<p>SNS names attached to the protocol watch surface.</p>
+					</div>
+					{#each protocol()?.sol_domains ?? [] as domain (domain)}
+						<div class="surface-row">
+							<div class="surface-copy">
+								<span class="surface-name">{domain}</span>
+								<code>SNS root domain</code>
+							</div>
+							<div class="surface-links">
+								<a href={protocolActivityPageHref(protocol()?.slug ?? '')}>Activity</a>
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+
+			{#if (protocol()?.amount_triggers.length ?? 0) > 0}
+				<div class="surface-group">
+					<div class="surface-group-head">
+						<h3>Amount rules</h3>
+						<p>Value thresholds applied to decoded instructions and transfers.</p>
+					</div>
+					{#each protocol()?.amount_triggers ?? [] as trigger (`${trigger.label}:${trigger.description}`)}
+						<div class="surface-row">
+							<div class="surface-copy">
+								<span class="surface-name">{trigger.label}</span>
+								<p>{trigger.description}</p>
+							</div>
+							<div class="surface-links">
+								<span class="surface-tag">Amount trigger</span>
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+
+			{#if protocolMultisigs().length > 0}
+				<div class="surface-group">
+					<div class="surface-group-head">
+						<h3>Related multisigs</h3>
+						<p>Governance and signer accounts inferred from indexed protocol activity.</p>
+					</div>
+					{#each protocolMultisigs() as multisig (multisig)}
+						<div class="surface-row">
+							<div class="surface-copy">
+								<span class="surface-name">{shortAddress(multisig)}</span>
+								<code>{multisig}</code>
+							</div>
+							<div class="surface-links">
+								<a href={explorerAddressUrl(multisig, data.explorerCluster)} rel="noreferrer" target="_blank">
+									Explorer
+								</a>
+								<a href={protocolActivityPageHref(protocol()?.slug ?? '')}>Activity</a>
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</div>
+
+		{#if (protocol()?.programs.length ?? 0) === 0 && (protocol()?.sol_domains.length ?? 0) === 0 && (protocol()?.amount_triggers.length ?? 0) === 0 && protocolMultisigs().length === 0}
+			<p class="inline-note">No monitor surfaces are attached to this protocol yet.</p>
+		{/if}
 	</section>
 
 	<section class="panel">
 		<SectionHeader
-			title="Recent activity"
-			description={`${allEvents().length} recent domain, program, and multisig events in this protocol view.`}
-			href={`/events?protocol=${protocol()?.slug}`}
-			hrefLabel="Open full activity"
+			title="Protocol activity"
+			description={`Showing ${formatCount(allEvents().length)} of ${formatCount(data.protocolEventTotalCount)} domain, program, and multisig events for this protocol.`}
+			href={protocolActivityPageHref(protocol()?.slug ?? '')}
+			hrefLabel="Open filters"
 			compact
 		/>
 
 		{#if allEvents().length === 0}
-			<p class="empty-state">No recent events for this view yet.</p>
+			<p class="empty-state">No protocol events for this view yet.</p>
 		{:else}
 			<div class="event-list">
-				{#each allEvents() as event}
+				{#each allEvents() as event (event.id)}
 					<ActivityEventRow
 						{event}
 						explorerCluster={data.explorerCluster}
@@ -430,9 +382,10 @@
 	.page-top,
 	.title-row,
 	.title-copy,
-	.command-list,
 	.surface-list,
-	.event-list {
+	.event-list,
+	.score-panel,
+	.tracked-panel {
 		display: grid;
 		gap: 0.68rem;
 	}
@@ -444,6 +397,8 @@
 	}
 
 	h1,
+	h2,
+	h3,
 	strong,
 	p {
 		margin: 0;
@@ -456,11 +411,22 @@
 		overflow-wrap: anywhere;
 	}
 
+	h2 {
+		font-size: 1.06rem;
+		line-height: 1.2;
+	}
+
+	h3 {
+		font-size: 0.9rem;
+		line-height: 1.25;
+	}
+
 	.lede,
-	.command-copy p,
 	.inline-note,
 	.empty-state,
-	.flash {
+	.flash,
+	.score-head p,
+	.score-copy p {
 		color: #5f6c79;
 	}
 
@@ -470,10 +436,10 @@
 	}
 
 	.page-actions,
-	.stats-strip,
 	.surface-links,
 	.load-row,
-	.panel-actions {
+	.score-metrics,
+	.risk-strip {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.52rem;
@@ -507,13 +473,85 @@
 		overflow-wrap: anywhere;
 	}
 
-	.overview-grid {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 0.76rem;
+	.score-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: start;
+		gap: 0.8rem;
 	}
 
-	.command-row,
+	.score-summary {
+		display: grid;
+		grid-template-columns: minmax(130px, 0.25fr) minmax(0, 1fr);
+		gap: 0.8rem;
+		align-items: stretch;
+	}
+
+	.grade-box {
+		display: grid;
+		align-content: center;
+		gap: 0.08rem;
+		padding: 0.74rem;
+		border-radius: 8px;
+		background: rgba(61, 140, 99, 0.12);
+		color: #216d4d;
+		text-align: center;
+	}
+
+	.grade-box span {
+		font-size: 0.74rem;
+		font-weight: 700;
+	}
+
+	.grade-box strong {
+		font-size: 1.45rem;
+	}
+
+	.grade-box.grade-c,
+	.grade-box.grade-d {
+		background: rgba(179, 123, 36, 0.14);
+		color: #8a5e1e;
+	}
+
+	.grade-box.grade-f {
+		background: rgba(191, 74, 57, 0.14);
+		color: #9c3929;
+	}
+
+	.score-copy {
+		display: grid;
+		gap: 0.3rem;
+		align-content: center;
+	}
+
+	.score-metrics span {
+		font-size: 0.77rem;
+		font-weight: 700;
+		color: #5c6a77;
+	}
+
+	.score-metrics strong {
+		color: #17202a;
+		font-size: 0.79rem;
+	}
+
+	.surface-group {
+		display: grid;
+		gap: 0.42rem;
+	}
+
+	.surface-group-head {
+		display: grid;
+		gap: 0.12rem;
+		padding: 0.1rem 0.04rem;
+	}
+
+	.surface-group-head p {
+		color: #5f6c79;
+		font-size: 0.82rem;
+		line-height: 1.42;
+	}
+
 	.surface-row {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) auto;
@@ -525,42 +563,10 @@
 		border: 1px solid rgba(23, 32, 42, 0.08);
 	}
 
-	.command-copy,
-	.command-head,
 	.surface-copy {
 		display: grid;
 		gap: 0.18rem;
-	}
-
-	.command-copy {
 		min-width: 0;
-	}
-
-	.surface-copy {
-		min-width: 0;
-	}
-
-	.command-head {
-		gap: 0.14rem;
-	}
-
-	.command-kind {
-		display: inline-flex;
-		width: fit-content;
-		font-size: 0.72rem;
-		font-weight: 600;
-	}
-
-	.command-kind.program {
-		color: #bd4a17;
-	}
-
-	.command-kind.project {
-		color: #7b5b45;
-	}
-
-	.command-kind.multisig {
-		color: #50606f;
 	}
 
 	code {
@@ -570,28 +576,21 @@
 		overflow-wrap: anywhere;
 	}
 
-	.command-code {
-		color: #1c2832;
-	}
-
 	.surface-copy code {
 		font-size: 0.76rem;
 	}
 
 	.surface-copy p {
-		margin: 0;
 		color: #5f6c79;
 		font-size: 0.84rem;
 		line-height: 1.45;
 	}
 
 	.risk-strip {
-		display: flex;
-		flex-wrap: wrap;
 		gap: 0.34rem 0.48rem;
-		padding-top: 0.22rem;
 		color: #596775;
 		text-decoration: none;
+		align-items: center;
 	}
 
 	.risk-strip span {
@@ -604,22 +603,12 @@
 		font-size: 0.78rem;
 	}
 
-	.risk-grade {
-		color: #216d4d;
-	}
-
-	.risk-grade.grade-c,
-	.risk-grade.grade-d {
-		color: #8a5e1e;
-	}
-
-	.risk-grade.grade-f {
-		color: #9c3929;
+	.risk-strip.compact {
+		padding-top: 0.18rem;
 	}
 
 	.surface-name,
-	.surface-links a,
-	.text-link {
+	.surface-links a {
 		text-decoration: underline;
 		text-underline-offset: 0.12em;
 	}
@@ -649,8 +638,7 @@
 	}
 
 	.primary-link,
-	.secondary-link,
-	.ghost-button {
+	.button-like {
 		display: inline-flex;
 		flex: 0 0 auto;
 		align-items: center;
@@ -668,16 +656,33 @@
 		color: white;
 	}
 
-	.secondary-link,
-	.ghost-button {
-		background: #fff;
-		color: #556473;
-		border: 1px solid rgba(23, 32, 42, 0.12);
+	.button-like {
 		cursor: pointer;
 	}
 
-	.button-like {
-		cursor: pointer;
+	.surface-summary {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 1px;
+		overflow: hidden;
+		border-radius: 8px;
+		background: var(--fw-border);
+	}
+
+	.surface-summary span {
+		display: grid;
+		gap: 0.06rem;
+		min-width: 0;
+		padding: 0.58rem 0.64rem;
+		background: var(--fw-panel-soft);
+		color: #62707d;
+		font-size: 0.76rem;
+		font-weight: 700;
+	}
+
+	.surface-summary strong {
+		color: #17202a;
+		font-size: 0.9rem;
 	}
 
 	.inline-note {
@@ -708,8 +713,9 @@
 		align-items: center;
 	}
 
-	@media (max-width: 920px) {
-		.overview-grid {
+	@media (max-width: 980px) {
+		.score-summary,
+		.surface-summary {
 			grid-template-columns: 1fr;
 		}
 	}
@@ -724,9 +730,12 @@
 			grid-template-columns: 1fr;
 		}
 
-		.command-row,
 		.surface-row {
 			grid-template-columns: 1fr;
+		}
+
+		.score-head {
+			display: grid;
 		}
 
 		.stat-item:last-child:nth-child(odd) {
