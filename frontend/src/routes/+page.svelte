@@ -1,138 +1,271 @@
 <script lang="ts">
-	import { protocolPageHref } from '$lib/catalog';
-	import { watchDefiCommand } from '$lib/bot-commands';
+	import { protocolActivityPageHref, protocolPageHref } from '$lib/catalog';
+	import { page } from '$app/state';
+	import LiveStatusStrip from '$lib/components/LiveStatusStrip.svelte';
 	import ProtocolIdentity from '$lib/components/ProtocolIdentity.svelte';
-	import TelegramCommandBuilder from '$lib/components/TelegramCommandBuilder.svelte';
 	import towerIcon from '$lib/assets/firewatch-tower-icon.png';
-	import type { DefiProtocolDescriptor } from '$lib/types';
+	import { getLiveStatusContext } from '$lib/live-status-context.svelte';
+	import { projectRiskSummary } from '$lib/risk';
+	import type { DefiProtocolDescriptor, ProgramRiskSummary } from '$lib/types';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+	const liveStatusContext = getLiveStatusContext();
 
-	type CopyState = 'idle' | 'copied' | 'error';
-	type MonitorBadge = {
+	type ProtocolRow = {
+		protocol: DefiProtocolDescriptor;
+		risk: ProgramRiskSummary;
+	};
+	type ProtocolAlertRow = {
+		slug: string;
+		name: string;
+		recentAlertCount: number;
+		criticalCount: number;
+		highCount: number;
+		standardCount: number;
+		latestSlot: number;
+		latestSummary: string;
+		latestEventId: string;
+	};
+	type CoverageMetricCard = {
 		label: string;
-		count: number;
+		value: number | null | undefined;
+		href: string;
+		tone?: 'critical' | 'high';
+		trend?: 'up' | 'down' | 'flat' | 'new';
+		detail?: string;
+	};
+	type QuickstartPlan = 'free' | 'paid' | 'ondemand';
+	type FeaturePlan = Exclude<QuickstartPlan, 'free'>;
+	type PlanFeatureMap = Record<FeaturePlan, string[]>;
+
+	const PROTOCOL_TEASER_LIMIT = 6;
+	const DEFAULT_BOT_USERNAME = 'fernowatch_bot';
+	const homeNav = [
+		{ href: '/', label: 'Watch' },
+		{ href: '/protocols', label: 'Protocols' },
+		{ href: '/events', label: 'Activity' },
+		{ href: '/programs', label: 'Programs' },
+		{ href: '/about', label: 'About' }
+	];
+
+	const QUICKSTART_PLAN_FEATURES: PlanFeatureMap = {
+		paid: [
+			'Multi-protocol custom watchlists',
+			'Auto-track protocols based on wallet interactions',
+			'Wallet, program, .sol, and amount-trigger rules'
+		],
+		ondemand: [
+			'Withdraw funds during critical alerts',
+			'Redeploy once the alert is over',
+			'Dedicated low-latency Ferno infra'
+		]
 	};
 
-	let freeCopyState = $state<CopyState>('idle');
+	let copyToast = $state<{ message: string; error: boolean } | null>(null);
+	let copyToastTimer: number | null = null;
+	let sortedProtocolRows = $derived.by(() =>
+		data.defiProtocols
+			.map((protocol) => ({ protocol, risk: projectRiskSummary(protocol) }))
+			.sort(
+				(left, right) =>
+					right.risk.critical_total - left.risk.critical_total ||
+					right.risk.unreviewed_critical - left.risk.unreviewed_critical ||
+					left.protocol.name.localeCompare(right.protocol.name)
+			)
+	);
+	let coverageMetricCards = $derived.by<CoverageMetricCard[]>(() => [
+		{ label: 'Tracked protocols', value: data.protocolCount, href: '/protocols' },
+		{ label: 'Tracked programs', value: data.trackedProgramCount, href: '/programs' },
+		{ label: 'Indexed events', value: data.liveStatus?.summary.total_count, href: '/events' },
+		{
+			label: `Events last ${data.homeActivityWindow.days}d`,
+			value: data.homeActivityWindow.current,
+			href: '/events',
+			trend: activityWindowTrend(),
+			detail: activityWindowDetail()
+		},
+		{ label: 'Subscriptions', value: data.telegramSubscriptionCount, href: '#get-started' },
+		{
+			label: 'Program versions',
+			value: data.homeProgramVersionStats.versions,
+			href: '/programs'
+		},
+		{
+			label: 'Critical alerts',
+			value: data.homeAlertCounts.critical,
+			href: '/events?severity=critical',
+			tone: 'critical'
+		},
+		{
+			label: 'High alerts',
+			value: data.homeAlertCounts.high,
+			href: '/events?severity=high',
+			tone: 'high'
+		}
+	]);
 
 	function botUsername() {
-		return data.liveStatus?.telegram_bot?.username ?? null;
+		const username = liveStatusContext.liveStatus?.telegram_bot?.username?.trim();
+		return username || DEFAULT_BOT_USERNAME;
 	}
 
 	function botHandle() {
-		const username = botUsername();
-		return username ? `@${username}` : null;
+		return `@${botUsername()}`;
 	}
 
-	function botUrl() {
-		const username = botUsername();
-		return username ? `https://t.me/${username}` : null;
+	function addBotUrl() {
+		return `https://t.me/${botUsername()}?startgroup=setup`;
 	}
 
-	function botLabel() {
-		const bot = data.liveStatus?.telegram_bot;
-		if (!bot) return 'Telegram bot not configured';
-		return botHandle() ? `${bot.first_name} (${botHandle()})` : bot.first_name;
-	}
-
-	function configCommand() {
-		return '/config';
+	function botChatUrl() {
+		return `https://t.me/${botUsername()}`;
 	}
 
 	function formatCount(value: number | null | undefined) {
 		return new Intl.NumberFormat('en-US').format(value ?? 0);
 	}
 
-	function totalAdminInstructionCount() {
-		return data.defiProtocols.reduce(
-			(count, protocol) => count + protocol.admin_instruction_filters.length,
-			0
-		);
+	function activityWindowTrend(): CoverageMetricCard['trend'] {
+		const change = data.homeActivityWindow.percentChange;
+		if (change == null) return 'new';
+		if (change > 0) return 'up';
+		if (change < 0) return 'down';
+		return 'flat';
 	}
 
-	function totalInstructionCount() {
-		return data.defiProtocols.reduce(
-			(count, protocol) => count + protocol.catalog_instruction_count,
-			0
-		);
+	function activityWindowDetail() {
+		const { days, percentChange } = data.homeActivityWindow;
+		if (percentChange == null) return `New vs previous ${days}d`;
+		if (percentChange === 0) return `Flat vs previous ${days}d`;
+		const sign = percentChange > 0 ? '+' : '';
+		return `${sign}${percentChange}% vs previous ${days}d`;
 	}
 
-	function totalMetricTriggerCount() {
-		return data.defiProtocols.reduce(
-			(count, protocol) => count + protocol.amount_triggers.length,
-			0
-		);
+	function coverageLabel(protocol: DefiProtocolDescriptor) {
+		if (protocol.coverage === 'deep_decode') return 'Instructions parsed';
+		if (protocol.coverage === 'admin_signals') return 'Admin signals';
+		return 'Address coverage';
 	}
 
-	function totalSolDomainCount() {
-		return data.defiProtocols.reduce((count, protocol) => count + protocol.sol_domains.length, 0);
+	function protocolBySlug(slug: string) {
+		return data.defiProtocols.find((protocol) => protocol.slug === slug) ?? null;
 	}
 
-	function overviewStats() {
-		return [
-			{ label: 'Live tip', value: formatCount(data.liveStatus?.summary.last_processed_slot) },
-			{ label: 'Indexed events', value: formatCount(data.liveStatus?.summary.total_count) },
-			{ label: 'Matched tx', value: formatCount(data.liveStatus?.summary.matched_transaction_count) },
-			{ label: 'Active watches', value: formatCount(data.telegramSubscriptionCount) },
-			{ label: 'Protocols', value: formatCount(data.protocolCount) },
-			{ label: 'Programs', value: formatCount(data.trackedProgramCount) }
-		];
+	function protocolRisk(slug: string) {
+		return sortedProtocolRows.find((row) => row.protocol.slug === slug)?.risk ?? null;
 	}
 
-	function monitorLegendBadges(): MonitorBadge[] {
-		return [
-			{ label: 'SNS', count: totalSolDomainCount() },
-			{ label: 'Squads', count: 1 },
-			{ label: 'Program', count: data.trackedProgramCount },
-			{ label: 'Instruction', count: totalInstructionCount() },
-			{ label: 'Admin instruction', count: totalAdminInstructionCount() },
-			{ label: 'Amount trigger', count: totalMetricTriggerCount() }
-		];
+	function fallbackAlertRows(): ProtocolAlertRow[] {
+		return sortedProtocolRows
+			.filter((row) => row.risk.critical_total > 0)
+			.slice(0, PROTOCOL_TEASER_LIMIT)
+			.map((row) => ({
+				slug: row.protocol.slug,
+				name: row.protocol.name,
+				recentAlertCount: row.risk.critical_total,
+				criticalCount: row.risk.critical_total,
+				highCount: 0,
+				standardCount: 0,
+				latestSlot: 0,
+				latestSummary: 'Critical proof attached to this project.',
+				latestEventId: ''
+			}));
 	}
 
-	function protocolMonitorBadges(protocol: DefiProtocolDescriptor): MonitorBadge[] {
-		const badges: MonitorBadge[] = [];
-
-		if (protocol.programs.length > 0) {
-			badges.push({ label: 'Program', count: protocol.programs.length });
-		}
-
-		if (protocol.sol_domains.length > 0) {
-			badges.push({ label: 'SNS', count: protocol.sol_domains.length });
-		}
-
-		if (protocol.catalog_instruction_count > 0) {
-			badges.push({ label: 'Instruction', count: protocol.catalog_instruction_count });
-		}
-
-		if (protocol.admin_instruction_filters.length > 0) {
-			badges.push({ label: 'Admin instruction', count: protocol.admin_instruction_filters.length });
-		}
-
-		if (protocol.amount_triggers.length > 0) {
-			badges.push({ label: 'Amount trigger', count: protocol.amount_triggers.length });
-		}
-
-		return badges;
+	function protocolAlertRows() {
+		return data.homeProtocolAlertRows.length > 0 ? data.homeProtocolAlertRows : fallbackAlertRows();
 	}
 
-	function badgeLabel(badge: MonitorBadge) {
-		return `${badge.label}: ${badge.count}`;
+	function activityHref(protocol: DefiProtocolDescriptor) {
+		return protocolActivityPageHref(protocol.slug);
 	}
 
-	function featuredProtocols() {
-		return data.defiProtocols.slice(0, 8);
+	function protocolActivityHref(slug: string) {
+		const protocol = protocolBySlug(slug);
+		return protocol ? activityHref(protocol) : `/events?protocol=${encodeURIComponent(slug)}`;
 	}
 
-	async function copyFreeCommand() {
+	function protocolSeverityHref(slug: string, severity: 'critical' | 'high' | 'standard') {
+		const search = new URLSearchParams({ protocol: slug, severity });
+		return `/events?${search.toString()}`;
+	}
+
+	function eventHref(eventId: string, slug: string) {
+		return eventId ? `/events/${encodeURIComponent(eventId)}` : protocolActivityHref(slug);
+	}
+
+	function customPlanToken() {
+		return data.customPlanPricing?.token ?? 'USDC';
+	}
+
+	function customPlanMonthlyLabel() {
+		const monthly = data.customPlanPricing?.monthly ?? '0.42';
+		return `${monthly} ${customPlanToken()} / month`;
+	}
+
+	function isActive(pathname: string, href: string) {
+		if (href === '/') return pathname === '/';
+		return pathname === href || pathname.startsWith(`${href}/`);
+	}
+
+	function quickstartPlanFeatures(plan: FeaturePlan) {
+		return QUICKSTART_PLAN_FEATURES[plan];
+	}
+
+	function watchCommand() {
+		return '/watch';
+	}
+
+	function configCommand() {
+		return '/config';
+	}
+
+	function copyCommandWithSelectionFallback(command: string) {
+		const textarea = document.createElement('textarea');
+		textarea.value = command;
+		textarea.setAttribute('readonly', '');
+		textarea.style.position = 'fixed';
+		textarea.style.top = '0';
+		textarea.style.left = '0';
+		textarea.style.width = '1px';
+		textarea.style.height = '1px';
+		textarea.style.opacity = '0';
+		textarea.style.pointerEvents = 'none';
+		document.body.appendChild(textarea);
+		textarea.focus({ preventScroll: true });
+		textarea.select();
+		textarea.setSelectionRange(0, command.length);
+		const copied = document.execCommand('copy');
+		textarea.remove();
+		if (!copied) throw new Error('Copy command failed');
+	}
+
+	async function copyCommand(command: string) {
 		try {
-			await navigator.clipboard.writeText(configCommand());
-			freeCopyState = 'copied';
+			try {
+				if (typeof navigator === 'undefined' || !navigator.clipboard) {
+					throw new Error('Clipboard is unavailable');
+				}
+
+				await navigator.clipboard.writeText(command);
+			} catch {
+				copyCommandWithSelectionFallback(command);
+			}
+
+			copyToast = { message: `Copied ${command} to clipboard`, error: false };
 		} catch {
-			freeCopyState = 'error';
+			copyToast = { message: `Could not copy ${command}`, error: true };
 		}
+
+		if (copyToastTimer != null) {
+			window.clearTimeout(copyToastTimer);
+		}
+
+		copyToastTimer = window.setTimeout(() => {
+			copyToast = null;
+			copyToastTimer = null;
+		}, 1800);
 	}
 </script>
 
@@ -140,317 +273,598 @@
 	<title>FireWatch</title>
 </svelte:head>
 
+{#if copyToast}
+	<div class="copy-toast" class:error={copyToast.error} role="status">
+		{copyToast.message}
+	</div>
+{/if}
+
 <div class="page-shell">
-	<section class="front-grid" aria-labelledby="front-title">
-		<div class="front-copy">
-			<img class="tower-mark" src={towerIcon} alt="" width="96" height="96" />
-			<div>
-				<h1 id="front-title">FireWatch</h1>
-				<p>
-					Add the Telegram bot to a protocol group, run <code>/config</code> as an admin,
-					then configure DeFi, protocol, program, wallet, instruction, amount, and .sol watches.
-				</p>
+	<section class="panel hero" aria-labelledby="home-title">
+		<div class="hero-intro" id="home-hero">
+			<div class="hero-main">
+				<img class="tower-mark" src={towerIcon} alt="" width="80" height="80" />
+				<div>
+					<h1 id="home-title">FireWatch</h1>
+					<p class="lede">
+						Solana protocol monitoring for Telegram groups. Start free with shared DeFi coverage,
+						then move to paid custom bot rules when your team needs protocol-specific routing.
+					</p>
+				</div>
+				<a class="home-quickstart-cta" href={addBotUrl()} rel="noreferrer" target="_blank">
+					Add {botHandle()}
+				</a>
+			</div>
+
+			<div class="hero-utility">
+				<nav class="hero-nav" aria-label="Primary">
+					{#each homeNav as item (item.href)}
+						<a class:active={isActive(page.url.pathname, item.href)} href={item.href}>
+							{item.label}
+						</a>
+					{/each}
+				</nav>
+
+				<div class="hero-live-strip" aria-label="Live status">
+					<LiveStatusStrip status={liveStatusContext} />
+				</div>
 			</div>
 		</div>
-
-		<aside class="panel free-setup" id="free-alert" aria-label="Free alert setup">
-			<div class="setup-head">
-				<h2>Telegram setup</h2>
-				{#if botUrl()}
-					<a href={botUrl()} rel="noreferrer" target="_blank">{botHandle()}</a>
-				{/if}
-			</div>
-
-			<div class="bot-line">
-				<span>Bot</span>
-				<strong>{botLabel()}</strong>
-			</div>
-
-			<div class="command-line">
-				<code>{configCommand()}</code>
-				<button type="button" onclick={copyFreeCommand}>Copy</button>
-			</div>
-
-			<ol class="setup-list">
-				<li>Add the bot to your Telegram group.</li>
-				<li>A group admin sends <code>/config</code>.</li>
-				<li>The bot DMs a private setup link with a temporary auth token.</li>
-				<li>Free groups can still send <code>{watchDefiCommand()}</code>.</li>
-			</ol>
-
-			{#if freeCopyState === 'copied'}
-				<p class="copy-state success">Copied.</p>
-			{:else if freeCopyState === 'error'}
-				<p class="copy-state error">Copy failed.</p>
-			{/if}
-		</aside>
 	</section>
 
-	<section class="catalog-panel top-catalog" id="projects" aria-labelledby="supported-title">
-		<div class="section-copy">
-			<h2 id="supported-title">Supported protocols</h2>
-			<p>Open a protocol page to inspect covered programs, decoded instructions, amount triggers, .sol domains, and recent activity.</p>
+	<aside class="setup-panel" id="get-started">
+		<div class="panel-head">
+			<h2>Quick Start</h2>
 		</div>
 
-		<div class="protocol-list" role="list">
-			{#each data.defiProtocols as protocol}
-				<article class="protocol-item" role="listitem">
-					<a class="protocol-row" href={protocolPageHref(protocol.slug)}>
-						<div class="protocol-main">
-							<ProtocolIdentity slug={protocol.slug} label={protocol.name} />
-							<div class="protocol-badges" aria-label={`${protocol.name} monitor categories`}>
-								{#each protocolMonitorBadges(protocol) as badge}
-									<span class="monitor-badge" title={badgeLabel(badge)} aria-label={badgeLabel(badge)}>
-										{badge.label}
-										<span class="monitor-count">{badge.count}</span>
-									</span>
-								{/each}
-							</div>
-						</div>
-						<strong>Open protocol</strong>
+		<div class="plan-accordion" aria-label="Quickstart plans">
+			<article class="plan-line">
+				<div class="plan-toggle">
+					<span>Free DeFi watcher</span>
+					<strong>Free</strong>
+				</div>
+				<div class="plan-body">
+					<p>Default DeFi monitoring across {formatCount(data.protocolCount)} supported protocols.</p>
+				</div>
+				<div class="plan-footer command-footer">
+					<span>Send</span>
+					<button
+						class="command-chip"
+						type="button"
+						aria-label={`Copy ${watchCommand()} command`}
+						onclick={() => copyCommand(watchCommand())}
+					>
+						<code>{watchCommand()}</code>
+					</button>
+					<span>to</span>
+					<a class="bot-action" href={botChatUrl()} rel="noreferrer" target="_blank">
+						{botHandle()}
 					</a>
-				</article>
+				</div>
+			</article>
+
+			<article class="plan-line member-plan">
+				<div class="plan-toggle">
+					<span>Custom watcher</span>
+					<div class="price-stack">
+						<strong>{customPlanMonthlyLabel()}</strong>
+						<a class="member-badge" href="https://x.com/ferno_ag" rel="noreferrer" target="_blank">
+							Free for Ferno members
+						</a>
+					</div>
+				</div>
+				<div class="plan-body">
+					<ul>
+						{#each quickstartPlanFeatures('paid') as feature (feature)}
+							<li>{feature}</li>
+						{/each}
+					</ul>
+				</div>
+				<div class="plan-footer command-footer">
+					<span>Send</span>
+					<button
+						class="command-chip"
+						type="button"
+						aria-label={`Copy ${configCommand()} command`}
+						onclick={() => copyCommand(configCommand())}
+					>
+						<code>{configCommand()}</code>
+					</button>
+					<span>to</span>
+					<a class="bot-action" href={botChatUrl()} rel="noreferrer" target="_blank">
+						{botHandle()}
+					</a>
+				</div>
+			</article>
+
+			<article class="plan-line">
+				<div class="plan-toggle">
+					<span>Smart Wallet response</span>
+					<strong>Contact us</strong>
+				</div>
+				<div class="plan-body">
+					<ul>
+						{#each quickstartPlanFeatures('ondemand') as feature (feature)}
+							<li>{feature}</li>
+						{/each}
+					</ul>
+				</div>
+				<div class="plan-footer">
+					<span>Contact us for more info.</span>
+				</div>
+			</article>
+		</div>
+	</aside>
+
+	<section class="panel stats-panel" aria-label="FireWatch coverage stats">
+		<div class="section-title">
+			<div>
+				<h2>Watch Overview</h2>
+				<p>Coverage, activity, subscriptions, and alert shortcuts. Each number opens the matching view.</p>
+			</div>
+			<a href="/events">Open activity</a>
+		</div>
+
+		<div class="stats-grid">
+			{#each coverageMetricCards as card (card.label)}
+				<a
+					class="stat-card"
+					class:critical={card.tone === 'critical'}
+					class:high={card.tone === 'high'}
+					class:trend-up={card.trend === 'up'}
+					class:trend-down={card.trend === 'down'}
+					href={card.href}
+				>
+					<strong>{formatCount(card.value)}</strong>
+					<span>{card.label}</span>
+					{#if card.detail}
+						<span class="metric-detail">{card.detail}</span>
+					{/if}
+				</a>
 			{/each}
 		</div>
 	</section>
 
-	<section class="stats-strip" aria-label="FireWatch stats">
-		{#each overviewStats() as stat}
-			<article class="stat-cell">
-				<span>{stat.label}</span>
-				<strong>{stat.value}</strong>
-			</article>
-		{/each}
-	</section>
+	<section class="panel protocol-panel" id="protocols" aria-labelledby="protocol-title">
+		<div class="section-title">
+			<div>
+				<h2 id="protocol-title">Tracked Protocols</h2>
+				<p>
+					Protocols with the most alerts in the latest DeFi activity sample.
+				</p>
+			</div>
+			<a href="/protocols">Open protocols</a>
+		</div>
 
-	<section class="custom-monitor" id="custom-monitor" aria-labelledby="custom-monitor-title">
-		<div class="section-copy">
-			<h2 id="custom-monitor-title">Build a custom monitor</h2>
-			<p>
-				Run <code>/config</code> in Telegram as a group admin. The private setup link lets you
-				select protocols, instruction tags, amount triggers, watched wallets, and .sol names.
+		<div class="protocol-table" role="list">
+			{#each protocolAlertRows() as row (row.slug)}
+				{@const protocol = protocolBySlug(row.slug)}
+				{@const risk = protocolRisk(row.slug)}
+				<article class="protocol-row" role="listitem">
+					<div class="protocol-main">
+						<a class="protocol-name" href={protocol ? protocolPageHref(row.slug) : protocolActivityHref(row.slug)}>
+							<ProtocolIdentity slug={row.slug} label={row.name} />
+						</a>
+						<span class="coverage">{protocol ? coverageLabel(protocol) : 'DeFi alerts'}</span>
+					</div>
+
+					<div class="alert-cell">
+						<div class="alert-strip" aria-label={`${row.name} alert counts`}>
+							<a href={protocolActivityHref(row.slug)}>
+								Alerts <strong>{formatCount(row.recentAlertCount)}</strong>
+							</a>
+							<a class="critical-link" href={protocolSeverityHref(row.slug, 'critical')}>
+								Critical <strong>{formatCount(row.criticalCount)}</strong>
+							</a>
+							<a class="high-link" href={protocolSeverityHref(row.slug, 'high')}>
+								High <strong>{formatCount(row.highCount)}</strong>
+							</a>
+							<a href={protocolSeverityHref(row.slug, 'standard')}>
+								Normal <strong>{formatCount(row.standardCount)}</strong>
+							</a>
+						</div>
+						<a class="latest-alert" href={eventHref(row.latestEventId, row.slug)}>
+							{row.latestSummary}
+						</a>
+					</div>
+
+					<div class="badge-row">
+						{#if risk}
+							<span class={`risk-grade grade-${risk.grade.toLowerCase()}`}>Grade {risk.grade}</span>
+							<span>Score {risk.score}</span>
+						{/if}
+						{#if protocol}
+							<span>Programs {formatCount(protocol.programs.length)}</span>
+						{/if}
+						{#if row.latestSlot > 0}
+							<span>Latest slot {formatCount(row.latestSlot)}</span>
+						{/if}
+					</div>
+
+					<div class="row-actions">
+						<a href={protocolActivityHref(row.slug)}>Activity</a>
+						{#if protocol}
+							<a href={protocolPageHref(row.slug)}>Open protocol</a>
+						{/if}
+					</div>
+				</article>
+			{/each}
+		</div>
+
+		{#if protocolAlertRows().length === 0}
+			<p class="protocol-note">No alert-heavy protocols are available yet.</p>
+		{:else}
+			<p class="protocol-note">
+				Showing up to {PROTOCOL_TEASER_LIMIT} protocols from recent DeFi alerts.
+				<a href="/events?scope=defi">All DeFi activity</a>
 			</p>
-		</div>
-
-		<TelegramCommandBuilder
-			protocols={data.defiProtocols}
-			botUsername={botUsername()}
-			defaultPlan="paid"
-			defaultMode="protocol"
-			showPlanPanel={false}
-			heading="Monitor command"
-			description="Pick what should be watched and send the generated command to the FireWatch bot."
-		/>
-	</section>
-
-	<section class="secondary-grid" aria-label="Explore FireWatch">
-		<article class="panel explore-panel">
-			<div class="section-copy compact">
-				<h2>Explore protocols</h2>
-				<p>Open a protocol when you need tracked programs, watchable surfaces, and recent activity.</p>
-			</div>
-
-			<div class="mini-protocol-list">
-				{#each featuredProtocols() as protocol}
-					<a class="mini-protocol" href={protocolPageHref(protocol.slug)}>
-						<ProtocolIdentity slug={protocol.slug} label={protocol.name} size="sm" />
-						<span>{protocol.programs.length} programs</span>
-					</a>
-				{/each}
-			</div>
-
-			<a class="text-link" href="/programs">Browse programs</a>
-		</article>
-
-		<article class="panel alert-panel">
-			<div class="section-copy compact">
-				<h2>Review alerts</h2>
-				<p>Use the activity feed after setup to inspect the alert, transaction, protocol tag, and payload.</p>
-			</div>
-
-			<div class="alert-actions">
-				<a href="/events">Activity feed</a>
-				<a href="/docs#commands">Bot commands</a>
-				<a href="/pricing#custom-plan">Custom Plan</a>
-			</div>
-
-			<div class="monitor-legend" aria-label="Monitor categories">
-				{#each monitorLegendBadges() as badge}
-					<span class="monitor-badge" title={badgeLabel(badge)} aria-label={badgeLabel(badge)}>
-						{badge.label}
-						<span class="monitor-count">{badge.count}</span>
-					</span>
-				{/each}
-			</div>
-		</article>
-	</section>
-
-	<section class="panel company-panel" aria-labelledby="company-title">
-		<div class="section-copy">
-			<h2 id="company-title">Company response</h2>
-			<p>
-				For more alert coverage or a security response path, Ferno can review supported
-				protocols, give your engineers controlled access, and prepare Smart Account policies
-				to exit and redeploy funds after review.
-			</p>
-		</div>
-
-		<div class="company-actions">
-			<a class="primary-link" href="/pricing#custom-plan">Custom bot</a>
-			<a class="text-link" href="mailto:contact@ferno.ag?subject=FireWatch%20company%20response">Contact us</a>
-		</div>
+		{/if}
 	</section>
 </div>
 
 <style>
 	.page-shell {
-		width: min(var(--fw-page-max), calc(100vw - 2rem));
+		width: 100%;
 		margin: 0 auto;
-		padding: 1.05rem 0 2.4rem;
+		padding: 0 0 2.4rem;
 		display: grid;
 		gap: 1rem;
 	}
 
-	.panel,
-	.protocol-row {
+	.panel {
+		width: min(var(--fw-page-max), calc(100vw - 2rem));
+		margin: 0 auto;
 		background: var(--fw-panel);
 		border: 1px solid var(--fw-border);
 		border-radius: 10px;
-	}
-
-	.panel {
 		padding: 1rem;
 	}
 
 	h1,
 	h2,
-	p,
-	ol {
+	p {
 		margin: 0;
 	}
 
 	h1 {
-		font-size: 2.45rem;
-		line-height: 1;
+		font-size: 2.2rem;
+		line-height: 1.02;
 		letter-spacing: 0;
 	}
 
 	h2 {
-		font-size: 1.08rem;
+		font-size: 1.03rem;
 		line-height: 1.25;
-		letter-spacing: 0;
 	}
 
-	p,
-	li {
+	p {
 		color: #5f6c79;
 		line-height: 1.55;
 	}
 
+	a {
+		color: #5d4c3e;
+		font-weight: 750;
+		text-underline-offset: 0.14em;
+	}
+
+	.copy-toast {
+		position: fixed;
+		right: max(1rem, calc((100vw - var(--fw-page-max)) / 2));
+		bottom: 1rem;
+		z-index: 60;
+		max-width: min(18rem, calc(100vw - 2rem));
+		padding: 0.62rem 0.76rem;
+		border: 1px solid rgba(33, 109, 77, 0.18);
+		border-radius: 8px;
+		background: #f2fbf6;
+		color: #216d4d;
+		box-shadow: 0 14px 34px rgba(23, 32, 42, 0.12);
+		font-size: 0.8rem;
+		font-weight: 760;
+	}
+
+	.copy-toast.error {
+		border-color: rgba(156, 57, 41, 0.18);
+		background: #fff4f0;
+		color: #9c3929;
+	}
+
 	code {
+		font-family: 'IBM Plex Mono', 'SFMono-Regular', monospace;
 		font-size: 0.82rem;
 		overflow-wrap: anywhere;
 	}
 
-	.front-grid {
+	.hero {
+		width: 100%;
+		margin: 0;
+		padding: 0;
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(310px, 0.5fr);
-		gap: 1rem;
+		grid-template-columns: 1fr;
+		gap: 0;
 		align-items: stretch;
+		background: #f8f5f0;
+		border: 0;
+		border-bottom: 1px solid rgba(23, 32, 42, 0.08);
+		border-radius: 0;
 	}
 
-	.front-copy {
+	.hero-intro {
+		width: min(var(--fw-page-max), calc(100vw - 2rem));
+		margin: 0 auto;
 		display: grid;
-		grid-template-columns: 5.2rem minmax(0, 1fr);
-		gap: 1rem;
-		align-content: center;
-		min-height: 16rem;
-		padding: 0.4rem 0;
+		gap: 0;
 	}
 
-	.front-copy p {
-		max-width: 58ch;
-		margin-top: 0.55rem;
-		font-size: 1rem;
+	.home-quickstart-cta {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 2.02rem;
+		padding: 0 0.74rem;
+		border-radius: 8px;
+		border: 1px solid #bd4a17;
+		background: #bd4a17;
+		color: #fff;
+		font-size: 0.78rem;
+		font-weight: 780;
+		text-decoration: none;
+		white-space: nowrap;
+		position: fixed;
+		top: 1.1rem;
+		right: max(1rem, calc((100vw - var(--fw-page-max)) / 2));
+		z-index: 25;
+	}
+
+	.hero-utility {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		min-width: 0;
+		padding: 0.72rem 0 0.62rem;
+		border-top: 1px solid rgba(23, 32, 42, 0.08);
+	}
+
+	.hero-nav {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+	}
+
+	.hero-nav a {
+		padding: 0.42rem 0 0.5rem;
+		border-bottom: 2px solid transparent;
+		text-decoration: none;
+		font-weight: 700;
+		font-size: 0.86rem;
+		color: #556473;
+	}
+
+	.hero-nav a.active {
+		color: var(--fw-accent);
+		border-bottom-color: var(--fw-accent);
+	}
+
+	.hero-live-strip {
+		display: flex;
+		flex-wrap: nowrap;
+		gap: 0;
+		min-width: 0;
+		justify-content: flex-end;
+	}
+
+	.hero-main {
+		display: grid;
+		grid-template-columns: 6.2rem minmax(0, 1fr);
+		gap: 1.25rem;
+		align-items: center;
+		padding: 2.15rem 0 2.45rem;
+	}
+
+	.lede {
+		margin-top: 0.52rem;
+		max-width: 62ch;
+		font-size: 0.98rem;
 	}
 
 	.tower-mark {
-		width: 5.2rem;
-		height: 5.2rem;
+		width: 6.2rem;
+		height: 6.2rem;
 		object-fit: contain;
-		align-self: start;
 	}
 
-	.free-setup {
+	.setup-panel,
+	.protocol-panel {
 		display: grid;
-		align-content: start;
-		gap: 0.8rem;
+		gap: 0.82rem;
 	}
 
-	.setup-head,
-	.company-actions,
-	.alert-actions,
-	.monitor-legend,
-	.protocol-badges {
+	.setup-panel {
+		width: min(var(--fw-page-max), calc(100vw - 2rem));
+		margin: 0 auto;
+		padding: 1rem;
+		background: var(--fw-panel);
+		border: 1px solid var(--fw-border);
+		border-radius: 10px;
+	}
+
+	.panel-head,
+	.section-title {
 		display: flex;
-		flex-wrap: wrap;
+		align-items: start;
+		justify-content: space-between;
+		gap: 1rem;
+	}
+
+	.panel-head {
+		align-items: center;
+	}
+
+	.panel-head h2 {
+		margin: 0;
+	}
+
+	.section-title p {
+		margin-top: 0.24rem;
+	}
+
+	.plan-accordion {
+		display: grid;
 		gap: 0.5rem;
 	}
 
-	.setup-head {
-		align-items: start;
-		justify-content: space-between;
-	}
-
-	.setup-head a,
-	.text-link,
-	.secondary-grid a,
-	.company-actions a {
-		text-decoration: underline;
-		text-underline-offset: 0.12em;
-		font-size: 0.84rem;
-		font-weight: 700;
-		color: #6d5a4a;
-	}
-
-	.bot-line {
-		display: grid;
-		gap: 0.12rem;
-		padding: 0.72rem 0;
-		border-top: 1px solid var(--fw-border);
-		border-bottom: 1px solid var(--fw-border);
-	}
-
-	.bot-line span,
-	.stat-cell span {
-		color: #62707d;
-		font-size: 0.76rem;
-		font-weight: 700;
-	}
-
-	.bot-line strong,
-	.stat-cell strong {
-		overflow-wrap: anywhere;
-	}
-
-	.command-line {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		gap: 0.55rem;
-		align-items: center;
-		padding: 0.72rem;
+	.plan-line {
+		display: flex;
+		flex-direction: column;
+		margin: 0;
+		padding: 0;
 		border: 1px solid rgba(23, 32, 42, 0.1);
 		border-radius: 8px;
 		background: #fbfaf8;
 	}
 
-	.command-line code {
+	.member-plan {
+		border-color: rgba(189, 74, 23, 0.28);
+		background: #fff8f3;
+	}
+
+	.plan-body {
+		display: block;
+	}
+
+	.plan-toggle {
+		display: grid;
+		grid-template-columns: 1fr auto;
+		align-items: center;
+		width: 100%;
+		gap: 0.6rem;
+		padding: 0.68rem 0.75rem;
+		min-height: 0;
+		border: 0;
+		border-radius: 8px;
+		background: transparent;
+		color: inherit;
+		text-align: left;
+		cursor: default;
+	}
+
+	.plan-toggle span {
 		color: #17202a;
+		font-size: 0.84rem;
 		font-weight: 700;
 	}
 
-	button,
-	.primary-link {
+	.plan-toggle strong {
+		color: #7d3a18;
+		font-size: 0.78rem;
+		font-weight: 800;
+		justify-self: end;
+		text-align: right;
+		padding-left: 0.6rem;
+		white-space: nowrap;
+	}
+
+	.price-stack {
+		display: grid;
+		justify-items: end;
+		gap: 0.22rem;
+		min-width: max-content;
+	}
+
+	.plan-toggle .member-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 1.18rem;
+		padding: 0 0.4rem;
+		border-radius: 999px;
+		background: rgba(189, 74, 23, 0.12);
+		color: #8d421a;
+		font-size: 0.64rem;
+		font-weight: 800;
+		line-height: 1;
+		text-decoration: none;
+		white-space: nowrap;
+	}
+
+	.plan-line p {
+		margin: 0;
+		padding: 0 0.75rem 0.54rem;
+		font-size: 0.82rem;
+		color: #5f6c79;
+	}
+
+	.plan-line ul {
+		margin: 0;
+		padding: 0 0.75rem 0.58rem;
+		list-style: none;
+		display: grid;
+		gap: 0.25rem;
+	}
+
+	.plan-line li {
+		position: relative;
+		padding-left: 0.88rem;
+		font-size: 0.77rem;
+		line-height: 1.35;
+		color: #5d6d7a;
+	}
+
+	.plan-line li::before {
+		content: '•';
+		position: absolute;
+		left: 0;
+		top: 0;
+		color: #bd4a17;
+	}
+
+	.plan-footer {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.48rem;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0 0.75rem 0.72rem;
+		border-top: 1px solid rgba(23, 32, 42, 0.08);
+		margin-top: auto;
+		padding-top: 0.5rem;
+	}
+
+	.plan-footer span {
+		font-size: 0.78rem;
+		font-weight: 700;
+		color: #5f6c79;
+	}
+
+	.command-footer {
+		justify-content: flex-start;
+		gap: 0.36rem;
+	}
+
+	.command-footer .bot-action {
+		margin-left: auto;
+	}
+
+	.bot-action {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 1.72rem;
+		padding: 0 0.58rem;
+		border-radius: 7px;
+		border: 1px solid #bd4a17;
+		background: #bd4a17;
+		color: #fff;
+		font-size: 0.76rem;
+		font-weight: 780;
+		line-height: 1;
+		text-decoration: none;
+		white-space: nowrap;
+	}
+
+	button {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -462,267 +876,377 @@
 		color: #fff;
 		font: inherit;
 		font-size: 0.84rem;
-		font-weight: 700;
-		text-decoration: none;
+		font-weight: 750;
 		cursor: pointer;
 	}
 
-	.setup-list {
-		display: grid;
-		gap: 0.3rem;
-		padding-left: 1.1rem;
-		font-size: 0.88rem;
-	}
-
-	.copy-state {
-		font-size: 0.84rem;
-		font-weight: 700;
-	}
-
-	.copy-state.success {
-		color: #216d4d;
-	}
-
-	.copy-state.error {
-		color: #9c3929;
-	}
-
-	.stats-strip {
-		display: grid;
-		grid-template-columns: repeat(6, minmax(0, 1fr));
-		gap: 1px;
-		padding: 0;
-		overflow: hidden;
-		border: 1px solid var(--fw-border);
-		border-radius: 10px;
-		background: var(--fw-border);
-	}
-
-	.stat-cell {
-		display: grid;
-		gap: 0.1rem;
-		min-width: 0;
-		padding: 0.78rem 0.9rem;
-		background: var(--fw-panel);
-	}
-
-	.custom-monitor,
-	.catalog-panel {
-		display: grid;
-		gap: 0.85rem;
-		scroll-margin-top: 10rem;
-	}
-
-	.custom-monitor {
-		padding-top: 0.25rem;
-	}
-
-	.section-copy {
-		display: grid;
-		gap: 0.24rem;
-		min-width: 0;
-	}
-
-	.section-copy p {
-		max-width: 66ch;
-		font-size: 0.9rem;
-	}
-
-	.section-copy.compact p {
-		max-width: none;
-	}
-
-	.secondary-grid {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 1rem;
-	}
-
-	.explore-panel,
-	.alert-panel,
-	.company-panel {
-		display: grid;
-		align-content: start;
-		gap: 0.78rem;
-	}
-
-	.mini-protocol-list {
-		display: grid;
-		gap: 0.42rem;
-	}
-
-	.mini-protocol {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: center;
-		gap: 0.7rem;
-		padding: 0.54rem 0;
-		border-bottom: 1px solid rgba(23, 32, 42, 0.06);
-		text-decoration: none;
-	}
-
-	.mini-protocol span {
-		color: #62707d;
-		font-size: 0.78rem;
-		font-weight: 700;
+	.command-chip {
+		min-height: 1.86rem;
+		padding: 0 0.64rem;
+		border: 1px solid rgba(189, 74, 23, 0.28);
+		border-radius: 7px;
+		background: #fff;
+		color: #7d3a18;
+		box-shadow: inset 0 0 0 1px rgba(189, 74, 23, 0.06);
+		font-size: 0.8rem;
+		font-weight: 800;
 		white-space: nowrap;
 	}
 
-	.alert-actions a {
+	.command-chip:hover {
+		background: rgba(255, 123, 54, 0.11);
+	}
+
+	.command-chip:focus-visible {
+		outline: 2px solid rgba(189, 74, 23, 0.36);
+		outline-offset: 2px;
+	}
+
+	.command-chip code {
+		color: inherit;
+		font-size: 0.84rem;
+		font-weight: 800;
+	}
+
+	.secondary-link {
 		display: inline-flex;
 		align-items: center;
-		min-height: 2.1rem;
-		padding: 0 0.72rem;
-		border: 1px solid rgba(23, 32, 42, 0.1);
+		justify-content: center;
+		min-height: 2.16rem;
+		padding: 0 0.84rem;
+		border-radius: 8px;
+		font-size: 0.8rem;
+		font-weight: 700;
+		text-decoration: none;
+		white-space: nowrap;
+	}
+
+	.primary-link {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 2.02rem;
+		padding: 0 0.74rem;
+		border-radius: 8px;
+		font-size: 0.78rem;
+		font-weight: 780;
+		border: 1px solid #bd4a17;
+		background: #bd4a17;
+		color: #fff;
+		text-decoration: none;
+		white-space: nowrap;
+	}
+
+	.secondary-link {
+		border: 1px solid rgba(23, 32, 42, 0.12);
+		background: #fff;
+		color: #556473;
+	}
+
+	.stats-panel {
+		display: grid;
+		gap: 0.8rem;
+	}
+
+	.stats-grid {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 0.55rem;
+	}
+
+	.stat-card {
+		display: grid;
+		gap: 0.16rem;
+		padding: 0.72rem;
 		border-radius: 8px;
 		background: #fbfaf8;
-		text-decoration: none;
-	}
-
-	.monitor-legend {
-		gap: 0.38rem;
-		padding-top: 0.08rem;
-	}
-
-	.monitor-badge {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.34rem;
-		justify-content: center;
-		min-height: 1.42rem;
-		padding: 0.16rem 0.24rem 0.16rem 0.42rem;
 		border: 1px solid rgba(23, 32, 42, 0.08);
-		border-radius: 6px;
-		background: #fbfaf8;
-		color: #596775;
-		font-size: 0.74rem;
-		font-weight: 700;
-	}
-
-	.monitor-count {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-width: 1rem;
-		height: 1rem;
-		padding: 0 0.22rem;
-		border: 1px solid rgba(23, 32, 42, 0.08);
-		border-radius: 999px;
-		background: #ffffff;
-		color: #17202a;
-		font-size: 0.68rem;
-		line-height: 1;
-	}
-
-	.company-panel {
-		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: center;
-	}
-
-	.company-actions {
-		justify-content: end;
-	}
-
-	.protocol-list {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-		gap: 0.62rem;
-	}
-
-	.protocol-item,
-	.protocol-main {
-		min-width: 0;
-	}
-
-	.protocol-row {
-		display: grid;
-		gap: 0.58rem;
-		min-height: 100%;
-		padding: 0.76rem 0.82rem;
 		color: inherit;
 		text-decoration: none;
 	}
 
+	.stat-card:hover {
+		border-color: rgba(189, 74, 23, 0.22);
+		background: #fff8f3;
+	}
+
+	.stat-card.critical strong {
+		color: #9c3929;
+	}
+
+	.stat-card.high strong {
+		color: #8a5e1e;
+	}
+
+	.stat-card.trend-up .metric-detail {
+		color: #8a5e1e;
+	}
+
+	.stat-card.trend-down .metric-detail {
+		color: #216d4d;
+	}
+
+	.stat-card strong {
+		font-size: 1rem;
+		color: #17202a;
+	}
+
+	.stat-card > span {
+		font-size: 0.78rem;
+		font-weight: 700;
+		color: #62707d;
+	}
+
+	.stat-card .metric-detail {
+		font-size: 0.72rem;
+		line-height: 1.25;
+		color: #73808c;
+	}
+
+	.protocol-table {
+		display: grid;
+		border: 1px solid var(--fw-border);
+		border-radius: 8px;
+		overflow: hidden;
+	}
+
+	.protocol-row {
+		display: grid;
+		grid-template-columns: minmax(190px, 0.62fr) minmax(290px, 1fr) minmax(180px, 0.62fr) auto;
+		gap: 0.8rem;
+		align-items: center;
+		padding: 0.78rem;
+		background: #fff;
+		border-bottom: 1px solid var(--fw-border);
+	}
+
+	.protocol-row:last-child {
+		border-bottom: 0;
+	}
+
 	.protocol-main {
 		display: grid;
-		gap: 0.25rem;
+		gap: 0.2rem;
 	}
 
-	.protocol-badges {
-		gap: 0.38rem;
-		padding-top: 0.1rem;
+	.protocol-name {
+		text-decoration: none;
 	}
 
-	.protocol-row > strong {
-		padding-top: 0.5rem;
-		border-top: 1px solid rgba(23, 32, 42, 0.06);
-		color: #7b5b45;
+	.coverage {
+		font-size: 0.76rem;
+		font-weight: 700;
+		color: #62707d;
+	}
+
+	.alert-cell {
+		display: grid;
+		gap: 0.28rem;
+		min-width: 0;
+	}
+
+	.alert-strip {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.34rem 0.5rem;
+		color: #596775;
+	}
+
+	.alert-strip a,
+	.latest-alert {
+		text-decoration: none;
+	}
+
+	.alert-strip a {
+		color: #596775;
+	}
+
+	.alert-strip a {
+		font-size: 0.74rem;
+		font-weight: 700;
+	}
+
+	.alert-strip strong {
 		font-size: 0.78rem;
+		color: #17202a;
 	}
 
-	@media (max-width: 1100px) {
-		.stats-strip {
+	.alert-strip a:hover,
+	.latest-alert:hover {
+		text-decoration: underline;
+		text-underline-offset: 0.12em;
+	}
+
+	.alert-strip .critical-link strong {
+		color: #9c3929;
+	}
+
+	.alert-strip .high-link strong {
+		color: #8a5e1e;
+	}
+
+	.latest-alert {
+		min-width: 0;
+		overflow: hidden;
+		color: #5f6c79;
+		font-size: 0.78rem;
+		font-weight: 650;
+		line-height: 1.35;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.risk-grade {
+		color: #216d4d;
+	}
+
+	.risk-grade.grade-c,
+	.risk-grade.grade-d {
+		color: #8a5e1e;
+	}
+
+	.risk-grade.grade-f {
+		color: #9c3929;
+	}
+
+	.badge-row,
+	.row-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.42rem;
+	}
+
+	.badge-row span {
+		color: #62707d;
+		font-size: 0.76rem;
+		font-weight: 700;
+	}
+
+	.row-actions a {
+		font-size: 0.8rem;
+	}
+
+	.protocol-note {
+		font-size: 0.82rem;
+		color: #62707d;
+	}
+
+	.protocol-note a {
+		margin-left: 0.3rem;
+	}
+
+	@media (max-width: 980px) {
+		.stats-grid {
 			grid-template-columns: repeat(3, minmax(0, 1fr));
 		}
+
+		.protocol-row {
+			grid-template-columns: 1fr;
+			gap: 0.56rem;
+		}
 	}
 
-	@media (max-width: 920px) {
-		.front-grid,
-		.secondary-grid,
-		.company-panel {
-			grid-template-columns: 1fr;
-		}
-
-		.company-actions {
-			justify-content: start;
+	@media (min-width: 1024px) {
+		.plan-accordion {
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+			align-items: stretch;
 		}
 	}
 
 	@media (max-width: 720px) {
 		.page-shell {
-			width: min(100vw - 1.25rem, var(--fw-page-max));
-			padding-top: 0.72rem;
-			gap: 0.85rem;
+			width: 100%;
+			padding-top: 0;
 		}
 
-		.panel,
-		.protocol-row,
-		.stats-strip {
-			border-radius: 8px;
-		}
-
-		.front-copy {
-			grid-template-columns: minmax(0, 1fr);
+		.hero-main {
+			grid-template-columns: 5.2rem minmax(0, 1fr);
 			min-height: 0;
-			gap: 0.65rem;
-			padding-top: 0.2rem;
+			padding: 4.35rem 0 1.05rem;
+			gap: 0.9rem;
+		}
+
+		.home-quickstart-cta {
+			top: 0.5rem;
+			right: max(0.75rem, calc((100vw - var(--fw-page-max)) / 2));
+			max-width: min(13rem, calc(100vw - 1.5rem));
+			min-height: 1.95rem;
+			font-size: 0.76rem;
+		}
+
+		.hero-utility {
+			display: grid;
+			gap: 0.42rem;
+		}
+
+		.hero-nav {
+			flex-wrap: nowrap;
+			overflow-x: auto;
+			scrollbar-width: none;
+		}
+
+		.hero-nav a {
+			flex: 0 0 auto;
+		}
+
+		.hero-live-strip {
+			overflow-x: auto;
+			justify-content: flex-start;
+			scrollbar-width: none;
+			padding-bottom: 0.02rem;
 		}
 
 		.tower-mark {
-			width: 4rem;
-			height: 4rem;
+			width: 5.2rem;
+			height: 5.2rem;
 		}
 
-		h1 {
-			font-size: 2rem;
-		}
-
-		.stats-strip {
+		.stats-grid {
 			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 0.46rem;
 		}
 
-		.command-line,
-		.mini-protocol {
-			grid-template-columns: 1fr;
+		.stat-card {
+			padding: 0.6rem;
 		}
 
-		.protocol-list {
-			grid-template-columns: 1fr;
+		.stat-card strong {
+			font-size: 0.92rem;
 		}
 
-		.custom-monitor,
-		.catalog-panel {
-			scroll-margin-top: 12rem;
+		.stat-card span {
+			font-size: 0.72rem;
+			line-height: 1.25;
+		}
+
+		.latest-alert {
+			white-space: normal;
+		}
+
+		.plan-toggle {
+			grid-template-columns: minmax(0, 1fr) auto;
+			gap: 0.6rem;
+		}
+
+		.plan-footer {
+			display: grid;
+			grid-template-columns: 1fr auto;
+			align-items: center;
+			gap: 0.52rem;
+		}
+
+		.plan-footer.command-footer {
+			grid-template-columns: auto auto auto minmax(0, 1fr);
+			gap: 0.34rem;
+		}
+
+		.command-footer .bot-action {
+			justify-self: end;
+			margin-left: 0;
+		}
+
+		.section-title {
+			display: grid;
 		}
 	}
 </style>
