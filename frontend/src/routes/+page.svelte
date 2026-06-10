@@ -200,7 +200,7 @@
 	}
 
 	function customPlanMonthlyLabel() {
-		const monthly = data.customPlanPricing?.monthly ?? '0.42';
+		const monthly = data.customPlanPricing?.monthly ?? '5';
 		return `${monthly} ${customPlanToken()} / month`;
 	}
 
