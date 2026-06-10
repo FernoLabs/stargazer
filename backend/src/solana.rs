@@ -943,7 +943,9 @@ async fn detect_solana_payments(
                     &payment_link.user_id,
                     &payment_link.plan_id,
                     "solana_pay",
-                    Some(1),
+                    Some(crate::models::payment_plan_duration_months(
+                        &payment_link.plan_id,
+                    )),
                     None,
                 )
                 .await?;

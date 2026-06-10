@@ -224,6 +224,17 @@ export interface PaymentLinkCheckoutResponse {
 	user: FirewatchUser;
 }
 
+export interface UserBillingSummary {
+	active: boolean;
+	credit_months: number;
+	consumed_months: number;
+	balance_months: number;
+	remaining_seconds: number;
+	next_payment_due_at: number | null;
+	entitlements: UserEntitlement[];
+	payment_links: PaymentLink[];
+}
+
 export interface TelegramConfigSession {
 	id: string;
 	user_id: string;
@@ -238,6 +249,7 @@ export interface TelegramConfigSession {
 export interface TelegramConfigSessionResponse {
 	session: TelegramConfigSession;
 	user: FirewatchUser;
+	billing: UserBillingSummary;
 }
 
 export interface SaveTelegramConfigResponse {

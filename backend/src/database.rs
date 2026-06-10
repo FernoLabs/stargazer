@@ -4571,6 +4571,25 @@ impl Database {
         rows.into_iter().map(row_to_user_entitlement).collect()
     }
 
+    pub async fn list_user_entitlements_for_user(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<UserEntitlement>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, user_id, plan_id, source, status, starts_at, expires_at, created_at, updated_at
+            FROM user_entitlements
+            WHERE user_id = ?
+            ORDER BY starts_at DESC, created_at DESC;
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(row_to_user_entitlement).collect()
+    }
+
     pub async fn user_has_active_custom_entitlement(
         &self,
         user_id: &str,
@@ -4651,6 +4670,24 @@ impl Database {
             ORDER BY created_at DESC;
             "#,
         )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(row_to_payment_link).collect()
+    }
+
+    pub async fn list_payment_links_for_user(&self, user_id: &str) -> Result<Vec<PaymentLink>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                id, user_id, plan_id, public_url, solana_pay_url, reference, recipient,
+                amount, spl_token, label, message, memo, status, expires_at, paid_at, created_at
+            FROM payment_links
+            WHERE user_id = ?
+            ORDER BY created_at DESC;
+            "#,
+        )
+        .bind(user_id)
         .fetch_all(&self.pool)
         .await?;
 

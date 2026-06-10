@@ -323,6 +323,25 @@ pub struct PaymentLink {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UserBillingSummary {
+    pub active: bool,
+    pub credit_months: i64,
+    pub consumed_months: i64,
+    pub balance_months: i64,
+    pub remaining_seconds: i64,
+    pub next_payment_due_at: Option<i64>,
+    pub entitlements: Vec<UserEntitlement>,
+    pub payment_links: Vec<PaymentLink>,
+}
+
+pub fn payment_plan_duration_months(plan_id: &str) -> i64 {
+    match plan_id {
+        "paid-year" | "paid_year" | "year" | "yearly" => 12,
+        _ => 1,
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AdminUsersResponse {
     pub users: Vec<FirewatchUser>,
     pub entitlements: Vec<UserEntitlement>,
@@ -377,6 +396,7 @@ pub struct TelegramConfigSession {
 pub struct TelegramConfigSessionResponse {
     pub session: TelegramConfigSession,
     pub user: FirewatchUser,
+    pub billing: UserBillingSummary,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

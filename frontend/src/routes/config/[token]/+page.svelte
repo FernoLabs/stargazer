@@ -1,10 +1,12 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import ProtocolIdentity from '$lib/components/ProtocolIdentity.svelte';
 	import { WalletButton, wallet } from '@fernolab/wallet-adapter-svelte';
 	import { shortAddress } from '$lib/format';
 	import { formatTimestamp } from '$lib/format';
 	import type { PageData } from './$types';
+	import type { PaymentLink } from '$lib/types';
 
 	let {
 		data,
@@ -24,6 +26,89 @@
 	function chatLabel() {
 		if (data.session?.chat_type === 'private') return 'Direct message';
 		return data.session?.chat_title ?? 'Telegram chat';
+	}
+
+	function billing() {
+		return data.billing ?? null;
+	}
+
+	function paymentLinks() {
+		return billing()?.payment_links ?? [];
+	}
+
+	function tokenForPayment(link: { spl_token: string | null }) {
+		if (!link.spl_token) return 'SOL';
+		return link.spl_token === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' ? 'USDC' : 'SPL';
+	}
+
+	function planLabel(planId: string) {
+		if (planId === 'paid-year') return 'Yearly custom watcher';
+		if (planId === 'paid') return 'Monthly custom watcher';
+		return planId.replaceAll('-', ' ');
+	}
+
+	function paymentDisplayStatus(link: { status: string; expires_at: number }) {
+		if (link.status === 'pending' && link.expires_at <= Math.floor(Date.now() / 1000)) {
+			return 'timed_out';
+		}
+		return link.status;
+	}
+
+	function paymentStatusLabel(status: string) {
+		if (status === 'timed_out') return 'Timed out';
+		if (status === 'paid') return 'Paid';
+		if (status === 'pending') return 'Pending';
+		return status.replaceAll('_', ' ');
+	}
+
+	function paymentToken(publicUrl: string) {
+		try {
+			const url = new URL(publicUrl);
+			const token = url.pathname.match(/^\/pay\/([^/]+)$/)?.[1];
+			if (token) return token;
+		} catch {
+			const token = publicUrl.match(/^\/pay\/([^/]+)$/)?.[1];
+			if (token) return token;
+		}
+		return '';
+	}
+
+	function paymentGroups() {
+		const groups = {
+			pending: [],
+			paid: [],
+			timedOut: []
+		} as {
+			pending: PaymentLink[];
+			paid: PaymentLink[];
+			timedOut: PaymentLink[];
+		};
+
+		for (const link of paymentLinks()) {
+			const status = paymentDisplayStatus(link);
+			if (status === 'paid') groups.paid.push(link);
+			else if (status === 'timed_out' || status === 'expired' || status === 'canceled') {
+				groups.timedOut.push(link);
+			} else if (status === 'pending') {
+				groups.pending.push(link);
+			}
+		}
+		return groups;
+	}
+
+	function durationLabel(seconds: number) {
+		if (seconds <= 0) return 'No active time';
+		const days = Math.ceil(seconds / (24 * 60 * 60));
+		if (days >= 60) return `${Math.ceil(days / 30)} months`;
+		if (days >= 2) return `${days} days`;
+		return `${days} day`;
+	}
+
+	function balanceLabel() {
+		const summary = billing();
+		if (!summary) return 'No payment history';
+		if (summary.balance_months <= 0) return 'No paid balance';
+		return `${summary.balance_months} month${summary.balance_months === 1 ? '' : 's'}`;
 	}
 
 	function selectableProtocols() {
@@ -394,6 +479,88 @@
 			</div>
 		</section>
 
+		{#if data.billing}
+			<section class="panel account-panel">
+				<div class="section-head">
+					<h2>Account and payments</h2>
+					<p>Track pending checkouts, paid invoices, timed-out links, and Custom Plan time.</p>
+				</div>
+				<div class="billing-summary-grid">
+					<div>
+						<strong>Access</strong>
+						<span class:active-access={data.billing.active}>
+							{data.billing.active ? 'Active' : 'Not active'}
+						</span>
+					</div>
+					<div>
+						<strong>Balance</strong>
+						<span>{balanceLabel()}</span>
+						<small>{data.billing.credit_months} paid · {data.billing.consumed_months} used</small>
+					</div>
+					<div>
+						<strong>Remaining</strong>
+						<span>{durationLabel(data.billing.remaining_seconds)}</span>
+						{#if data.billing.next_payment_due_at}
+							<small>Due {formatTimestamp(data.billing.next_payment_due_at)}</small>
+						{:else}
+							<small>No next payment due</small>
+						{/if}
+					</div>
+				</div>
+
+				{#if paymentLinks().length > 0}
+					{@const groups = paymentGroups()}
+					<div class="payment-groups">
+						{#if groups.pending.length > 0}
+							<div class="payment-group">
+								<h3>Pending payments</h3>
+								{#each groups.pending as link (link.id)}
+									{@const checkoutToken = paymentToken(link.public_url)}
+									<div class="payment-row">
+										<div>
+											<strong>{link.amount} {tokenForPayment(link)}</strong>
+											<span>{planLabel(link.plan_id)} · expires {formatTimestamp(link.expires_at)}</span>
+										</div>
+											<a href={resolve('/pay/[token]', { token: checkoutToken })}>Open payment</a>
+									</div>
+								{/each}
+							</div>
+						{/if}
+						{#if groups.paid.length > 0}
+							<div class="payment-group">
+								<h3>Paid payments</h3>
+								{#each groups.paid.slice(0, 5) as link (link.id)}
+									<div class="payment-row">
+										<div>
+											<strong>{link.amount} {tokenForPayment(link)}</strong>
+											<span>{planLabel(link.plan_id)} · paid {formatTimestamp(link.paid_at ?? link.created_at)}</span>
+										</div>
+										<span class="payment-status status-paid">{paymentStatusLabel('paid')}</span>
+									</div>
+								{/each}
+							</div>
+						{/if}
+						{#if groups.timedOut.length > 0}
+							<div class="payment-group">
+								<h3>Timed-out payments</h3>
+								{#each groups.timedOut.slice(0, 3) as link (link.id)}
+									<div class="payment-row muted">
+										<div>
+											<strong>{link.amount} {tokenForPayment(link)}</strong>
+											<span>{planLabel(link.plan_id)} · ended {formatTimestamp(link.expires_at)}</span>
+										</div>
+										<span class="payment-status">{paymentStatusLabel(paymentDisplayStatus(link))}</span>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{:else}
+					<p class="empty-payments">No payment links yet. Save a Custom Plan watch to create checkout.</p>
+				{/if}
+			</section>
+		{/if}
+
 		<form class="config-form" method="POST" action="?/save_config">
 			<section class="panel">
 				<div class="section-head">
@@ -577,6 +744,7 @@
 	}
 
 	.session-grid,
+	.billing-summary-grid,
 	.protocol-grid,
 	.program-grid,
 	.field-grid {
@@ -595,6 +763,7 @@
 	}
 
 	.session-grid div,
+	.billing-summary-grid div,
 	.option-row {
 		display: grid;
 		gap: 0.12rem;
@@ -620,9 +789,102 @@
 	.option-row span,
 	.option-row small,
 	.session-grid strong,
-	.session-grid span {
+	.session-grid span,
+	.billing-summary-grid strong,
+	.billing-summary-grid span,
+	.billing-summary-grid small {
 		min-width: 0;
 		overflow-wrap: anywhere;
+	}
+
+	.account-panel {
+		display: grid;
+		gap: 0.85rem;
+	}
+
+	.billing-summary-grid span {
+		font-size: 1.05rem;
+		font-weight: 900;
+		color: #17202a;
+	}
+
+	.billing-summary-grid .active-access {
+		color: #32704c;
+	}
+
+	.payment-groups {
+		display: grid;
+		gap: 0.7rem;
+	}
+
+	.payment-group {
+		display: grid;
+		gap: 0.45rem;
+	}
+
+	.payment-group h3 {
+		margin: 0;
+		font-size: 0.86rem;
+	}
+
+	.payment-row {
+		display: flex;
+		justify-content: space-between;
+		gap: 0.75rem;
+		align-items: center;
+		padding: 0.68rem 0.75rem;
+		border: 1px solid rgba(23, 32, 42, 0.08);
+		border-radius: 8px;
+		background: #fbfaf8;
+	}
+
+	.payment-row.muted {
+		background: #fff;
+		color: #5f6c79;
+	}
+
+	.payment-row div {
+		display: grid;
+		gap: 0.1rem;
+		min-width: 0;
+	}
+
+	.payment-row strong,
+	.payment-row span {
+		overflow-wrap: anywhere;
+	}
+
+	.payment-row > a,
+	.payment-status {
+		flex: 0 0 auto;
+		padding: 0.35rem 0.52rem;
+		border-radius: 999px;
+		border: 1px solid rgba(23, 32, 42, 0.1);
+		background: #fff;
+		color: #17202a;
+		font-size: 0.76rem;
+		font-weight: 850;
+		text-decoration: none;
+	}
+
+	.payment-row > a {
+		border-color: #bd4a17;
+		background: #bd4a17;
+		color: #fff;
+	}
+
+	.status-paid {
+		border-color: rgba(50, 112, 76, 0.18);
+		background: rgba(50, 112, 76, 0.08);
+		color: #32704c;
+	}
+
+	.empty-payments {
+		margin: 0;
+		padding: 0.7rem 0.75rem;
+		border: 1px dashed rgba(23, 32, 42, 0.16);
+		border-radius: 8px;
+		color: #5f6c79;
 	}
 
 	.section-head,
@@ -823,10 +1085,16 @@
 
 	@media (max-width: 840px) {
 		.session-grid,
+		.billing-summary-grid,
 		.protocol-grid,
 		.program-grid,
 		.field-grid {
 			grid-template-columns: 1fr;
+		}
+
+		.payment-row {
+			align-items: start;
+			flex-direction: column;
 		}
 	}
 </style>

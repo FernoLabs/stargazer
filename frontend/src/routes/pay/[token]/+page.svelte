@@ -16,6 +16,7 @@
 		createNoopSigner,
 		createSolanaRpc,
 		createTransactionMessage,
+		getBase58Decoder,
 		getTransactionDecoder,
 		getTransactionEncoder,
 		setTransactionMessageFeePayer,
@@ -44,6 +45,7 @@
 	type RpcEndpoint = Parameters<typeof createSolanaRpc>[0];
 
 	const statusRefreshMs = 10_000;
+	const statusRefreshTimeoutMs = 15_000;
 	const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 	const USDC_DECIMALS = 6;
 	const copyState = $state<Record<CopyTarget, CopyState>>({
@@ -56,6 +58,9 @@
 	let walletPayState = $state<'idle' | 'preparing' | 'sending' | 'sent' | 'error'>('idle');
 	let walletPayMessage = $state<string | null>(null);
 	let walletPayDetail = $state<string | null>(null);
+	let statusRefreshState = $state<'idle' | 'checking' | 'error'>('idle');
+	let statusRefreshMessage = $state<string | null>(null);
+	let submittedSignature = $state<string | null>(null);
 
 	function userLabel() {
 		if (data.user.telegram_username) return `@${data.user.telegram_username}`;
@@ -150,6 +155,9 @@
 		const instructions: Instruction[] = [];
 
 		if (!data.payment_link.spl_token) {
+			if (data.payment_link.memo) {
+				instructions.push(getAddMemoInstruction({ memo: data.payment_link.memo }));
+			}
 			instructions.push(
 				withReadonlyReference(
 					getTransferSolInstruction({
@@ -182,7 +190,12 @@
 					owner: recipient,
 					mint,
 					tokenProgram: TOKEN_PROGRAM_ADDRESS
-				}),
+				})
+			);
+			if (data.payment_link.memo) {
+				instructions.push(getAddMemoInstruction({ memo: data.payment_link.memo }));
+			}
+			instructions.push(
 				withReadonlyReference(
 					getTransferCheckedInstruction({
 						source,
@@ -193,8 +206,7 @@
 						decimals
 					}),
 					reference
-				),
-				getAddMemoInstruction({ memo: data.payment_link.memo })
+				)
 			);
 		}
 
@@ -218,6 +230,12 @@
 			.slice(0, 8)
 			.map((byte) => byte.toString(16).padStart(2, '0'))
 			.join('');
+	}
+
+	function signatureForRefresh(signature: string | Uint8Array | undefined) {
+		if (typeof signature === 'string') return signature;
+		if (signature instanceof Uint8Array) return getBase58Decoder().decode(signature);
+		return null;
 	}
 
 	function walletErrorMessage(error: unknown) {
@@ -351,16 +369,55 @@
 			}
 
 			walletPayState = 'sent';
+			submittedSignature = signatureForRefresh(signature);
 			walletPayMessage = signature
 				? `Transaction submitted: ${signatureLabel(signature)}`
 				: 'Transaction submitted.';
 			walletPayDetail = null;
-			window.setTimeout(() => invalidateAll(), 2500);
+			window.setTimeout(() => {
+				void refreshPaymentStatus(submittedSignature);
+			}, 2500);
 		} catch (error) {
 			const failure = walletErrorMessage(error);
 			walletPayState = 'error';
 			walletPayMessage = failure.message;
 			walletPayDetail = failure.detail === failure.message ? null : failure.detail;
+		}
+	}
+
+	async function refreshPaymentStatus(signature = submittedSignature) {
+		if (statusRefreshState === 'checking') return;
+		statusRefreshState = 'checking';
+		statusRefreshMessage = null;
+		const controller = new AbortController();
+		const timeout = window.setTimeout(() => controller.abort(), statusRefreshTimeoutMs);
+		try {
+			const response = await fetch(
+				`${data.backendBaseUrl}/api/payment-links/by-token/${data.checkout_token}/refresh`,
+				{
+					method: 'POST',
+					headers: {
+						'content-type': 'application/json'
+					},
+					body: JSON.stringify({ signature }),
+					signal: controller.signal
+				}
+			);
+			if (!response.ok) {
+				throw new Error(await response.text());
+			}
+			await invalidateAll();
+			statusRefreshState = 'idle';
+		} catch (error) {
+			statusRefreshState = 'error';
+			statusRefreshMessage =
+				error instanceof DOMException && error.name === 'AbortError'
+					? 'Payment status is still catching up. Try again in a few seconds.'
+					: error instanceof Error && error.message
+						? error.message
+						: 'Payment status refresh failed. Try again in a few seconds.';
+		} finally {
+			window.clearTimeout(timeout);
 		}
 	}
 
@@ -448,7 +505,7 @@
 			}
 
 			if (document.visibilityState === 'visible') {
-				void invalidateAll();
+				void refreshPaymentStatus();
 			}
 		}, statusRefreshMs);
 
@@ -504,10 +561,18 @@
 						{/if}
 					</button>
 				{/if}
-				<button class="secondary-button" type="button" onclick={() => invalidateAll()}>
-					Refresh status
+				<button
+					class="secondary-button"
+					type="button"
+					onclick={() => refreshPaymentStatus()}
+					disabled={statusRefreshState === 'checking'}
+				>
+					{statusRefreshState === 'checking' ? 'Checking...' : 'Refresh status'}
 				</button>
 			</div>
+			{#if statusRefreshMessage}
+				<p class="status-note error">{statusRefreshMessage}</p>
+			{/if}
 			{#if walletPayMessage}
 				<div
 					aria-live="polite"

@@ -1,6 +1,7 @@
 import { env } from '$env/dynamic/private';
 
-export const DEFAULT_CUSTOM_PLAN_MONTHLY_AMOUNT = '0.42';
+export const DEFAULT_CUSTOM_PLAN_MONTHLY_AMOUNT = '5';
+export const DEFAULT_CUSTOM_PLAN_YEARLY_AMOUNT = '50';
 export const DEFAULT_CUSTOM_PLAN_TOKEN = 'USDC';
 
 export type CustomPlanPricing = {
@@ -8,12 +9,6 @@ export type CustomPlanPricing = {
 	monthly: string;
 	yearly: string;
 };
-
-function formatAmount(amount: number) {
-	return Number.isFinite(amount)
-		? amount.toFixed(9).replace(/\.?0+$/, '')
-		: DEFAULT_CUSTOM_PLAN_MONTHLY_AMOUNT;
-}
 
 export function customPlanAmountForBilling(billing: string) {
 	const monthlyAmount =
@@ -26,7 +21,7 @@ export function customPlanAmountForBilling(billing: string) {
 
 	return (
 		env.SOLANA_PAY_CUSTOM_PLAN_YEARLY_AMOUNT?.trim() ||
-		formatAmount(Number(monthlyAmount) * 11)
+		DEFAULT_CUSTOM_PLAN_YEARLY_AMOUNT
 	);
 }
 

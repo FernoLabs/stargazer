@@ -3,8 +3,9 @@ use anyhow::{Context, Result};
 use reqwest::Url;
 use std::{env, fs, path::PathBuf};
 
-const DEFAULT_SOLANA_PAY_RECIPIENT: &str = "9r1Vm5VLywCeCaTqLiJVzvKPup3ywe5CeLdYynR1KkSA";
-const DEFAULT_SOLANA_PAY_AMOUNT: &str = "0.42";
+const DEFAULT_SOLANA_PAY_RECIPIENT: &str = "49mmYSJPUMgu2AcV7u3U3vQ3vean6PbDzV9pw1RmQeQh";
+const DEFAULT_SOLANA_PAY_AMOUNT: &str = "5";
+const DEFAULT_SOLANA_PAY_YEARLY_AMOUNT: &str = "50";
 const DEFAULT_SOLANA_PAY_SPL_TOKEN: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 #[derive(Clone, Debug)]
@@ -108,6 +109,7 @@ impl Config {
                 .map(|value| value.trim().to_owned())
                 .filter(|value| !value.is_empty()),
             solana_pay_custom_plan_yearly_amount: env::var("SOLANA_PAY_CUSTOM_PLAN_YEARLY_AMOUNT")
+                .or_else(|_| Ok::<_, env::VarError>(DEFAULT_SOLANA_PAY_YEARLY_AMOUNT.to_owned()))
                 .ok()
                 .map(|value| value.trim().to_owned())
                 .filter(|value| !value.is_empty()),

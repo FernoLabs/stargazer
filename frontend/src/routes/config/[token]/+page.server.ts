@@ -117,6 +117,7 @@ export const load = (async ({ fetch, params, cookies }) => {
 		error: null,
 		session: payload.session,
 		user: payload.user,
+		billing: payload.billing,
 		customPlanPricing: customPlanPricing()
 	};
 }) satisfies PageServerLoad;

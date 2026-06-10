@@ -118,6 +118,10 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
             get(get_payment_link_checkout),
         )
         .route(
+            "/api/payment-links/by-token/{token}/refresh",
+            axum::routing::post(refresh_payment_link_checkout),
+        )
+        .route(
             "/api/payment-links/by-token/{token}/solana-rpc",
             axum::routing::post(solana_rpc_proxy),
         )
@@ -1326,6 +1330,80 @@ async fn get_payment_link_checkout(
     Ok(Json(PaymentLinkCheckoutResponse { payment_link, user }))
 }
 
+#[derive(Debug, Deserialize)]
+struct RefreshPaymentLinkRequest {
+    signature: Option<String>,
+}
+
+async fn refresh_payment_link_checkout(
+    State(state): State<SharedState>,
+    Path(token): Path<String>,
+    Json(payload): Json<RefreshPaymentLinkRequest>,
+) -> ApiResult<PaymentLinkCheckoutResponse> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Payment link not found.",
+        ));
+    }
+
+    let token_hash = token_hash(token);
+    let Some((payment_link, _user)) = state
+        .db
+        .payment_link_by_token_hash(&token_hash)
+        .await
+        .map_err(internal_error)?
+    else {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Payment link not found.",
+        ));
+    };
+
+    if payment_link.status == "pending"
+        && payment_link.expires_at > crate::models::now_ts()
+        && payment_link_matches_chain_payment(&state, &payment_link, payload.signature.as_deref())
+            .await?
+    {
+        let paid_at = crate::models::now_ts();
+        if state
+            .db
+            .mark_payment_link_paid(&payment_link.id, paid_at)
+            .await
+            .map_err(internal_error)?
+        {
+            state
+                .db
+                .grant_user_entitlement(
+                    &payment_link.user_id,
+                    &payment_link.plan_id,
+                    "solana_pay",
+                    Some(crate::models::payment_plan_duration_months(
+                        &payment_link.plan_id,
+                    )),
+                    None,
+                )
+                .await
+                .map_err(internal_error)?;
+        }
+    }
+
+    let Some((payment_link, user)) = state
+        .db
+        .payment_link_by_token_hash(&token_hash)
+        .await
+        .map_err(internal_error)?
+    else {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Payment link not found.",
+        ));
+    };
+
+    Ok(Json(PaymentLinkCheckoutResponse { payment_link, user }))
+}
+
 async fn solana_rpc_proxy(
     State(state): State<SharedState>,
     Path(token): Path<String>,
@@ -1392,6 +1470,253 @@ async fn solana_rpc_proxy(
     Ok(response)
 }
 
+async fn payment_link_matches_chain_payment(
+    state: &SharedState,
+    payment_link: &PaymentLink,
+    submitted_signature: Option<&str>,
+) -> Result<bool, (StatusCode, Json<serde_json::Value>)> {
+    let mut signatures = submitted_signature
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| vec![value.to_owned()])
+        .unwrap_or_default();
+
+    if signatures.is_empty() {
+        signatures = payment_signatures_for_reference(state, &payment_link.reference).await?;
+    }
+
+    for signature in signatures.into_iter().take(12) {
+        let Some(transaction) = payment_transaction_by_signature(state, &signature).await? else {
+            continue;
+        };
+        if payment_transaction_matches(payment_link, &transaction) {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+async fn payment_signatures_for_reference(
+    state: &SharedState,
+    reference: &str,
+) -> Result<Vec<String>, (StatusCode, Json<serde_json::Value>)> {
+    let payload = json!({
+        "jsonrpc": "2.0",
+        "id": "firewatch-payment-reference",
+        "method": "getSignaturesForAddress",
+        "params": [
+            reference,
+            {
+                "commitment": "finalized",
+                "limit": 12
+            }
+        ]
+    });
+    let response = solana_rpc_json(state, payload).await?;
+    let Some(items) = response.get("result").and_then(serde_json::Value::as_array) else {
+        return Ok(Vec::new());
+    };
+
+    Ok(items
+        .iter()
+        .filter_map(|item| item.get("signature").and_then(serde_json::Value::as_str))
+        .map(str::to_owned)
+        .collect())
+}
+
+async fn payment_transaction_by_signature(
+    state: &SharedState,
+    signature: &str,
+) -> Result<Option<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let payload = json!({
+        "jsonrpc": "2.0",
+        "id": "firewatch-payment-transaction",
+        "method": "getTransaction",
+        "params": [
+            signature,
+            {
+                "encoding": "jsonParsed",
+                "commitment": "finalized",
+                "maxSupportedTransactionVersion": 0
+            }
+        ]
+    });
+    let response = solana_rpc_json(state, payload).await?;
+    Ok(response
+        .get("result")
+        .cloned()
+        .filter(|value| !value.is_null()))
+}
+
+async fn solana_rpc_json(
+    state: &SharedState,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
+    let response = state
+        .http_client
+        .post(&state.config.solana_rpc_http_url)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(internal_error)?;
+    if !response.status().is_success() {
+        warn!(
+            status = %response.status(),
+            "Solana RPC returned HTTP error while refreshing payment link",
+        );
+        return Ok(json!({ "result": null }));
+    }
+
+    response.json().await.map_err(internal_error)
+}
+
+fn payment_transaction_matches(
+    payment_link: &PaymentLink,
+    transaction: &serde_json::Value,
+) -> bool {
+    if !transaction
+        .pointer("/meta/err")
+        .is_some_and(serde_json::Value::is_null)
+    {
+        return false;
+    }
+
+    let account_keys = payment_transaction_account_keys(transaction);
+    if !account_keys
+        .iter()
+        .any(|account| account == &payment_link.reference)
+    {
+        return false;
+    }
+
+    if let Some(spl_token) = payment_link.spl_token.as_deref() {
+        let Some(expected_amount) = decimal_amount_to_base_units(&payment_link.amount, 6) else {
+            return false;
+        };
+        spl_token_delta_to_owner(transaction, spl_token, &payment_link.recipient) >= expected_amount
+    } else {
+        let Some(expected_lamports) = decimal_amount_to_base_units(&payment_link.amount, 9) else {
+            return false;
+        };
+        sol_delta_to_account(transaction, &account_keys, &payment_link.recipient)
+            >= expected_lamports
+    }
+}
+
+fn payment_transaction_account_keys(transaction: &serde_json::Value) -> Vec<String> {
+    transaction
+        .pointer("/transaction/message/accountKeys")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|account| {
+            account
+                .as_str()
+                .or_else(|| account.get("pubkey").and_then(serde_json::Value::as_str))
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+fn spl_token_delta_to_owner(transaction: &serde_json::Value, mint: &str, owner: &str) -> u64 {
+    let pre_balances = transaction
+        .pointer("/meta/preTokenBalances")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    transaction
+        .pointer("/meta/postTokenBalances")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|balance| {
+            balance.get("mint").and_then(serde_json::Value::as_str) == Some(mint)
+                && balance.get("owner").and_then(serde_json::Value::as_str) == Some(owner)
+        })
+        .filter_map(|post| {
+            let account_index = post
+                .get("accountIndex")
+                .and_then(serde_json::Value::as_u64)?;
+            let post_amount = token_balance_amount(post)?;
+            let pre_amount = pre_balances
+                .iter()
+                .find(|pre| {
+                    pre.get("accountIndex").and_then(serde_json::Value::as_u64)
+                        == Some(account_index)
+                })
+                .and_then(token_balance_amount)
+                .unwrap_or(0);
+            Some(post_amount.saturating_sub(pre_amount))
+        })
+        .sum()
+}
+
+fn token_balance_amount(balance: &serde_json::Value) -> Option<u64> {
+    balance
+        .pointer("/uiTokenAmount/amount")
+        .and_then(serde_json::Value::as_str)?
+        .parse()
+        .ok()
+}
+
+fn sol_delta_to_account(
+    transaction: &serde_json::Value,
+    account_keys: &[String],
+    account: &str,
+) -> u64 {
+    let Some(index) = account_keys.iter().position(|key| key == account) else {
+        return 0;
+    };
+    let Some(pre) = transaction
+        .pointer("/meta/preBalances")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|balances| balances.get(index))
+        .and_then(serde_json::Value::as_u64)
+    else {
+        return 0;
+    };
+    let Some(post) = transaction
+        .pointer("/meta/postBalances")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|balances| balances.get(index))
+        .and_then(serde_json::Value::as_u64)
+    else {
+        return 0;
+    };
+
+    post.saturating_sub(pre)
+}
+
+fn decimal_amount_to_base_units(amount: &str, decimals: usize) -> Option<u64> {
+    let amount = amount.trim();
+    if amount.is_empty() || amount.starts_with('-') {
+        return None;
+    }
+
+    let (whole, fraction) = amount.split_once('.').unwrap_or((amount, ""));
+    if whole.is_empty() || !whole.chars().all(|character| character.is_ascii_digit()) {
+        return None;
+    }
+    if !fraction.chars().all(|character| character.is_ascii_digit()) || fraction.len() > decimals {
+        return None;
+    }
+
+    let unit = 10_u64.checked_pow(decimals as u32)?;
+    let whole_units = whole.parse::<u64>().ok()?.checked_mul(unit)?;
+    let mut fractional = fraction.to_owned();
+    while fractional.len() < decimals {
+        fractional.push('0');
+    }
+    let fractional_units = if fractional.is_empty() {
+        0
+    } else {
+        fractional.parse::<u64>().ok()?
+    };
+
+    whole_units.checked_add(fractional_units)
+}
+
 async fn get_config_session(
     State(state): State<SharedState>,
     Path(token): Path<String>,
@@ -1417,7 +1742,85 @@ async fn get_config_session(
         ));
     };
 
-    Ok(Json(TelegramConfigSessionResponse { session, user }))
+    let billing = user_billing_summary(&state, &user.id).await?;
+
+    Ok(Json(TelegramConfigSessionResponse {
+        session,
+        user,
+        billing,
+    }))
+}
+
+const BILLING_MONTH_SECONDS: i64 = 30 * 24 * 60 * 60;
+
+async fn user_billing_summary(
+    state: &SharedState,
+    user_id: &str,
+) -> Result<crate::models::UserBillingSummary, (StatusCode, Json<serde_json::Value>)> {
+    let now = crate::models::now_ts();
+    let entitlements = state
+        .db
+        .list_user_entitlements_for_user(user_id)
+        .await
+        .map_err(internal_error)?;
+    let payment_links = state
+        .db
+        .list_payment_links_for_user(user_id)
+        .await
+        .map_err(internal_error)?;
+
+    let active = entitlements.iter().any(|entitlement| {
+        entitlement.status == "active"
+            && entitlement.starts_at <= now
+            && entitlement
+                .expires_at
+                .is_none_or(|expires_at| expires_at > now)
+    });
+    let paid_links = payment_links
+        .iter()
+        .filter(|payment_link| payment_link.status == "paid")
+        .collect::<Vec<_>>();
+    let credit_months = paid_links
+        .iter()
+        .map(|payment_link| crate::models::payment_plan_duration_months(&payment_link.plan_id))
+        .sum::<i64>();
+    let first_paid_at = paid_links
+        .iter()
+        .filter_map(|payment_link| payment_link.paid_at.or(Some(payment_link.created_at)))
+        .min();
+    let consumed_months = first_paid_at
+        .map(|paid_at| ((now - paid_at).max(0) / BILLING_MONTH_SECONDS).min(credit_months))
+        .unwrap_or(0);
+    let next_payment_due_at = entitlements
+        .iter()
+        .filter(|entitlement| {
+            entitlement.status == "active"
+                && entitlement.starts_at <= now
+                && entitlement
+                    .expires_at
+                    .is_some_and(|expires_at| expires_at > now)
+        })
+        .filter_map(|entitlement| entitlement.expires_at)
+        .max();
+    let remaining_seconds = next_payment_due_at
+        .map(|expires_at| (expires_at - now).max(0))
+        .unwrap_or(0);
+    let balance_months = if remaining_seconds > 0 {
+        ((remaining_seconds + BILLING_MONTH_SECONDS - 1) / BILLING_MONTH_SECONDS).max(0)
+    } else {
+        (credit_months - consumed_months).max(0)
+    };
+
+    Ok(crate::models::UserBillingSummary {
+        active,
+        credit_months,
+        consumed_months,
+        balance_months,
+        remaining_seconds,
+        next_payment_due_at,
+        entitlements,
+        payment_links,
+    })
 }
 
 async fn save_config_session(

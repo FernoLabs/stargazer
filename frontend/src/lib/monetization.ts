@@ -36,7 +36,7 @@ export const firewatchPlans: FireWatchPlan[] = [
 	{
 		id: 'paid',
 		name: 'Paid custom auto-tracked watcher',
-		price: '0.42 USDC',
+		price: '5 USDC',
 		priceNote: 'per month',
 		description:
 			'Custom watcher rules plus automatic protocol subscription when tracked wallets touch supported protocols.',
