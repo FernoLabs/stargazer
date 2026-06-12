@@ -40,7 +40,7 @@
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
-	type CopyTarget = 'recipient' | 'reference' | 'memo' | 'mint' | 'checklist';
+	type CopyTarget = 'recipient' | 'reference' | 'memo' | 'mint' | 'checklist' | 'debug';
 	type CopyState = 'idle' | 'copied' | 'error';
 	type RpcEndpoint = Parameters<typeof createSolanaRpc>[0];
 
@@ -53,7 +53,8 @@
 		reference: 'idle',
 		memo: 'idle',
 		mint: 'idle',
-		checklist: 'idle'
+		checklist: 'idle',
+		debug: 'idle'
 	});
 	let walletPayState = $state<'idle' | 'preparing' | 'sending' | 'sent' | 'error'>('idle');
 	let walletPayMessage = $state<string | null>(null);
@@ -256,14 +257,14 @@
 			};
 		}
 
-		if (normalized.includes('403') || normalized.includes('forbidden')) {
+		if (normalized.includes('403') || normalized.includes('forbidden') || normalized.includes('#8100002')) {
 			return {
-				message: 'The Solana RPC rejected the payment request. Refresh the page and try again.',
+				message: 'The checkout RPC rejected the payment request. This is a backend RPC issue, not a wallet decode issue.',
 				detail: raw
 			};
 		}
 
-		if (normalized.includes('decode') || normalized.includes('#8100002')) {
+		if (normalized.includes('decode')) {
 			return {
 				message: 'The wallet could not decode this payment transaction. Try updating the wallet app or use another Solana wallet.',
 				detail: raw
@@ -295,6 +296,43 @@
 			message: 'Payment failed. Try again or use another wallet.',
 			detail: raw
 		};
+	}
+
+	function backendErrorMessage(raw: string) {
+		try {
+			const parsed = JSON.parse(raw) as { error?: string; message?: string };
+			return parsed.error || parsed.message || raw;
+		} catch {
+			return raw;
+		}
+	}
+
+	function paymentDebugText() {
+		return JSON.stringify(
+			{
+				status: data.payment_link.status,
+				amount: data.payment_link.amount,
+				token: tokenLabel(),
+				mint: data.payment_link.spl_token,
+				recipient: data.payment_link.recipient,
+				reference: data.payment_link.reference,
+				memo: data.payment_link.memo,
+				submittedSignature,
+				wallet: {
+					connected: wallet.connected,
+					publicKey: wallet.publicKey,
+					name: wallet.standardWallet?.name,
+					chains: wallet.standardAccount?.chains
+				},
+				paymentState: walletPayState,
+				paymentMessage: walletPayMessage,
+				paymentDetail: walletPayDetail,
+				refreshState: statusRefreshState,
+				refreshMessage: statusRefreshMessage
+			},
+			null,
+			2
+		);
 	}
 
 	async function payWithConnectedWallet() {
@@ -404,7 +442,16 @@
 				}
 			);
 			if (!response.ok) {
-				throw new Error(await response.text());
+				throw new Error(backendErrorMessage(await response.text()));
+			}
+			const payload = (await response.json()) as { payment_link?: { status?: string } };
+			if (payload.payment_link?.status !== 'paid') {
+				statusRefreshState = 'error';
+				statusRefreshMessage = signature
+					? `Transaction ${shortAddress(signature)} is not finalized or does not match this checkout yet. Check recipient, reference, memo, amount, and token.`
+					: 'No finalized matching transaction found yet. Try again after the wallet confirms the transaction.';
+				await invalidateAll();
+				return;
 			}
 			await invalidateAll();
 			statusRefreshState = 'idle';
@@ -566,10 +613,17 @@
 					type="button"
 					onclick={() => refreshPaymentStatus()}
 					disabled={statusRefreshState === 'checking'}
-				>
-					{statusRefreshState === 'checking' ? 'Checking...' : 'Refresh status'}
-				</button>
-			</div>
+					>
+						{statusRefreshState === 'checking' ? 'Checking...' : 'Refresh status'}
+					</button>
+					<button
+						class="secondary-button"
+						type="button"
+						onclick={() => copyText('debug', paymentDebugText())}
+					>
+						{copyButtonLabel('debug', 'Copy debug')}
+					</button>
+				</div>
 			{#if statusRefreshMessage}
 				<p class="status-note error">{statusRefreshMessage}</p>
 			{/if}
@@ -582,10 +636,10 @@
 				>
 					<strong>{walletPayMessage}</strong>
 					{#if walletPayDetail}
-						<details>
-							<summary>Technical details</summary>
-							<code>{walletPayDetail}</code>
-						</details>
+							<details>
+								<summary>Technical details</summary>
+								<pre>{walletPayDetail}</pre>
+							</details>
 					{/if}
 				</div>
 			{/if}
@@ -736,6 +790,11 @@
 		align-content: start;
 	}
 
+	.payment-panel {
+		position: sticky;
+		top: calc(var(--fw-header-height, 0px) + 0.75rem);
+	}
+
 	.payment-head {
 		display: flex;
 		align-items: flex-start;
@@ -807,14 +866,19 @@
 		font-weight: 800;
 	}
 
-	.wallet-status code {
+	.wallet-status pre {
 		display: block;
 		max-height: 8rem;
 		overflow: auto;
+		margin: 0;
 		padding: 0.58rem 0.62rem;
 		border-radius: 8px;
 		background: rgba(255, 255, 255, 0.64);
 		white-space: pre-wrap;
+		font: inherit;
+		font-family: 'IBM Plex Mono', 'SFMono-Regular', monospace;
+		font-size: 0.78rem;
+		line-height: 1.45;
 	}
 
 	.status,
@@ -979,6 +1043,10 @@
 		.payment-grid,
 		.onboarding-steps {
 			grid-template-columns: 1fr;
+		}
+
+		.payment-panel {
+			position: static;
 		}
 	}
 

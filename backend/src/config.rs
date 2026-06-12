@@ -7,6 +7,7 @@ const DEFAULT_SOLANA_PAY_RECIPIENT: &str = "49mmYSJPUMgu2AcV7u3U3vQ3vean6PbDzV9p
 const DEFAULT_SOLANA_PAY_AMOUNT: &str = "5";
 const DEFAULT_SOLANA_PAY_YEARLY_AMOUNT: &str = "50";
 const DEFAULT_SOLANA_PAY_SPL_TOKEN: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const DEFAULT_SOLANA_PAY_RPC_HTTP_URL: &str = "https://jenifer-6iwpyb-fast-mainnet.helius-rpc.com";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -17,6 +18,7 @@ pub struct Config {
     pub solana_grpc_endpoint: String,
     pub solana_grpc_x_token: Option<String>,
     pub solana_rpc_http_url: String,
+    pub solana_pay_rpc_http_url: String,
     pub solana_explorer_base_url: String,
     pub solana_explorer_cluster: String,
     pub telegram_bot_token: Option<String>,
@@ -52,6 +54,10 @@ impl Config {
             .unwrap_or_else(|| {
                 derive_rpc_http_url(&solana_grpc_endpoint, solana_grpc_x_token.as_deref())
             });
+        let solana_pay_rpc_http_url = env::var("SOLANA_PAY_RPC_HTTP_URL")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_SOLANA_PAY_RPC_HTTP_URL.to_owned());
         let solana_explorer_cluster = env::var("SOLANA_EXPLORER_CLUSTER")
             .ok()
             .filter(|value| !value.trim().is_empty())
@@ -70,6 +76,7 @@ impl Config {
             solana_grpc_endpoint,
             solana_grpc_x_token,
             solana_rpc_http_url,
+            solana_pay_rpc_http_url,
             solana_explorer_base_url: env::var("SOLANA_EXPLORER_BASE_URL")
                 .unwrap_or_else(|_| "https://explorer.solana.com".to_owned()),
             solana_explorer_cluster,

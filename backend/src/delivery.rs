@@ -1137,6 +1137,8 @@ mod tests {
             solana_grpc_endpoint: "https://example.invalid".to_owned(),
             solana_grpc_x_token: None,
             solana_rpc_http_url: "https://example.invalid".to_owned(),
+            solana_pay_rpc_http_url: "https://jenifer-6iwpyb-fast-mainnet.helius-rpc.com"
+                .to_owned(),
             solana_explorer_base_url: "https://explorer.solana.com".to_owned(),
             solana_explorer_cluster: "mainnet-beta".to_owned(),
             telegram_bot_token: None,

@@ -479,6 +479,15 @@
 			</div>
 		</section>
 
+		<div class="setup-sticky">
+			<div>
+				<strong>Custom Plan setup</strong>
+				<span>{billingAmountLine('month') ?? 'Monthly'} / {billingAmountLine('year') ?? 'Yearly'}</span>
+			</div>
+			<a href="#billing">Billing</a>
+			<button type="submit" form="config-form">Save and continue</button>
+		</div>
+
 		{#if data.billing}
 			<section class="panel account-panel">
 				<div class="section-head">
@@ -561,7 +570,7 @@
 			</section>
 		{/if}
 
-		<form class="config-form" method="POST" action="?/save_config">
+		<form id="config-form" class="config-form" method="POST" action="?/save_config">
 			<section class="panel">
 				<div class="section-head">
 					<h2>Protocols</h2>
@@ -683,7 +692,7 @@
 				</div>
 			</section>
 
-				<section class="panel checkout-panel">
+				<section id="billing" class="panel checkout-panel">
 					<div class="section-head">
 						<h2>Billing</h2>
 						<p>
@@ -741,6 +750,42 @@
 		background: #fff;
 		border: 1px solid rgba(23, 32, 42, 0.08);
 		border-radius: 10px;
+	}
+
+	.setup-sticky {
+		position: sticky;
+		top: calc(var(--fw-header-height, 0px) + 0.5rem);
+		z-index: 4;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto auto;
+		align-items: center;
+		gap: 0.68rem;
+		padding: 0.72rem;
+		border: 1px solid rgba(189, 74, 23, 0.18);
+		border-radius: 10px;
+		background: rgba(255, 252, 248, 0.96);
+		box-shadow: 0 10px 26px rgba(23, 32, 42, 0.08);
+		backdrop-filter: blur(10px);
+	}
+
+	.setup-sticky div {
+		display: grid;
+		gap: 0.08rem;
+		min-width: 0;
+	}
+
+	.setup-sticky span {
+		color: #5f6c79;
+		font-size: 0.82rem;
+		font-weight: 700;
+	}
+
+	.setup-sticky a {
+		color: #7b5b45;
+		font-size: 0.82rem;
+		font-weight: 800;
+		text-decoration: underline;
+		text-underline-offset: 0.14em;
 	}
 
 	.session-grid,
@@ -1084,6 +1129,16 @@
 	}
 
 	@media (max-width: 840px) {
+		.setup-sticky {
+			grid-template-columns: 1fr;
+			align-items: stretch;
+		}
+
+		.setup-sticky button {
+			width: 100%;
+			justify-self: stretch;
+		}
+
 		.session-grid,
 		.billing-summary-grid,
 		.protocol-grid,

@@ -319,7 +319,7 @@
 	<meta name="twitter:image" content={previewImageUrl()} />
 </svelte:head>
 
-<WalletProvider rpcEndpoint="https://api.mainnet-beta.solana.com">
+<WalletProvider rpcEndpoint="https://jenifer-6iwpyb-fast-mainnet.helius-rpc.com">
 <div class="shell">
 	<header class="topbar" class:home-overlay={isHomePage} class:revealed={showTopbar}>
 		<div

@@ -1454,7 +1454,7 @@ async fn solana_rpc_proxy(
 
     let upstream = state
         .http_client
-        .post(&state.config.solana_rpc_http_url)
+        .post(&state.config.solana_pay_rpc_http_url)
         .json(&payload)
         .send()
         .await
@@ -1555,20 +1555,40 @@ async fn solana_rpc_json(
 ) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
     let response = state
         .http_client
-        .post(&state.config.solana_rpc_http_url)
+        .post(&state.config.solana_pay_rpc_http_url)
         .json(&payload)
         .send()
         .await
         .map_err(internal_error)?;
     if !response.status().is_success() {
+        let upstream_status = response.status();
+        let body = response.text().await.unwrap_or_default();
         warn!(
-            status = %response.status(),
+            status = %upstream_status,
             "Solana RPC returned HTTP error while refreshing payment link",
         );
-        return Ok(json!({ "result": null }));
+        return Err(error_response(
+            StatusCode::BAD_GATEWAY,
+            &format!(
+                "Solana RPC returned HTTP {} while checking payment status: {}",
+                upstream_status.as_u16(),
+                body.chars().take(500).collect::<String>()
+            ),
+        ));
     }
 
-    response.json().await.map_err(internal_error)
+    let json = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(internal_error)?;
+    if let Some(error) = json.get("error") {
+        return Err(error_response(
+            StatusCode::BAD_GATEWAY,
+            &format!("Solana RPC error while checking payment status: {}", error),
+        ));
+    }
+
+    Ok(json)
 }
 
 fn payment_transaction_matches(

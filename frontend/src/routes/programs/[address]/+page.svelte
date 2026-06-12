@@ -20,6 +20,8 @@
 	let nextOffsetOverride = $state<number | null | undefined>(undefined);
 	let loadingMore = $state(false);
 	let loadMoreError = $state<string | null>(null);
+	let searchQuery = $state('');
+	let activityFilter = $state<'all' | 'critical' | 'high' | 'standard'>('all');
 
 	type InstructionFlagRow = {
 		name: string;
@@ -155,6 +157,40 @@
 		return allEvents().filter((event) => eventPayloadString(event, 'instruction_name') === instruction);
 	}
 
+	function normalizedSearch() {
+		return searchQuery.trim().toLowerCase();
+	}
+
+	function textMatchesSearch(...values: Array<string | number | null | undefined>) {
+		const query = normalizedSearch();
+		if (!query) return true;
+		return values
+			.filter((value) => value !== null && value !== undefined)
+			.map(String)
+			.some((value) => value.toLowerCase().includes(query));
+	}
+
+	function eventMatchesFilter(event: ChainEvent) {
+		if (activityFilter === 'all') return true;
+		return event.tags.includes(`severity:${activityFilter}`);
+	}
+
+	function eventMatchesSearch(event: ChainEvent) {
+		return textMatchesSearch(
+			event.summary,
+			event.kind,
+			event.signature,
+			event.target_address,
+			event.actor,
+			event.tags.join(' '),
+			eventPayloadString(event, 'instruction_name')
+		);
+	}
+
+	function filteredEvents() {
+		return allEvents().filter((event) => eventMatchesFilter(event) && eventMatchesSearch(event));
+	}
+
 	function metricAlertEvents() {
 		return allEvents().filter(
 			(event) => event.kind === 'program_metric_alert' || event.tags.includes('signal:metric_anomaly')
@@ -190,6 +226,58 @@
 				if (left.admin !== right.admin) return left.admin ? -1 : 1;
 				return left.name.localeCompare(right.name);
 			});
+	}
+
+	function filteredInstructionFlagRows() {
+		return instructionFlagRows().filter((row) =>
+			textMatchesSearch(
+				row.name,
+				readableInstructionName(row.name),
+				row.admin ? 'admin' : '',
+				row.highImpact ? 'critical high impact' : ''
+			)
+		);
+	}
+
+	function showUnknownInstructionRow() {
+		return textMatchesSearch('unknown discriminator', 'not in current catalog or IDL', 'critical');
+	}
+
+	function filteredAmountTriggers() {
+		return data.protocol.amount_triggers.filter((trigger) =>
+			textMatchesSearch(trigger.label, trigger.description)
+		);
+	}
+
+	function filteredMetricAlertEvents() {
+		return metricAlertEvents().filter(eventMatchesSearch);
+	}
+
+	function filteredVersions() {
+		return data.versions.filter((version) =>
+			textMatchesSearch(
+				versionLabel(version),
+				version.slot,
+				version.signature,
+				version.loader,
+				version.program_sha256,
+				version.program_len
+			)
+		);
+	}
+
+	function filteredIdlVersions() {
+		return data.idlVersions.filter((version) =>
+			textMatchesSearch(
+				originLabel(version.origin),
+				version.slot,
+				version.signature,
+				version.kind,
+				version.idl_sha256,
+				version.idl_len,
+				version.compression
+			)
+		);
 	}
 
 	function instructionMapDescription() {
@@ -358,6 +446,39 @@
 		{/if}
 	</section>
 
+	<section class="panel filter-panel">
+		<label class="search-field">
+			<span>Filter this program page</span>
+			<input
+				type="search"
+				bind:value={searchQuery}
+				placeholder="Search instruction, signature, slot, hash, signer..."
+			/>
+		</label>
+		<div class="filter-chips" aria-label="Activity filters">
+			<button class:active={activityFilter === 'all'} type="button" onclick={() => (activityFilter = 'all')}>
+				All activity
+			</button>
+			<button
+				class:active={activityFilter === 'critical'}
+				type="button"
+				onclick={() => (activityFilter = 'critical')}
+			>
+				Critical
+			</button>
+			<button class:active={activityFilter === 'high'} type="button" onclick={() => (activityFilter = 'high')}>
+				High
+			</button>
+			<button
+				class:active={activityFilter === 'standard'}
+				type="button"
+				onclick={() => (activityFilter = 'standard')}
+			>
+				Standard
+			</button>
+		</div>
+	</section>
+
 	<section class="overview-grid">
 		<article class="panel">
 			<SectionHeader title="Program state" description={latestUpdateDescription()} compact />
@@ -452,11 +573,11 @@
 					<p>Cataloged instructions that FireWatch treats as privileged or high-impact.</p>
 				</div>
 
-				{#if instructionFlagRows().length === 0 && !data.protocol.unknown_alerts}
+				{#if filteredInstructionFlagRows().length === 0 && (!data.protocol.unknown_alerts || !showUnknownInstructionRow())}
 					<p class="empty-state">No admin or critical instruction flags are cataloged yet.</p>
 				{:else}
 					<div class="instruction-list">
-						{#each instructionFlagRows() as row (row.name)}
+						{#each filteredInstructionFlagRows() as row (row.name)}
 							<div class="instruction-row">
 								<div class="instruction-copy">
 									<strong>{readableInstructionName(row.name)}</strong>
@@ -478,7 +599,7 @@
 								</div>
 							</div>
 						{/each}
-						{#if data.protocol.unknown_alerts}
+						{#if data.protocol.unknown_alerts && showUnknownInstructionRow()}
 							<div class="instruction-row">
 								<div class="instruction-copy">
 									<strong>Unknown discriminator</strong>
@@ -502,11 +623,11 @@
 					<p>Rules that only alert when a decoded value crosses an abnormal threshold.</p>
 				</div>
 
-				{#if data.protocol.amount_triggers.length === 0 && metricAlertEvents().length === 0}
+				{#if filteredAmountTriggers().length === 0 && filteredMetricAlertEvents().length === 0}
 					<p class="empty-state">No amount or value rules are cataloged for this protocol yet.</p>
 				{:else}
 					<div class="instruction-list">
-						{#each data.protocol.amount_triggers as trigger (`${trigger.label}:${trigger.description}`)}
+						{#each filteredAmountTriggers() as trigger (`${trigger.label}:${trigger.description}`)}
 							<div class="instruction-row">
 								<div class="instruction-copy">
 									<strong>{trigger.label}</strong>
@@ -517,7 +638,7 @@
 								</div>
 							</div>
 						{/each}
-						{#each metricAlertEvents().slice(0, 4) as event (event.id)}
+						{#each filteredMetricAlertEvents().slice(0, 4) as event (event.id)}
 							<a class="instruction-row event-link" href={eventDetailHref(event)}>
 								<div class="instruction-copy">
 									<strong>{metricEventTitle(event)}</strong>
@@ -548,14 +669,16 @@
 			<p class="flash error">Versions unavailable: {data.versionsError}</p>
 		{:else if data.versions.length === 0}
 			<p class="empty-state">No extracted program versions for this address yet.</p>
+		{:else if filteredVersions().length === 0}
+			<p class="empty-state">No program versions match the current filter.</p>
 		{:else}
 			<div class="version-list">
-				{#each data.versions as version, index (version.id)}
+				{#each filteredVersions() as version (version.id)}
 					<div class="version-row">
 						<div class="version-main">
 							<div class="version-title">
 								<strong>{versionLabel(version)}</strong>
-								{#if index === 0}
+								{#if version.id === latestVersion()?.id}
 									<span class="latest-pill">Latest</span>
 								{/if}
 								<span>slot {version.slot}</span>
@@ -617,9 +740,11 @@
 
 			{#if data.idlVersionsError}
 				<p class="flash error">IDL versions unavailable: {data.idlVersionsError}</p>
+			{:else if filteredIdlVersions().length === 0}
+				<p class="empty-state">No IDL versions match the current filter.</p>
 			{:else}
 				<div class="version-list">
-					{#each data.idlVersions as version (version.id)}
+					{#each filteredIdlVersions() as version (version.id)}
 						<div class="version-row">
 							<div class="version-main">
 								<div class="version-title">
@@ -678,7 +803,7 @@
 	<section class="panel">
 		<SectionHeader
 			title="Recent activity"
-			description={`${allEvents().length} recent events on this program.`}
+			description={`${filteredEvents().length} of ${allEvents().length} loaded events match.`}
 			href={`/events?target=${data.program.program_id}&scope=programs`}
 			hrefLabel="Open full activity"
 			compact
@@ -686,9 +811,11 @@
 
 		{#if allEvents().length === 0}
 			<p class="empty-state">No recent events on this program yet.</p>
+		{:else if filteredEvents().length === 0}
+			<p class="empty-state">No loaded events match the current filter.</p>
 		{:else}
 			<div class="event-list">
-				{#each allEvents() as event (event.id)}
+				{#each filteredEvents() as event (event.id)}
 					<ActivityEventRow
 						{event}
 						explorerCluster={data.explorerCluster}
@@ -788,6 +915,68 @@
 		gap: 0.52rem;
 	}
 
+	.filter-panel {
+		display: grid;
+		grid-template-columns: minmax(18rem, 1fr) auto;
+		align-items: end;
+		gap: 0.76rem;
+	}
+
+	.search-field {
+		display: grid;
+		gap: 0.28rem;
+		min-width: 0;
+	}
+
+	.search-field span {
+		color: #5f6c79;
+		font-size: 0.78rem;
+		font-weight: 800;
+	}
+
+	.search-field input {
+		width: 100%;
+		min-height: 2.5rem;
+		padding: 0 0.76rem;
+		border: 1px solid rgba(23, 32, 42, 0.12);
+		border-radius: 8px;
+		background: #fff;
+		color: #17202a;
+		font: inherit;
+		font-size: 0.9rem;
+	}
+
+	.search-field input:focus {
+		outline: 2px solid rgba(189, 74, 23, 0.18);
+		border-color: rgba(189, 74, 23, 0.55);
+	}
+
+	.filter-chips {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		gap: 0.42rem;
+	}
+
+	.filter-chips button {
+		min-height: 2.2rem;
+		padding: 0 0.68rem;
+		border: 1px solid rgba(23, 32, 42, 0.12);
+		border-radius: 8px;
+		background: #fff;
+		color: #556473;
+		font: inherit;
+		font-size: 0.8rem;
+		font-weight: 800;
+		cursor: pointer;
+	}
+
+	.filter-chips button.active {
+		border-color: #bd4a17;
+		background: #bd4a17;
+		color: #fff;
+	}
+
 	.stats-strip {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -849,6 +1038,21 @@
 		border-radius: 8px;
 		background: #fbfaf8;
 		border: 1px solid rgba(23, 32, 42, 0.08);
+	}
+
+	.version-list {
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+		align-items: stretch;
+	}
+
+	.version-row {
+		grid-template-columns: minmax(0, 1fr);
+		align-content: space-between;
+		min-height: 11rem;
+	}
+
+	.version-actions {
+		margin-top: 0.12rem;
 	}
 
 	.signer-copy,
@@ -1053,8 +1257,13 @@
 
 	@media (max-width: 980px) {
 		.overview-grid,
-		.instruction-grid {
+		.instruction-grid,
+		.filter-panel {
 			grid-template-columns: 1fr;
+		}
+
+		.filter-chips {
+			justify-content: flex-start;
 		}
 	}
 
