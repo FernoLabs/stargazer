@@ -45,6 +45,7 @@
 		{ href: '/', label: 'Watch' },
 		{ href: '/protocols', label: 'Protocols' },
 		{ href: '/events', label: 'Activity' },
+		{ href: '/incidents', label: 'Incidents' },
 		{ href: '/programs', label: 'Programs' },
 		{ href: '/about', label: 'About' }
 	];
