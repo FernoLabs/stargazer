@@ -1,7 +1,10 @@
 use crate::{
     anchor_idl::{self, AnchorIdlInstructionKind, ParsedAnchorIdlInstruction},
     context::SharedState,
-    database::{BlockTimeUpdateReport, apply_idl_version_payload, apply_program_version_payload},
+    database::{
+        BlockTimeUpdateReport, ProgramActivityState, apply_idl_version_payload,
+        apply_program_version_payload,
+    },
     delivery,
     models::{
         ChainEvent, MetricAlertRule, ProgramDataWrite, ProgramIdlDataWrite,
@@ -49,6 +52,7 @@ const SPL_TOKEN_DECIMALS: usize = 6;
 const KAMINO_LEND_SLUG: &str = "kamino_lend";
 const ORCA_WHIRLPOOLS_SLUG: &str = "orca_whirlpools";
 const BLOCK_TIME_REPAIR_CONCURRENCY: usize = 8;
+const DORMANT_PROGRAM_ACTIVITY_SECONDS: i64 = 30 * 24 * 60 * 60;
 const ORCA_OFFICIAL_WHIRLPOOLS_CONFIGS: &[(&str, &str)] = &[
     (
         "2LecshUwdy9xi7meFgHtFJQNSKk4KdTrcpvaB56dP2NQ",
@@ -145,8 +149,22 @@ struct KaminoReserveConfigUpdate {
 struct ParsedTransactionArtifacts {
     events: Vec<ChainEvent>,
     metric_observations: Vec<ProtocolMetricObservation>,
+    program_activities: Vec<ProgramActivityObservation>,
     program_data_writes: Vec<ProgramDataWrite>,
     program_idl_data_writes: Vec<ProgramIdlDataWrite>,
+}
+
+#[derive(Clone, Debug)]
+struct ProgramActivityObservation {
+    program_id: Pubkey,
+    protocol_slug: String,
+    protocol_name: String,
+    program_label: String,
+    instruction_path: String,
+    instruction_name: Option<String>,
+    discriminator: Option<String>,
+    slot: u64,
+    block_time: Option<i64>,
 }
 
 struct ParsedInstructionArtifacts {
@@ -744,6 +762,31 @@ pub(crate) async fn ingest_resolved_transaction(
         }
     }
 
+    for activity in parsed.program_activities {
+        let previous_activity = state
+            .db
+            .observe_program_activity(
+                &activity.program_id.to_string(),
+                Some(&activity.protocol_slug),
+                Some(&activity.protocol_name),
+                Some(&activity.program_label),
+                &tx.signature,
+                &activity.instruction_path,
+                activity.slot as i64,
+                activity.block_time,
+            )
+            .await
+            .context("observe program activity")?;
+
+        if let Some(event) =
+            build_dormant_program_activity_event(tx, &activity, previous_activity.as_ref())
+        {
+            result.parsed_event_count += 1;
+            result.matched = true;
+            events.push(event);
+        }
+    }
+
     for event in events {
         let mut event = event;
         if let Some(summary) = state
@@ -807,10 +850,16 @@ async fn parse_transaction_events(
 ) -> Result<ParsedTransactionArtifacts> {
     let mut events = Vec::new();
     let mut metric_observations = Vec::new();
+    let mut program_activities = Vec::new();
     let mut program_data_writes = Vec::new();
     let mut program_idl_data_writes = Vec::new();
 
     for (index, instruction) in tx.top_level_instructions.iter().enumerate() {
+        if let Some(activity) =
+            program_activity_observation(tx, instruction, slot, block_time, &index.to_string())
+        {
+            program_activities.push(activity);
+        }
         let mut top_level_artifacts = parse_instruction(
             state.clone(),
             tx,
@@ -838,6 +887,11 @@ async fn parse_transaction_events(
             )?;
             for (inner_index, inner_instruction) in inner_set.instructions.iter().enumerate() {
                 let path = format!("{index}.{inner_index}");
+                if let Some(activity) =
+                    program_activity_observation(tx, inner_instruction, slot, block_time, &path)
+                {
+                    program_activities.push(activity);
+                }
                 let artifacts = parse_instruction(
                     state.clone(),
                     tx,
@@ -871,6 +925,7 @@ async fn parse_transaction_events(
     Ok(ParsedTransactionArtifacts {
         events,
         metric_observations,
+        program_activities,
         program_data_writes,
         program_idl_data_writes,
     })
@@ -3627,6 +3682,113 @@ fn program_id(tx: &ResolvedTransaction, instruction: &ResolvedInstruction) -> Op
 
 fn parse_pubkey(bytes: &[u8]) -> Result<Pubkey> {
     Pubkey::try_from(bytes).map_err(|error| anyhow!("invalid pubkey: {error}"))
+}
+
+fn program_activity_observation(
+    tx: &ResolvedTransaction,
+    instruction: &ResolvedInstruction,
+    slot: u64,
+    block_time: Option<i64>,
+    instruction_path: &str,
+) -> Option<ProgramActivityObservation> {
+    let program_id = program_id(tx, instruction)?;
+    let protocol = protocols::protocol_for_program(program_id)?;
+    let signal = protocols::resolve_protocol_instruction(program_id, &instruction.data);
+
+    Some(ProgramActivityObservation {
+        program_id,
+        protocol_slug: protocol.slug,
+        protocol_name: protocol.name,
+        program_label: protocol.program_label,
+        instruction_path: instruction_path.to_owned(),
+        instruction_name: signal
+            .as_ref()
+            .and_then(|signal| signal.instruction_name.clone()),
+        discriminator: signal.map(|signal| signal.discriminator_hex),
+        slot,
+        block_time,
+    })
+}
+
+fn build_dormant_program_activity_event(
+    tx: &ResolvedTransaction,
+    activity: &ProgramActivityObservation,
+    previous_activity: Option<&ProgramActivityState>,
+) -> Option<ChainEvent> {
+    let previous_activity = previous_activity?;
+    if previous_activity.last_slot >= activity.slot as i64 {
+        return None;
+    }
+
+    let current_time = activity.block_time?;
+    let previous_time = previous_activity.last_block_time?;
+    let dormant_seconds = current_time - previous_time;
+    if dormant_seconds < DORMANT_PROGRAM_ACTIVITY_SECONDS {
+        return None;
+    }
+
+    let dormant_days = dormant_seconds / (24 * 60 * 60);
+    let mut payload = json!({
+        "program": activity.program_id.to_string(),
+        "program_label": activity.program_label,
+        "protocol": activity.protocol_slug,
+        "protocol_name": activity.protocol_name,
+        "classification": "dormant_activity",
+        "severity": "high",
+        "dormant_seconds": dormant_seconds,
+        "dormant_days": dormant_days,
+        "previous_program": previous_activity.program_id,
+        "previous_signature": previous_activity.last_signature,
+        "previous_instruction_path": previous_activity.last_instruction_path,
+        "previous_slot": previous_activity.last_slot,
+        "previous_block_time": previous_activity.last_block_time,
+        "previous_updated_at": previous_activity.updated_at,
+        "threshold_seconds": DORMANT_PROGRAM_ACTIVITY_SECONDS,
+    });
+
+    if let Some(object) = payload.as_object_mut() {
+        if let Some(protocol_slug) = &previous_activity.protocol_slug {
+            object.insert("previous_protocol".to_owned(), json!(protocol_slug));
+        }
+        if let Some(protocol_name) = &previous_activity.protocol_name {
+            object.insert("previous_protocol_name".to_owned(), json!(protocol_name));
+        }
+        if let Some(program_label) = &previous_activity.program_label {
+            object.insert("previous_program_label".to_owned(), json!(program_label));
+        }
+        if let Some(instruction_name) = &activity.instruction_name {
+            object.insert("instruction_name".to_owned(), json!(instruction_name));
+        }
+        if let Some(discriminator) = &activity.discriminator {
+            object.insert("discriminator".to_owned(), json!(discriminator));
+        }
+    }
+
+    Some(build_event(
+        tx,
+        event_kind::PROGRAM_DORMANT_ACTIVITY,
+        target_type::PROGRAM,
+        activity.program_id.to_string(),
+        tx.primary_signer.map(|value| value.to_string()),
+        activity.slot,
+        activity.block_time,
+        &activity.instruction_path,
+        format!(
+            "{} {} woke up after {dormant_days} days without observed activity",
+            activity.protocol_name, activity.program_label
+        ),
+        vec![
+            "target:program".to_owned(),
+            "sector:defi".to_owned(),
+            "watch:defi".to_owned(),
+            format!("protocol:{}", activity.protocol_slug),
+            "signal:dormant_activity".to_owned(),
+            "severity:high".to_owned(),
+            "impact:high".to_owned(),
+            "alert:review_now".to_owned(),
+        ],
+        payload,
+    ))
 }
 
 fn squads_program_id() -> Pubkey {

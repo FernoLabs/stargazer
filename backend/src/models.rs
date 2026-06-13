@@ -20,6 +20,7 @@ pub mod event_kind {
     pub const PROGRAM_IDL_RESIZED: &str = "program_idl_resized";
     pub const PROGRAM_IDL_CLOSED: &str = "program_idl_closed";
     pub const PROGRAM_ADMIN_INSTRUCTION: &str = "program_admin_instruction";
+    pub const PROGRAM_DORMANT_ACTIVITY: &str = "program_dormant_activity";
     pub const PROGRAM_METRIC_ALERT: &str = "program_metric_alert";
     pub const PROGRAM_UNKNOWN_INSTRUCTION: &str = "program_unknown_instruction";
     pub const MULTISIG_PROPOSAL_ACTIVATED: &str = "multisig_proposal_activated";
@@ -880,6 +881,7 @@ fn is_default_defi_watch_event(event: &ChainEvent) -> bool {
         | event_kind::PROGRAM_FINALIZED
         | event_kind::PROGRAM_MIGRATED_TO_LOADER_V4
         | event_kind::PROGRAM_UNKNOWN_INSTRUCTION
+        | event_kind::PROGRAM_DORMANT_ACTIVITY
         | event_kind::PROGRAM_METRIC_ALERT => true,
         event_kind::NAME_SERVICE_DOMAIN_CREATED
         | event_kind::NAME_SERVICE_DOMAIN_UPDATED
