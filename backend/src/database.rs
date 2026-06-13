@@ -34,6 +34,19 @@ pub struct Database {
     blob_store: BlobStore,
 }
 
+#[derive(Clone, Debug)]
+pub struct ProgramActivityState {
+    pub program_id: String,
+    pub protocol_slug: Option<String>,
+    pub protocol_name: Option<String>,
+    pub program_label: Option<String>,
+    pub last_signature: String,
+    pub last_instruction_path: String,
+    pub last_slot: i64,
+    pub last_block_time: Option<i64>,
+    pub updated_at: i64,
+}
+
 #[derive(Clone, Copy)]
 pub struct EventListFilters<'a> {
     pub protocol_slug: Option<&'a str>,
@@ -667,6 +680,33 @@ impl Database {
             r#"
             CREATE INDEX IF NOT EXISTS idx_metric_alert_rules_lookup
             ON metric_alert_rules (protocol_slug, instruction_name, metric_key, subject_address, created_at DESC);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS program_activity_state (
+                program_id TEXT PRIMARY KEY,
+                protocol_slug TEXT,
+                protocol_name TEXT,
+                program_label TEXT,
+                last_signature TEXT NOT NULL,
+                last_instruction_path TEXT NOT NULL,
+                last_slot INTEGER NOT NULL,
+                last_block_time INTEGER,
+                updated_at INTEGER NOT NULL
+            );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_program_activity_state_updated
+            ON program_activity_state (updated_at DESC);
             "#,
         )
         .execute(&self.pool)
@@ -5106,6 +5146,80 @@ impl Database {
         rows.into_iter().map(row_to_metric_alert_rule).collect()
     }
 
+    pub async fn observe_program_activity(
+        &self,
+        program_id: &str,
+        protocol_slug: Option<&str>,
+        protocol_name: Option<&str>,
+        program_label: Option<&str>,
+        signature: &str,
+        instruction_path: &str,
+        slot: i64,
+        block_time: Option<i64>,
+    ) -> Result<Option<ProgramActivityState>> {
+        let previous = sqlx::query(
+            r#"
+            SELECT
+                program_id,
+                protocol_slug,
+                protocol_name,
+                program_label,
+                last_signature,
+                last_instruction_path,
+                last_slot,
+                last_block_time,
+                updated_at
+            FROM program_activity_state
+            WHERE program_id = ?;
+            "#,
+        )
+        .bind(program_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .map(row_to_program_activity_state)
+        .transpose()?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO program_activity_state (
+                program_id,
+                protocol_slug,
+                protocol_name,
+                program_label,
+                last_signature,
+                last_instruction_path,
+                last_slot,
+                last_block_time,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(program_id) DO UPDATE SET
+                protocol_slug = excluded.protocol_slug,
+                protocol_name = excluded.protocol_name,
+                program_label = excluded.program_label,
+                last_signature = excluded.last_signature,
+                last_instruction_path = excluded.last_instruction_path,
+                last_slot = excluded.last_slot,
+                last_block_time = excluded.last_block_time,
+                updated_at = excluded.updated_at
+            WHERE excluded.last_slot >= program_activity_state.last_slot;
+            "#,
+        )
+        .bind(program_id)
+        .bind(protocol_slug)
+        .bind(protocol_name)
+        .bind(program_label)
+        .bind(signature)
+        .bind(instruction_path)
+        .bind(slot)
+        .bind(block_time)
+        .bind(now_ts())
+        .execute(&self.pool)
+        .await?;
+
+        Ok(previous)
+    }
+
     pub async fn list_telegram_subscriptions(&self) -> Result<Vec<TelegramSubscription>> {
         let rows = sqlx::query(
             r#"
@@ -6749,6 +6863,20 @@ fn row_to_pending_telegram_delivery(
             created_at: row.try_get("subscription_created_at")?,
         },
         event: row_to_event(row)?,
+    })
+}
+
+fn row_to_program_activity_state(row: sqlx::sqlite::SqliteRow) -> Result<ProgramActivityState> {
+    Ok(ProgramActivityState {
+        program_id: row.try_get("program_id")?,
+        protocol_slug: row.try_get("protocol_slug")?,
+        protocol_name: row.try_get("protocol_name")?,
+        program_label: row.try_get("program_label")?,
+        last_signature: row.try_get("last_signature")?,
+        last_instruction_path: row.try_get("last_instruction_path")?,
+        last_slot: row.try_get("last_slot")?,
+        last_block_time: row.try_get("last_block_time")?,
+        updated_at: row.try_get("updated_at")?,
     })
 }
 

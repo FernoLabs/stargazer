@@ -17,6 +17,7 @@
 			<a href="/about">About</a>
 			<a href="/protocols">Protocols</a>
 			<a href="/events">Activity</a>
+			<a href="/incidents">Incidents</a>
 			<a href="/programs">Programs</a>
 			<a href="https://ferno.ag" rel="noreferrer" target="_blank">Ferno.ag</a>
 			<a href="https://x.com/ferno_ag" rel="noreferrer" target="_blank">Ferno X</a>
