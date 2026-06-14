@@ -6,7 +6,14 @@
 	import ProtocolIdentity from '$lib/components/ProtocolIdentity.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import { shortAddress } from '$lib/format';
-	import { programCriticalHref, programRiskSummary, projectRiskSummary } from '$lib/risk';
+	import {
+		hasRiskGrade,
+		programCriticalHref,
+		programRiskSummary,
+		projectRiskSummary,
+		riskGradeDisplay,
+		riskGradeTone
+	} from '$lib/risk';
 	import type { ChainEvent, DefiProtocolDescriptor, EventsResponse, ProgramRiskSummary } from '$lib/types';
 	import type { PageData } from './$types';
 
@@ -85,7 +92,7 @@
 	function protocolRiskSnapshot(): ProjectRiskSnapshot {
 		const currentProtocol = protocol();
 		return {
-			...projectRiskSummary(currentProtocol),
+			...projectRiskSummary(currentProtocol, data.protocolEventsError ? null : data.protocolEventTotalCount),
 			programs: currentProtocol?.programs.length ?? 0
 		};
 	}
@@ -94,8 +101,8 @@
 		const current = protocol();
 		const snapshot = protocolRiskSnapshot();
 		return [
-			{ label: 'Project grade', value: snapshot.grade },
-			{ label: 'Project score', value: formatCount(snapshot.score) },
+			{ label: 'Project grade', value: riskGradeDisplay(snapshot) },
+			{ label: 'Project score', value: hasRiskGrade(snapshot) ? formatCount(snapshot.score) : 'Not scored' },
 			{ label: 'Activity events', value: formatCount(data.protocolEventTotalCount) },
 			{ label: 'Critical alerts', value: formatCount(data.protocolAlertCounts.critical) },
 			{ label: 'High alerts', value: formatCount(data.protocolAlertCounts.high) },
@@ -188,13 +195,19 @@
 			</div>
 
 			<div class="score-summary">
-				<div class={`grade-box grade-${snapshot.grade.toLowerCase()}`}>
-					<span>Grade</span>
-					<strong>{snapshot.grade}</strong>
+				<div class={`grade-box grade-${riskGradeTone(snapshot)}`}>
+					<span>{hasRiskGrade(snapshot) ? 'Grade' : 'Status'}</span>
+					<strong>{riskGradeDisplay(snapshot)}</strong>
 				</div>
 				<div class="score-copy">
-					<strong>Project score {snapshot.score}</strong>
-					<p>Across {formatCount(snapshot.programs)} tracked programs in this protocol.</p>
+					<strong>
+						{hasRiskGrade(snapshot) ? `Project score ${snapshot.score}` : 'Project score unavailable'}
+					</strong>
+					<p>
+						{hasRiskGrade(snapshot)
+							? `Across ${formatCount(snapshot.programs)} tracked programs in this protocol.`
+							: 'No scanned protocol activity has been indexed for this protocol yet.'}
+					</p>
 					<div class="score-metrics">
 						<span>Critical <strong>{formatCount(snapshot.critical_total)}</strong></span>
 						<span>Unresolved <strong>{formatCount(snapshot.unreviewed_critical)}</strong></span>
@@ -516,6 +529,11 @@
 	.grade-box.grade-f {
 		background: rgba(191, 74, 57, 0.14);
 		color: #9c3929;
+	}
+
+	.grade-box.grade-unscored {
+		background: rgba(92, 106, 119, 0.1);
+		color: #5c6a77;
 	}
 
 	.score-copy {

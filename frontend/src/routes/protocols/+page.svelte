@@ -2,7 +2,7 @@
 	import { page } from '$app/state';
 	import { protocolActivityPageHref, protocolPageHref } from '$lib/catalog';
 	import ProtocolIdentity from '$lib/components/ProtocolIdentity.svelte';
-	import { projectRiskSummary } from '$lib/risk';
+	import { hasRiskGrade, projectRiskSummary, riskGradeDisplay, riskGradeTone } from '$lib/risk';
 	import type { ChainEvent, DefiProtocolDescriptor, EventsResponse, ProgramRiskSummary } from '$lib/types';
 	import type { PageData } from './$types';
 
@@ -43,7 +43,7 @@
 				const activity = data.protocolActivitySummaries[protocol.slug] ?? EMPTY_ACTIVITY;
 				return {
 					protocol,
-					risk: projectRiskSummary(protocol),
+					risk: projectRiskSummary(protocol, activity.error ? null : activity.total),
 					activity,
 					searchText: protocolSearchText(protocol)
 				};
@@ -328,11 +328,11 @@
 							<ProtocolIdentity slug={row.protocol.slug} label={row.protocol.name} />
 						</a>
 						<a
-							class={`grade grade-${row.risk.grade.toLowerCase()}`}
+							class={`grade grade-${riskGradeTone(row.risk)}`}
 							href={protocolPageHref(row.protocol.slug)}
 							aria-label={`Open ${row.protocol.name} score detail`}
 						>
-							Grade {row.risk.grade}
+							{hasRiskGrade(row.risk) ? `Grade ${row.risk.grade}` : riskGradeDisplay(row.risk)}
 						</a>
 					</div>
 
@@ -529,6 +529,12 @@
 		border-color: rgba(156, 57, 41, 0.22);
 		background: rgba(156, 57, 41, 0.09);
 		color: #9c3929;
+	}
+
+	.grade-unscored {
+		border-color: rgba(92, 106, 119, 0.22);
+		background: rgba(92, 106, 119, 0.08);
+		color: #5c6a77;
 	}
 
 	.match-line {

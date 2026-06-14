@@ -12,6 +12,14 @@ export const EMPTY_PROGRAM_RISK_SUMMARY: ProgramRiskSummary = {
 	grade: 'A'
 };
 
+export const UNSCORED_PROTOCOL_RISK_SUMMARY: ProgramRiskSummary = {
+	critical_total: 0,
+	reviewed_critical: 0,
+	unreviewed_critical: 0,
+	score: 0,
+	grade: '-'
+};
+
 export function programRiskSummary(program: ProtocolProgramSurface | null | undefined) {
 	return program?.risk_summary ?? EMPTY_PROGRAM_RISK_SUMMARY;
 }
@@ -25,10 +33,15 @@ export function riskGradeFromScore(score: number) {
 }
 
 export function projectRiskSummary(
-	protocol: DefiProtocolDescriptor | null | undefined
+	protocol: DefiProtocolDescriptor | null | undefined,
+	scannedEventCount?: number | null
 ): ProgramRiskSummary {
+	if (scannedEventCount === 0) {
+		return UNSCORED_PROTOCOL_RISK_SUMMARY;
+	}
+
 	if (!protocol || protocol.programs.length === 0) {
-		return EMPTY_PROGRAM_RISK_SUMMARY;
+		return UNSCORED_PROTOCOL_RISK_SUMMARY;
 	}
 
 	let scoreTotal = 0;
@@ -56,10 +69,21 @@ export function projectRiskSummary(
 
 export function riskGradeTone(summary: ProgramRiskSummary) {
 	const grade = summary.grade.toLowerCase();
-	return ['a', 'b', 'c', 'd', 'f'].includes(grade) ? grade : 'a';
+	return ['a', 'b', 'c', 'd', 'f'].includes(grade) ? grade : 'unscored';
+}
+
+export function hasRiskGrade(summary: ProgramRiskSummary) {
+	return ['A', 'B', 'C', 'D', 'F'].includes(summary.grade.toUpperCase());
+}
+
+export function riskGradeDisplay(summary: ProgramRiskSummary) {
+	return hasRiskGrade(summary) ? summary.grade : 'Not scanned';
 }
 
 export function riskGradeLabel(summary: ProgramRiskSummary) {
+	if (!hasRiskGrade(summary)) {
+		return 'Not scanned';
+	}
 	if (summary.unreviewed_critical === 0 && summary.critical_total === 0) {
 		return 'No critical proof';
 	}
@@ -76,6 +100,9 @@ export function riskGradeLabel(summary: ProgramRiskSummary) {
 }
 
 export function riskGradeDescription(summary: ProgramRiskSummary) {
+	if (!hasRiskGrade(summary)) {
+		return 'FireWatch has not scanned protocol activity for this project yet.';
+	}
 	if (summary.critical_total === 0) {
 		return 'FireWatch has not attached critical evidence to this program yet.';
 	}
