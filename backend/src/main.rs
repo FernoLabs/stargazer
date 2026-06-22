@@ -299,6 +299,17 @@ async fn main() -> Result<()> {
         }
     }
 
+    let suppressed_false_positive_deliveries = state
+        .db
+        .mark_raydium_amm_v4_swap_false_positive_deliveries(models::now_ts())
+        .await?;
+    if suppressed_false_positive_deliveries > 0 {
+        warn!(
+            count = suppressed_false_positive_deliveries,
+            "marked Raydium AMM v4 swap false-positive telegram deliveries as delivered"
+        );
+    }
+
     spawn_block_time_repair(state.clone());
     spawn_sns_label_bootstrap(state.clone());
     spawn_liquidity_pool_snapshot_prune(state.clone());

@@ -5645,6 +5645,40 @@ impl Database {
         rows.into_iter().map(row_to_telegram_subscription).collect()
     }
 
+    pub async fn list_telegram_subscriptions_for_config_session(
+        &self,
+        user_id: &str,
+        chat_id: &str,
+    ) -> Result<Vec<TelegramSubscription>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                id,
+                label,
+                user_id,
+                chat_id,
+                thread_id,
+                scope,
+                target_address,
+                required_tags_json,
+                status,
+                payment_link_id,
+                created_at
+            FROM telegram_subscriptions
+            WHERE chat_id = ?
+              AND (user_id = ? OR user_id IS NULL)
+              AND status IN ('active', 'pending_payment')
+            ORDER BY created_at DESC;
+            "#,
+        )
+        .bind(chat_id)
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(row_to_telegram_subscription).collect()
+    }
+
     pub async fn telegram_subscription_count(&self) -> Result<i64> {
         let count = sqlx::query_scalar::<_, i64>(
             r#"
@@ -5940,6 +5974,40 @@ impl Database {
         .await?;
 
         Ok(())
+    }
+
+    pub async fn mark_raydium_amm_v4_swap_false_positive_deliveries(
+        &self,
+        delivered_at: i64,
+    ) -> Result<u64> {
+        let result = sqlx::query(
+            r#"
+            UPDATE telegram_deliveries
+            SET delivered_at = ?,
+                last_error = NULL,
+                next_retry_at = ?
+            WHERE delivered_at IS NULL
+              AND event_id IN (
+                SELECT id
+                FROM events
+                WHERE kind = 'program_unknown_instruction'
+                  AND target_address = '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8'
+                  AND json_extract(payload_json, '$.protocol') = 'raydium'
+                  AND json_extract(payload_json, '$.program_label') = 'Legacy AMM v4'
+                  AND (
+                    json_extract(payload_json, '$.discriminator') LIKE '09%'
+                    OR json_extract(payload_json, '$.discriminator') LIKE '10%'
+                    OR json_extract(payload_json, '$.discriminator') LIKE '11%'
+                  )
+              );
+            "#,
+        )
+        .bind(delivered_at)
+        .bind(delivered_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
     }
 
     pub async fn mark_telegram_delivery_failure(
