@@ -1047,6 +1047,7 @@ const RAYDIUM_CLMM_INSTRUCTIONS: &[&str] = &[
     "open_position",
     "open_position_v2",
     "open_position_with_token22_nft",
+    "close_limit_order",
     "open_limit_order",
     "set_reward_params",
     "swap",
@@ -1084,6 +1085,7 @@ const RAYDIUM_CLMM_HIGH_IMPACT_INSTRUCTIONS: &[&str] = &[
 ];
 
 const RAYDIUM_CPMM_INSTRUCTIONS: &[&str] = &[
+    "collect_creator_fee",
     "collect_fund_fee",
     "collect_protocol_fee",
     "create_amm_config",
@@ -1097,6 +1099,7 @@ const RAYDIUM_CPMM_INSTRUCTIONS: &[&str] = &[
 ];
 
 const RAYDIUM_CPMM_ADMIN_INSTRUCTIONS: &[&str] = &[
+    "collect_creator_fee",
     "collect_fund_fee",
     "collect_protocol_fee",
     "create_amm_config",
@@ -3175,6 +3178,46 @@ mod tests {
         assert_eq!(signal.instruction_name.as_deref(), Some("open_limit_order"));
         assert!(!signal.high_impact);
         assert_eq!(signal.discriminator_hex, "9d20dab7471d1293");
+    }
+
+    #[test]
+    fn ignores_raydium_clmm_close_limit_order_as_known_non_admin() {
+        let program_id = Pubkey::from_str("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK").unwrap();
+        let signal = resolve_protocol_instruction(
+            program_id,
+            &[
+                0x4c, 0x7c, 0x80, 0x0f, 0xd5, 0x57, 0x25, 0xfa, 0x00, 0x01, 0x9c, 0x09, 0x00,
+            ],
+        )
+        .expect("known Raydium CLMM close limit order");
+
+        assert_eq!(signal.protocol.slug, "raydium");
+        assert!(signal.signal_kind.is_none());
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("close_limit_order")
+        );
+        assert!(!signal.high_impact);
+        assert_eq!(signal.discriminator_hex, "4c7c800fd55725fa");
+    }
+
+    #[test]
+    fn keeps_raydium_cpmm_creator_fee_collection_as_non_high_impact_admin() {
+        let program_id = Pubkey::from_str("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C").unwrap();
+        let signal = resolve_protocol_instruction(
+            program_id,
+            &discriminator_for_name("collect_creator_fee", InstructionNameStyle::SnakeCase),
+        )
+        .expect("known Raydium CPMM creator fee collection");
+
+        assert_eq!(signal.protocol.slug, "raydium");
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("collect_creator_fee")
+        );
+        assert!(!signal.high_impact);
+        assert_eq!(signal.discriminator_hex, "1416567bc61cdb84");
     }
 
     #[test]
