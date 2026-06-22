@@ -37,6 +37,9 @@ pub struct Config {
     pub solana_pay_spl_token: Option<String>,
     pub solana_pay_label: String,
     pub solana_pay_link_ttl_hours: i64,
+    pub liquidity_pool_snapshot_retention_days: i64,
+    pub watched_liquidity_pool_snapshot_retention_days: i64,
+    pub liquidity_pool_snapshot_prune_interval_seconds: u64,
 }
 
 impl Config {
@@ -131,6 +134,20 @@ impl Config {
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| "FireWatch".to_owned()),
             solana_pay_link_ttl_hours: env_i64("SOLANA_PAY_LINK_TTL_HOURS", 72).max(1),
+            liquidity_pool_snapshot_retention_days: env_i64(
+                "LIQUIDITY_POOL_SNAPSHOT_RETENTION_DAYS",
+                3,
+            )
+            .max(1),
+            watched_liquidity_pool_snapshot_retention_days: env_i64(
+                "WATCHED_LIQUIDITY_POOL_SNAPSHOT_RETENTION_DAYS",
+                7,
+            )
+            .max(1),
+            liquidity_pool_snapshot_prune_interval_seconds: env_u64(
+                "LIQUIDITY_POOL_SNAPSHOT_PRUNE_INTERVAL_SECONDS",
+                6 * 60 * 60,
+            ),
         })
     }
 

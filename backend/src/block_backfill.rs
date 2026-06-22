@@ -56,6 +56,8 @@ pub(crate) struct BlockBackfillReport {
     pub(crate) inserted_event_count: usize,
     pub(crate) parsed_metric_observation_count: usize,
     pub(crate) inserted_metric_observation_count: usize,
+    pub(crate) parsed_liquidity_pool_observation_count: usize,
+    pub(crate) inserted_liquidity_pool_count: usize,
     pub(crate) program_data_write_count: usize,
     pub(crate) program_idl_data_write_count: usize,
     pub(crate) program_version_update_count: usize,
@@ -93,6 +95,8 @@ pub(crate) struct GrpcBackfillReport {
     pub(crate) inserted_event_count: usize,
     pub(crate) parsed_metric_observation_count: usize,
     pub(crate) inserted_metric_observation_count: usize,
+    pub(crate) parsed_liquidity_pool_observation_count: usize,
+    pub(crate) inserted_liquidity_pool_count: usize,
     pub(crate) program_data_write_count: usize,
     pub(crate) program_idl_data_write_count: usize,
     pub(crate) program_version_update_count: usize,
@@ -182,6 +186,22 @@ impl BlockBackfillRangeReport {
             .iter()
             .filter_map(|outcome| outcome.report.as_ref())
             .map(|report| report.inserted_metric_observation_count)
+            .sum()
+    }
+
+    pub(crate) fn parsed_liquidity_pool_observation_count(&self) -> usize {
+        self.outcomes
+            .iter()
+            .filter_map(|outcome| outcome.report.as_ref())
+            .map(|report| report.parsed_liquidity_pool_observation_count)
+            .sum()
+    }
+
+    pub(crate) fn inserted_liquidity_pool_count(&self) -> usize {
+        self.outcomes
+            .iter()
+            .filter_map(|outcome| outcome.report.as_ref())
+            .map(|report| report.inserted_liquidity_pool_count)
             .sum()
     }
 
@@ -293,6 +313,9 @@ pub(crate) async fn backfill_grpc_transactions(
                     ingest_result.parsed_metric_observation_count;
                 report.inserted_metric_observation_count +=
                     ingest_result.inserted_metric_observation_count;
+                report.parsed_liquidity_pool_observation_count +=
+                    ingest_result.parsed_liquidity_pool_observation_count;
+                report.inserted_liquidity_pool_count += ingest_result.inserted_liquidity_pool_count;
                 report.program_data_write_count += ingest_result.program_data_write_count;
                 report.program_idl_data_write_count += ingest_result.program_idl_data_write_count;
                 report.program_version_update_count += ingest_result.program_version_update_count;
@@ -948,6 +971,9 @@ async fn backfill_ferno_block_proto(
         report.inserted_event_count += ingest_result.inserted_event_count;
         report.parsed_metric_observation_count += ingest_result.parsed_metric_observation_count;
         report.inserted_metric_observation_count += ingest_result.inserted_metric_observation_count;
+        report.parsed_liquidity_pool_observation_count +=
+            ingest_result.parsed_liquidity_pool_observation_count;
+        report.inserted_liquidity_pool_count += ingest_result.inserted_liquidity_pool_count;
         report.program_data_write_count += ingest_result.program_data_write_count;
         report.program_idl_data_write_count += ingest_result.program_idl_data_write_count;
         report.program_version_update_count += ingest_result.program_version_update_count;
@@ -1058,6 +1084,9 @@ async fn ingest_json_block(
         report.inserted_event_count += ingest_result.inserted_event_count;
         report.parsed_metric_observation_count += ingest_result.parsed_metric_observation_count;
         report.inserted_metric_observation_count += ingest_result.inserted_metric_observation_count;
+        report.parsed_liquidity_pool_observation_count +=
+            ingest_result.parsed_liquidity_pool_observation_count;
+        report.inserted_liquidity_pool_count += ingest_result.inserted_liquidity_pool_count;
         report.program_data_write_count += ingest_result.program_data_write_count;
         report.program_idl_data_write_count += ingest_result.program_idl_data_write_count;
         report.program_version_update_count += ingest_result.program_version_update_count;

@@ -9,6 +9,10 @@ use crate::program_disassembly::{
 use crate::protocols;
 use crate::{
     anchor_idl,
+    liquidity_pools::{
+        LIQUIDITY_POOL_SNAPSHOT_RETENTION_WATCHED, LiquidityPoolLatestStateRecord,
+        LiquidityPoolRecord, LiquidityPoolSnapshotRecord,
+    },
     models::{
         ChainEvent, EventScopeCounts, EventsSummary, FirewatchUser, MetricAlertPreset,
         MetricAlertRule, PaymentLink, PendingTelegramDelivery, ProgramDataWrite,
@@ -698,6 +702,158 @@ impl Database {
                 last_block_time INTEGER,
                 updated_at INTEGER NOT NULL
             );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS liquidity_pools (
+                pool_address TEXT PRIMARY KEY,
+                protocol_slug TEXT NOT NULL,
+                protocol_name TEXT NOT NULL,
+                dex_id TEXT NOT NULL,
+                program_id TEXT NOT NULL,
+                program_label TEXT NOT NULL,
+                token_x_mint TEXT NOT NULL,
+                token_y_mint TEXT NOT NULL,
+                reserve_x TEXT,
+                reserve_y TEXT,
+                source TEXT NOT NULL,
+                first_seen_slot INTEGER,
+                first_seen_signature TEXT,
+                last_seen_slot INTEGER,
+                last_seen_signature TEXT,
+                updated_at INTEGER NOT NULL
+            );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_liquidity_pools_token_x
+            ON liquidity_pools (token_x_mint, protocol_slug, updated_at DESC);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_liquidity_pools_token_y
+            ON liquidity_pools (token_y_mint, protocol_slug, updated_at DESC);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_liquidity_pools_program
+            ON liquidity_pools (program_id, updated_at DESC);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS liquidity_pool_latest_state (
+                pool_address TEXT PRIMARY KEY,
+                dex_id TEXT NOT NULL,
+                base_token_mint TEXT NOT NULL,
+                quote_token_mint TEXT NOT NULL,
+                base_reserve REAL,
+                quote_reserve REAL,
+                base_vault TEXT,
+                quote_vault TEXT,
+                estimated_liquidity_usd REAL,
+                latest_signature TEXT NOT NULL,
+                latest_slot INTEGER NOT NULL,
+                latest_block_time INTEGER,
+                updated_at INTEGER NOT NULL
+            );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_liquidity_pool_latest_state_pair
+            ON liquidity_pool_latest_state (base_token_mint, quote_token_mint, updated_at DESC);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_liquidity_pool_latest_state_updated
+            ON liquidity_pool_latest_state (updated_at DESC);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS liquidity_pool_snapshots (
+                id TEXT PRIMARY KEY,
+                pool_address TEXT NOT NULL,
+                dex_id TEXT NOT NULL,
+                base_token_mint TEXT NOT NULL,
+                quote_token_mint TEXT NOT NULL,
+                signature TEXT NOT NULL,
+                slot INTEGER NOT NULL,
+                block_time INTEGER,
+                base_reserve REAL,
+                quote_reserve REAL,
+                base_vault TEXT,
+                quote_vault TEXT,
+                estimated_liquidity_usd REAL,
+                retention_class TEXT NOT NULL DEFAULT 'default',
+                observed_at INTEGER NOT NULL
+            );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_liquidity_pool_snapshots_pool_slot
+            ON liquidity_pool_snapshots (pool_address, slot DESC, id DESC);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_liquidity_pool_snapshots_retention
+            ON liquidity_pool_snapshots (retention_class, block_time, observed_at);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_liquidity_pool_snapshots_base_time
+            ON liquidity_pool_snapshots (base_token_mint, block_time DESC, slot DESC);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_liquidity_pool_snapshots_quote_time
+            ON liquidity_pool_snapshots (quote_token_mint, block_time DESC, slot DESC);
             "#,
         )
         .execute(&self.pool)
@@ -5220,6 +5376,250 @@ impl Database {
         Ok(previous)
     }
 
+    pub async fn upsert_liquidity_pool(&self, pool: &LiquidityPoolRecord) -> Result<bool> {
+        let existed = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*)
+            FROM liquidity_pools
+            WHERE pool_address = ?;
+            "#,
+        )
+        .bind(&pool.pool_address)
+        .fetch_one(&self.pool)
+        .await?
+            > 0;
+
+        sqlx::query(
+            r#"
+            INSERT INTO liquidity_pools (
+                pool_address,
+                protocol_slug,
+                protocol_name,
+                dex_id,
+                program_id,
+                program_label,
+                token_x_mint,
+                token_y_mint,
+                reserve_x,
+                reserve_y,
+                source,
+                first_seen_slot,
+                first_seen_signature,
+                last_seen_slot,
+                last_seen_signature,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(pool_address) DO UPDATE SET
+                protocol_slug = excluded.protocol_slug,
+                protocol_name = excluded.protocol_name,
+                dex_id = excluded.dex_id,
+                program_id = excluded.program_id,
+                program_label = excluded.program_label,
+                token_x_mint = excluded.token_x_mint,
+                token_y_mint = excluded.token_y_mint,
+                reserve_x = COALESCE(excluded.reserve_x, liquidity_pools.reserve_x),
+                reserve_y = COALESCE(excluded.reserve_y, liquidity_pools.reserve_y),
+                source = excluded.source,
+                first_seen_slot = CASE
+                    WHEN liquidity_pools.first_seen_slot IS NULL THEN excluded.first_seen_slot
+                    WHEN excluded.first_seen_slot IS NULL THEN liquidity_pools.first_seen_slot
+                    ELSE min(liquidity_pools.first_seen_slot, excluded.first_seen_slot)
+                END,
+                first_seen_signature = CASE
+                    WHEN liquidity_pools.first_seen_slot IS NULL THEN excluded.first_seen_signature
+                    WHEN excluded.first_seen_slot IS NULL THEN liquidity_pools.first_seen_signature
+                    WHEN excluded.first_seen_slot < liquidity_pools.first_seen_slot THEN excluded.first_seen_signature
+                    ELSE liquidity_pools.first_seen_signature
+                END,
+                last_seen_slot = CASE
+                    WHEN liquidity_pools.last_seen_slot IS NULL THEN excluded.last_seen_slot
+                    WHEN excluded.last_seen_slot IS NULL THEN liquidity_pools.last_seen_slot
+                    ELSE max(liquidity_pools.last_seen_slot, excluded.last_seen_slot)
+                END,
+                last_seen_signature = CASE
+                    WHEN liquidity_pools.last_seen_slot IS NULL THEN excluded.last_seen_signature
+                    WHEN excluded.last_seen_slot IS NULL THEN liquidity_pools.last_seen_signature
+                    WHEN excluded.last_seen_slot >= liquidity_pools.last_seen_slot THEN excluded.last_seen_signature
+                    ELSE liquidity_pools.last_seen_signature
+                END,
+                updated_at = excluded.updated_at;
+            "#,
+        )
+        .bind(&pool.pool_address)
+        .bind(&pool.protocol_slug)
+        .bind(&pool.protocol_name)
+        .bind(&pool.dex_id)
+        .bind(&pool.program_id)
+        .bind(&pool.program_label)
+        .bind(&pool.token_x_mint)
+        .bind(&pool.token_y_mint)
+        .bind(&pool.reserve_x)
+        .bind(&pool.reserve_y)
+        .bind(&pool.source)
+        .bind(pool.first_seen_slot)
+        .bind(&pool.first_seen_signature)
+        .bind(pool.last_seen_slot)
+        .bind(&pool.last_seen_signature)
+        .bind(pool.updated_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(!existed)
+    }
+
+    pub async fn upsert_liquidity_pool_latest_state(
+        &self,
+        state: &LiquidityPoolLatestStateRecord,
+    ) -> Result<bool> {
+        let result = sqlx::query(
+            r#"
+            INSERT INTO liquidity_pool_latest_state (
+                pool_address,
+                dex_id,
+                base_token_mint,
+                quote_token_mint,
+                base_reserve,
+                quote_reserve,
+                base_vault,
+                quote_vault,
+                estimated_liquidity_usd,
+                latest_signature,
+                latest_slot,
+                latest_block_time,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(pool_address) DO UPDATE SET
+                dex_id = excluded.dex_id,
+                base_token_mint = excluded.base_token_mint,
+                quote_token_mint = excluded.quote_token_mint,
+                base_reserve = excluded.base_reserve,
+                quote_reserve = excluded.quote_reserve,
+                base_vault = excluded.base_vault,
+                quote_vault = excluded.quote_vault,
+                estimated_liquidity_usd = excluded.estimated_liquidity_usd,
+                latest_signature = excluded.latest_signature,
+                latest_slot = excluded.latest_slot,
+                latest_block_time = excluded.latest_block_time,
+                updated_at = excluded.updated_at
+            WHERE excluded.latest_slot >= liquidity_pool_latest_state.latest_slot;
+            "#,
+        )
+        .bind(&state.pool_address)
+        .bind(&state.dex_id)
+        .bind(&state.base_token_mint)
+        .bind(&state.quote_token_mint)
+        .bind(state.base_reserve)
+        .bind(state.quote_reserve)
+        .bind(&state.base_vault)
+        .bind(&state.quote_vault)
+        .bind(state.estimated_liquidity_usd)
+        .bind(&state.latest_signature)
+        .bind(state.latest_slot)
+        .bind(state.latest_block_time)
+        .bind(state.updated_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn upsert_liquidity_pool_snapshot(
+        &self,
+        snapshot: &LiquidityPoolSnapshotRecord,
+    ) -> Result<bool> {
+        let result = sqlx::query(
+            r#"
+            INSERT INTO liquidity_pool_snapshots (
+                id,
+                pool_address,
+                dex_id,
+                base_token_mint,
+                quote_token_mint,
+                signature,
+                slot,
+                block_time,
+                base_reserve,
+                quote_reserve,
+                base_vault,
+                quote_vault,
+                estimated_liquidity_usd,
+                retention_class,
+                observed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                dex_id = excluded.dex_id,
+                base_token_mint = excluded.base_token_mint,
+                quote_token_mint = excluded.quote_token_mint,
+                slot = excluded.slot,
+                block_time = excluded.block_time,
+                base_reserve = excluded.base_reserve,
+                quote_reserve = excluded.quote_reserve,
+                base_vault = excluded.base_vault,
+                quote_vault = excluded.quote_vault,
+                estimated_liquidity_usd = excluded.estimated_liquidity_usd,
+                retention_class = CASE
+                    WHEN liquidity_pool_snapshots.retention_class = 'watched' THEN liquidity_pool_snapshots.retention_class
+                    WHEN excluded.retention_class = 'watched' THEN excluded.retention_class
+                    ELSE excluded.retention_class
+                END,
+                observed_at = max(liquidity_pool_snapshots.observed_at, excluded.observed_at);
+            "#,
+        )
+        .bind(&snapshot.id)
+        .bind(&snapshot.pool_address)
+        .bind(&snapshot.dex_id)
+        .bind(&snapshot.base_token_mint)
+        .bind(&snapshot.quote_token_mint)
+        .bind(&snapshot.signature)
+        .bind(snapshot.slot)
+        .bind(snapshot.block_time)
+        .bind(snapshot.base_reserve)
+        .bind(snapshot.quote_reserve)
+        .bind(&snapshot.base_vault)
+        .bind(&snapshot.quote_vault)
+        .bind(snapshot.estimated_liquidity_usd)
+        .bind(&snapshot.retention_class)
+        .bind(snapshot.observed_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn prune_liquidity_pool_snapshots(
+        &self,
+        default_retention_days: i64,
+        watched_retention_days: i64,
+    ) -> Result<u64> {
+        let now = now_ts();
+        let default_cutoff = now - default_retention_days.max(1) * 24 * 60 * 60;
+        let watched_cutoff = now - watched_retention_days.max(1) * 24 * 60 * 60;
+        let result = sqlx::query(
+            r#"
+            DELETE FROM liquidity_pool_snapshots
+            WHERE (
+                retention_class = ?
+                AND COALESCE(block_time, observed_at) < ?
+            )
+            OR (
+                retention_class != ?
+                AND COALESCE(block_time, observed_at) < ?
+            );
+            "#,
+        )
+        .bind(LIQUIDITY_POOL_SNAPSHOT_RETENTION_WATCHED)
+        .bind(watched_cutoff)
+        .bind(LIQUIDITY_POOL_SNAPSHOT_RETENTION_WATCHED)
+        .bind(default_cutoff)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
     pub async fn list_telegram_subscriptions(&self) -> Result<Vec<TelegramSubscription>> {
         let rows = sqlx::query(
             r#"
@@ -6911,10 +7311,80 @@ fn row_to_protocol_metric_observation(
 mod tests {
     use super::*;
     use crate::{
+        liquidity_pools::{
+            LIQUIDITY_POOL_SNAPSHOT_RETENTION_DEFAULT, LIQUIDITY_POOL_SNAPSHOT_RETENTION_WATCHED,
+        },
         models::{event_kind, target_type},
         program_bytes::{instruction_order_key, sha256_hex},
     };
     use serde_json::json;
+
+    #[tokio::test]
+    async fn prunes_liquidity_pool_snapshots_by_retention_class() -> Result<()> {
+        let db_path = std::env::temp_dir().join(format!(
+            "firewatch-liquidity-snapshot-retention-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let database_url = format!("sqlite://{}", db_path.display());
+        let db = Database::connect(&database_url, BlobStore::new(None, None)?).await?;
+        db.migrate().await?;
+
+        let now = now_ts();
+        let default_old = sample_liquidity_snapshot(
+            "default-old",
+            LIQUIDITY_POOL_SNAPSHOT_RETENTION_DEFAULT,
+            now - 5 * 24 * 60 * 60,
+        );
+        let watched_recent = sample_liquidity_snapshot(
+            "watched-recent",
+            LIQUIDITY_POOL_SNAPSHOT_RETENTION_WATCHED,
+            now - 5 * 24 * 60 * 60,
+        );
+        let watched_old = sample_liquidity_snapshot(
+            "watched-old",
+            LIQUIDITY_POOL_SNAPSHOT_RETENTION_WATCHED,
+            now - 8 * 24 * 60 * 60,
+        );
+
+        db.upsert_liquidity_pool_snapshot(&default_old).await?;
+        db.upsert_liquidity_pool_snapshot(&watched_recent).await?;
+        db.upsert_liquidity_pool_snapshot(&watched_old).await?;
+
+        let deleted = db.prune_liquidity_pool_snapshots(3, 7).await?;
+        assert_eq!(deleted, 2);
+
+        let remaining =
+            sqlx::query_scalar::<_, String>("SELECT id FROM liquidity_pool_snapshots ORDER BY id;")
+                .fetch_all(&db.pool)
+                .await?;
+        assert_eq!(remaining, vec!["watched-recent".to_owned()]);
+
+        Ok(())
+    }
+
+    fn sample_liquidity_snapshot(
+        id: &str,
+        retention_class: &str,
+        block_time: i64,
+    ) -> LiquidityPoolSnapshotRecord {
+        LiquidityPoolSnapshotRecord {
+            id: id.to_owned(),
+            pool_address: "Pool111111111111111111111111111111111111111".to_owned(),
+            dex_id: "test-dex".to_owned(),
+            base_token_mint: "BaseMint1111111111111111111111111111111111".to_owned(),
+            quote_token_mint: "QuoteMint11111111111111111111111111111111".to_owned(),
+            signature: format!("{id}-signature"),
+            slot: block_time,
+            block_time: Some(block_time),
+            base_reserve: Some(10.0),
+            quote_reserve: Some(20.0),
+            base_vault: Some("BaseVault111111111111111111111111111111111".to_owned()),
+            quote_vault: Some("QuoteVault1111111111111111111111111111111".to_owned()),
+            estimated_liquidity_usd: Some(30.0),
+            retention_class: retention_class.to_owned(),
+            observed_at: block_time,
+        }
+    }
 
     #[tokio::test]
     async fn recent_unlabeled_addresses_reads_recent_event_window() -> Result<()> {

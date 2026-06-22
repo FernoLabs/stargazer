@@ -7,6 +7,7 @@ mod database;
 mod delivery;
 mod http;
 mod link_preview;
+mod liquidity_pools;
 mod models;
 mod name_service;
 mod program_bytes;
@@ -16,6 +17,7 @@ mod protocol_metrics;
 mod protocols;
 mod solana;
 mod telegram;
+mod token_liquidity;
 
 use anyhow::{Context, Result, bail};
 use blob_store::BlobStore;
@@ -27,7 +29,16 @@ use block_backfill::{
 use config::Config;
 use context::AppState;
 use database::Database;
+use liquidity_pools::{
+    LiquidityPoolDimensionReport, LiquidityPoolSeedOptions, LiquidityPoolSeedReport,
+    default_seed_mint_label, dimension_liquidity_pools, seed_liquidity_pools,
+};
 use std::env;
+use token_liquidity::{
+    LOMBARD_LBTC_MINT, LOMBARD_LBTC_SYMBOL, PoolBuyPressureReport, PoolLiquidityTransition,
+    TokenLiquidityScanOptions, TokenLiquidityScanReport, format_amount, format_usd,
+    scan_token_liquidity,
+};
 use tokio::net::TcpListener;
 use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
@@ -85,6 +96,14 @@ async fn main() -> Result<()> {
             println!(
                 "Inserted metric observations: {}",
                 report.inserted_metric_observation_count
+            );
+            println!(
+                "Parsed liquidity pool observations: {}",
+                report.parsed_liquidity_pool_observation_count
+            );
+            println!(
+                "Inserted liquidity pools: {}",
+                report.inserted_liquidity_pool_count
             );
             println!("Program data writes: {}", report.program_data_write_count);
             println!(
@@ -217,10 +236,72 @@ async fn main() -> Result<()> {
             print_block_time_repair_report(&report);
             return Ok(());
         }
+        Command::DimensionLiquidityPools => {
+            let report = dimension_liquidity_pools(state).await?;
+            print_liquidity_pool_dimension_report(&report);
+            return Ok(());
+        }
+        Command::PruneLiquiditySnapshots => {
+            let deleted_count = state
+                .db
+                .prune_liquidity_pool_snapshots(
+                    state.config.liquidity_pool_snapshot_retention_days,
+                    state.config.watched_liquidity_pool_snapshot_retention_days,
+                )
+                .await?;
+            println!("Pruned liquidity pool snapshots: {deleted_count}");
+            println!(
+                "Default retention: {} days",
+                state.config.liquidity_pool_snapshot_retention_days
+            );
+            println!(
+                "Watched retention: {} days",
+                state.config.watched_liquidity_pool_snapshot_retention_days
+            );
+            return Ok(());
+        }
+        Command::SeedLiquidityPools { mint, include_all } => {
+            let report =
+                seed_liquidity_pools(state, LiquidityPoolSeedOptions { mint, include_all }).await?;
+            print_liquidity_pool_seed_report(&report);
+            return Ok(());
+        }
+        Command::ScanTokenLiquidity {
+            mint,
+            symbol,
+            lookback_days,
+            min_token_reserve,
+            min_token_reserve_usd,
+            max_signature_pages,
+            wallet_addresses,
+            include_wallet_subscriptions,
+            emit_events,
+            enqueue_deliveries,
+        } => {
+            let report = scan_token_liquidity(
+                state,
+                TokenLiquidityScanOptions {
+                    mint,
+                    symbol,
+                    lookback_days,
+                    min_token_reserve,
+                    min_token_reserve_usd,
+                    max_signature_pages,
+                    wallet_addresses,
+                    include_wallet_subscriptions,
+                    emit_events,
+                    enqueue_deliveries,
+                },
+            )
+            .await?;
+            print_token_liquidity_report(&report);
+            return Ok(());
+        }
     }
 
     spawn_block_time_repair(state.clone());
     spawn_sns_label_bootstrap(state.clone());
+    spawn_liquidity_pool_snapshot_prune(state.clone());
 
     let router = http::router(state.clone())?;
     let listener = TcpListener::bind(&config.http_bind).await?;
@@ -281,6 +362,24 @@ enum Command {
     },
     RepairRecentBlockTimes {
         limit: i64,
+    },
+    DimensionLiquidityPools,
+    PruneLiquiditySnapshots,
+    SeedLiquidityPools {
+        mint: Option<String>,
+        include_all: bool,
+    },
+    ScanTokenLiquidity {
+        mint: String,
+        symbol: String,
+        lookback_days: i64,
+        min_token_reserve: Option<f64>,
+        min_token_reserve_usd: Option<f64>,
+        max_signature_pages: usize,
+        wallet_addresses: Vec<String>,
+        include_wallet_subscriptions: bool,
+        emit_events: bool,
+        enqueue_deliveries: bool,
     },
 }
 
@@ -572,6 +671,152 @@ fn parse_command() -> Result<Command> {
             }
             Ok(Command::RepairRecentBlockTimes { limit })
         }
+        "dimension-liquidity-pools" | "--dimension-liquidity-pools" => {
+            if args.len() > 1 {
+                bail!("unknown dimension-liquidity-pools option; usage: dimension-liquidity-pools");
+            }
+            Ok(Command::DimensionLiquidityPools)
+        }
+        "prune-liquidity-snapshots" | "--prune-liquidity-snapshots" => {
+            if args.len() > 1 {
+                bail!("unknown prune-liquidity-snapshots option; usage: prune-liquidity-snapshots");
+            }
+            Ok(Command::PruneLiquiditySnapshots)
+        }
+        "seed-liquidity-pools" | "--seed-liquidity-pools" => {
+            let mut mint = None;
+            let mut include_all = false;
+            let mut index = 1;
+            while index < args.len() {
+                match args[index].as_str() {
+                    "--mint" => {
+                        mint = Some(
+                            args.get(index + 1)
+                                .context("--mint requires a value")?
+                                .to_owned(),
+                        );
+                        index += 2;
+                    }
+                    "--all" => {
+                        include_all = true;
+                        index += 1;
+                    }
+                    unknown => bail!("unknown seed-liquidity-pools option {unknown:?}"),
+                }
+            }
+            if include_all && mint.is_some() {
+                bail!("use either seed-liquidity-pools --all or --mint MINT");
+            }
+
+            Ok(Command::SeedLiquidityPools { mint, include_all })
+        }
+        "scan-token-liquidity" | "--scan-token-liquidity" => {
+            let mut mint = LOMBARD_LBTC_MINT.to_owned();
+            let mut symbol = LOMBARD_LBTC_SYMBOL.to_owned();
+            let mut lookback_days = 30_i64;
+            let mut min_token_reserve = Some(0.1_f64);
+            let mut min_token_reserve_usd = Some(10_000.0_f64);
+            let mut max_signature_pages = 100_usize;
+            let mut wallet_addresses = Vec::new();
+            let mut include_wallet_subscriptions = false;
+            let mut emit_events = false;
+            let mut enqueue_deliveries = false;
+
+            let mut index = 1;
+            while index < args.len() {
+                match args[index].as_str() {
+                    "--mint" => {
+                        mint = args
+                            .get(index + 1)
+                            .context("--mint requires a value")?
+                            .to_owned();
+                        index += 2;
+                    }
+                    "--symbol" => {
+                        symbol = args
+                            .get(index + 1)
+                            .context("--symbol requires a value")?
+                            .to_owned();
+                        index += 2;
+                    }
+                    "--lookback-days" => {
+                        lookback_days = args
+                            .get(index + 1)
+                            .context("--lookback-days requires a value")?
+                            .parse::<i64>()
+                            .context("--lookback-days must be a positive integer")?;
+                        if lookback_days <= 0 {
+                            bail!("--lookback-days must be greater than zero");
+                        }
+                        index += 2;
+                    }
+                    "--min-token-reserve" => {
+                        min_token_reserve = Some(
+                            args.get(index + 1)
+                                .context("--min-token-reserve requires a value")?
+                                .parse::<f64>()
+                                .context("--min-token-reserve must be a number")?,
+                        );
+                        index += 2;
+                    }
+                    "--min-token-reserve-usd" => {
+                        min_token_reserve_usd = Some(
+                            args.get(index + 1)
+                                .context("--min-token-reserve-usd requires a value")?
+                                .parse::<f64>()
+                                .context("--min-token-reserve-usd must be a number")?,
+                        );
+                        index += 2;
+                    }
+                    "--max-signature-pages" => {
+                        max_signature_pages = args
+                            .get(index + 1)
+                            .context("--max-signature-pages requires a value")?
+                            .parse::<usize>()
+                            .context("--max-signature-pages must be a positive integer")?;
+                        if max_signature_pages == 0 {
+                            bail!("--max-signature-pages must be greater than zero");
+                        }
+                        index += 2;
+                    }
+                    "--wallet" => {
+                        wallet_addresses.push(
+                            args.get(index + 1)
+                                .context("--wallet requires a value")?
+                                .to_owned(),
+                        );
+                        index += 2;
+                    }
+                    "--wallet-subscriptions" => {
+                        include_wallet_subscriptions = true;
+                        index += 1;
+                    }
+                    "--emit" => {
+                        emit_events = true;
+                        index += 1;
+                    }
+                    "--deliver" => {
+                        emit_events = true;
+                        enqueue_deliveries = true;
+                        index += 1;
+                    }
+                    unknown => bail!("unknown scan-token-liquidity option {unknown:?}"),
+                }
+            }
+
+            Ok(Command::ScanTokenLiquidity {
+                mint,
+                symbol,
+                lookback_days,
+                min_token_reserve,
+                min_token_reserve_usd,
+                max_signature_pages,
+                wallet_addresses,
+                include_wallet_subscriptions,
+                emit_events,
+                enqueue_deliveries,
+            })
+        }
         "--help" | "-h" | "help" => {
             println!("Usage:");
             println!("  firewatch-backend");
@@ -589,10 +834,16 @@ fn parse_command() -> Result<Command> {
             println!("  firewatch-backend migrate-blobs [--vacuum]");
             println!("  firewatch-backend repair-block-time <slot>");
             println!("  firewatch-backend repair-recent-block-times [limit]");
+            println!("  firewatch-backend dimension-liquidity-pools");
+            println!("  firewatch-backend prune-liquidity-snapshots");
+            println!("  firewatch-backend seed-liquidity-pools [--mint MINT | --all]");
+            println!(
+                "  firewatch-backend scan-token-liquidity [--mint MINT] [--symbol SYMBOL] [--lookback-days N] [--min-token-reserve N] [--min-token-reserve-usd N] [--max-signature-pages N] [--wallet ADDRESS] [--wallet-subscriptions] [--emit] [--deliver]"
+            );
             std::process::exit(0);
         }
         unknown => bail!(
-            "unknown command {unknown:?}; use `backfill-block <slot>`, `backfill-blocks <start> <end>`, `backfill-rpc <start> <end>`, `backfill-grpc <start> <end>`, `backfill-program-history <program-id>`, `migrate-blobs`, `repair-block-time <slot>`, `repair-recent-block-times [limit]`, or no command"
+            "unknown command {unknown:?}; use `backfill-block <slot>`, `backfill-blocks <start> <end>`, `backfill-rpc <start> <end>`, `backfill-grpc <start> <end>`, `backfill-program-history <program-id>`, `migrate-blobs`, `repair-block-time <slot>`, `repair-recent-block-times [limit]`, `dimension-liquidity-pools`, `prune-liquidity-snapshots`, `seed-liquidity-pools`, `scan-token-liquidity`, or no command"
         ),
     }
 }
@@ -662,6 +913,45 @@ fn spawn_sns_label_bootstrap(state: context::SharedState) {
     });
 }
 
+fn spawn_liquidity_pool_snapshot_prune(state: context::SharedState) {
+    let interval_seconds = state.config.liquidity_pool_snapshot_prune_interval_seconds;
+    if interval_seconds == 0 {
+        return;
+    }
+
+    tokio::spawn(async move {
+        loop {
+            match state
+                .db
+                .prune_liquidity_pool_snapshots(
+                    state.config.liquidity_pool_snapshot_retention_days,
+                    state.config.watched_liquidity_pool_snapshot_retention_days,
+                )
+                .await
+            {
+                Ok(deleted_count) if deleted_count > 0 => {
+                    info!(
+                        deleted_count,
+                        default_retention_days =
+                            state.config.liquidity_pool_snapshot_retention_days,
+                        watched_retention_days =
+                            state.config.watched_liquidity_pool_snapshot_retention_days,
+                        "pruned old liquidity pool snapshots",
+                    );
+                }
+                Ok(_) => {
+                    debug!("no liquidity pool snapshots pruned");
+                }
+                Err(error) => {
+                    warn!(error = ?error, "failed to prune liquidity pool snapshots");
+                }
+            }
+
+            tokio::time::sleep(std::time::Duration::from_secs(interval_seconds)).await;
+        }
+    });
+}
+
 fn print_block_time_repair_report(report: &solana::BlockTimeRepairReport) {
     println!("Checked slots: {}", report.checked_slots);
     println!("Repaired slots: {}", report.repaired_slots);
@@ -681,6 +971,184 @@ fn print_block_time_update_report(report: &database::BlockTimeUpdateReport) {
         "Protocol metric observations: {}",
         report.protocol_metric_observations
     );
+}
+
+fn print_token_liquidity_report(report: &TokenLiquidityScanReport) {
+    println!(
+        "Scanned liquidity for {} ({})",
+        report.token_symbol, report.token_mint
+    );
+    println!(
+        "History since: {} ({})",
+        report.since_ts,
+        format_unix_ts(report.since_ts)
+    );
+    println!("Markets discovered: {}", report.pools.len());
+    println!("Wallet holders checked: {}", report.wallet_checks.len());
+    for holding in &report.wallet_checks {
+        println!(
+            "Holder: {}\t{} {}",
+            holding.wallet_address,
+            format_amount(holding.token_amount),
+            report.token_symbol
+        );
+    }
+
+    for pool in &report.pools {
+        println!();
+        println!(
+            "{} {}\t{}/{}\t{}",
+            pool.dex_id,
+            pool.labels.join(","),
+            pool.base_token.symbol,
+            pool.quote_token.symbol,
+            pool.pair_address
+        );
+        if let Some(url) = pool.pair_url.as_deref() {
+            println!("URL: {url}");
+        }
+        println!(
+            "Signatures: {} total, {} successful, {} fetched tx, {} snapshots, {} tx errors",
+            pool.signature_count,
+            pool.successful_signature_count,
+            pool.fetched_transaction_count,
+            pool.snapshot_count,
+            pool.failed_transaction_count
+        );
+        if let Some(liquidity_usd) = pool.current_liquidity_usd {
+            println!("Estimated liquidity: {}", format_usd(liquidity_usd));
+        }
+        if let Some(reserve) = pool.current_watched_reserve {
+            let reserve_usd = pool
+                .current_watched_reserve_usd
+                .map(format_usd)
+                .unwrap_or_else(|| "unknown USD".to_owned());
+            println!(
+                "Current {} reserve: {} {} ({})",
+                report.token_symbol,
+                format_amount(reserve),
+                report.token_symbol,
+                reserve_usd
+            );
+        }
+        if let Some(snapshot) = pool.latest_snapshot.as_ref() {
+            println!(
+                "Latest snapshot: slot {} {} tx {}",
+                snapshot.slot,
+                snapshot
+                    .block_time
+                    .map(format_unix_ts)
+                    .unwrap_or_else(|| "unknown time".to_owned()),
+                snapshot.signature
+            );
+        }
+        if let Some(snapshot) = pool.first_low_snapshot.as_ref() {
+            let reserve_usd = snapshot
+                .watched_reserve_usd
+                .map(format_usd)
+                .unwrap_or_else(|| "unknown USD".to_owned());
+            println!(
+                "First low snapshot: slot {} {} reserve {} {} ({})",
+                snapshot.slot,
+                snapshot
+                    .block_time
+                    .map(format_unix_ts)
+                    .unwrap_or_else(|| "unknown time".to_owned()),
+                format_amount(snapshot.watched_reserve),
+                report.token_symbol,
+                reserve_usd
+            );
+        } else {
+            println!("First low snapshot: none observed in lookback");
+        }
+        if let Some(transition) = pool.low_transition.as_ref() {
+            print_pool_liquidity_transition("Low threshold transition", report, transition);
+        }
+        if let Some(transition) = pool.max_drop_transition.as_ref() {
+            print_pool_liquidity_transition("Largest reserve drop", report, transition);
+        }
+        if let Some(buy_pressure) = pool.buy_pressure.as_ref() {
+            print_pool_buy_pressure(report, buy_pressure);
+        }
+        if let Some(snapshot) = pool.min_snapshot.as_ref() {
+            let reserve_usd = snapshot
+                .watched_reserve_usd
+                .map(format_usd)
+                .unwrap_or_else(|| "unknown USD".to_owned());
+            println!(
+                "Minimum observed reserve: {} {} ({}) at slot {}",
+                format_amount(snapshot.watched_reserve),
+                report.token_symbol,
+                reserve_usd,
+                snapshot.slot
+            );
+        }
+    }
+
+    if report.inserted_event_count > 0 || report.delivered_event_count > 0 {
+        println!();
+        println!("Inserted alert events: {}", report.inserted_event_count);
+        println!(
+            "Queued Telegram deliveries: {}",
+            report.delivered_event_count
+        );
+    }
+}
+
+fn print_pool_liquidity_transition(
+    label: &str,
+    report: &TokenLiquidityScanReport,
+    transition: &PoolLiquidityTransition,
+) {
+    let ratio = transition
+        .reserve_delta_ratio
+        .map(|value| format!(" ({:.2}%)", value * 100.0))
+        .unwrap_or_default();
+    println!(
+        "{}: slot {} -> {} reserve {} -> {} {} (delta {}{}); tx {}",
+        label,
+        transition.previous.slot,
+        transition.current.slot,
+        format_amount(transition.previous.watched_reserve),
+        format_amount(transition.current.watched_reserve),
+        report.token_symbol,
+        format_amount(transition.reserve_delta),
+        ratio,
+        transition.current.signature
+    );
+}
+
+fn print_pool_buy_pressure(report: &TokenLiquidityScanReport, pressure: &PoolBuyPressureReport) {
+    let average_price = pressure
+        .average_counter_per_watched
+        .map(|value| format!("{value:.8}"))
+        .unwrap_or_else(|| "unknown".to_owned());
+    println!(
+        "Buy pressure: {} {} bought from pool across {} txs by {} buyer(s); counter in {}; avg counter/{} {}",
+        format_amount(pressure.watched_token_out),
+        report.token_symbol,
+        pressure.trade_count,
+        pressure.unique_buyer_count,
+        format_amount(pressure.counter_token_in),
+        report.token_symbol,
+        average_price
+    );
+    for buyer in &pressure.top_buyers {
+        println!(
+            "  Buyer: {}\t{} {}\t{} counter\t{} txs",
+            buyer.owner,
+            format_amount(buyer.watched_token_received),
+            report.token_symbol,
+            format_amount(buyer.counter_token_paid),
+            buyer.trade_count
+        );
+    }
+}
+
+fn format_unix_ts(timestamp: i64) -> String {
+    chrono::DateTime::from_timestamp(timestamp, 0)
+        .map(|value| value.to_rfc3339())
+        .unwrap_or_else(|| "invalid timestamp".to_owned())
 }
 
 fn blob_store_label(config: &Config) -> String {
@@ -763,6 +1231,14 @@ fn print_range_report(report: &BlockBackfillRangeReport, enqueue_deliveries: boo
     println!(
         "Inserted metric observations: {}",
         report.inserted_metric_observation_count()
+    );
+    println!(
+        "Parsed liquidity pool observations: {}",
+        report.parsed_liquidity_pool_observation_count()
+    );
+    println!(
+        "Inserted liquidity pools: {}",
+        report.inserted_liquidity_pool_count()
     );
     println!("Program data writes: {}", report.program_data_write_count());
     println!(
@@ -897,6 +1373,14 @@ fn print_grpc_report(report: &GrpcBackfillReport, enqueue_deliveries: bool) {
         "Inserted metric observations: {}",
         report.inserted_metric_observation_count
     );
+    println!(
+        "Parsed liquidity pool observations: {}",
+        report.parsed_liquidity_pool_observation_count
+    );
+    println!(
+        "Inserted liquidity pools: {}",
+        report.inserted_liquidity_pool_count
+    );
     println!("Program data writes: {}", report.program_data_write_count);
     println!(
         "Program IDL data writes: {}",
@@ -918,6 +1402,113 @@ fn print_grpc_report(report: &GrpcBackfillReport, enqueue_deliveries: bool) {
             .unwrap_or_else(|| "none".to_owned())
     );
     println!("Throughput: {block_rate:.2} slots/s, {transaction_rate:.0} filtered tx/s");
+}
+
+fn print_liquidity_pool_dimension_report(report: &LiquidityPoolDimensionReport) {
+    println!("Dimensioned liquidity pool registry");
+    println!("Sources checked: {}", report.sources.len());
+    println!("Failed sources: {}", report.failed_source_count());
+    println!("Total pools: {}", report.total_pool_count());
+    println!(
+        "Decoded RPC JSON read: {}",
+        format_bytes(report.total_rpc_response_bytes() as f64)
+    );
+
+    for source in &report.sources {
+        match (
+            source.account_count,
+            source.rpc_response_bytes,
+            source.error.as_deref(),
+        ) {
+            (Some(count), Some(bytes), None) => println!(
+                "{}\t{}\t{}\t{}\t{} pools\t{}\t{:.2}s",
+                source.protocol_slug,
+                source.account_type,
+                source.label,
+                source.program_id,
+                count,
+                format_bytes(bytes as f64),
+                source.elapsed_ms as f64 / 1000.0
+            ),
+            (_, _, Some(error)) => println!(
+                "{}\t{}\t{}\t{}\tERROR\t{}\t{:.2}s",
+                source.protocol_slug,
+                source.account_type,
+                source.label,
+                source.program_id,
+                error,
+                source.elapsed_ms as f64 / 1000.0
+            ),
+            _ => {}
+        }
+    }
+
+    let total = report.total_pool_count() as f64;
+    println!(
+        "SQLite registry estimate at 1KB/row: {}",
+        format_bytes(total * 1024.0)
+    );
+    println!(
+        "SQLite registry estimate at 1.5KB/row: {}",
+        format_bytes(total * 1536.0)
+    );
+    println!(
+        "Current-state side table at 256B/row: {}",
+        format_bytes(total * 256.0)
+    );
+    println!(
+        "History at 250B/row, hourly snapshots: {}/day",
+        format_bytes(total * 24.0 * 250.0)
+    );
+    println!(
+        "History at 250B/row, 10-minute snapshots: {}/day",
+        format_bytes(total * 144.0 * 250.0)
+    );
+}
+
+fn print_liquidity_pool_seed_report(report: &LiquidityPoolSeedReport) {
+    println!(
+        "Seeded liquidity pools for {}",
+        default_seed_mint_label(report.mint.as_deref())
+    );
+    println!("DEX seed decoders checked: {}", report.dex_programs_checked);
+    println!("Decoded pools: {}", report.decoded_pool_count);
+    println!("Inserted pools: {}", report.inserted_pool_count);
+    println!("Updated pools: {}", report.updated_pool_count);
+    if !report.unsupported_programs.is_empty() {
+        println!(
+            "Seed decoders pending: {}",
+            report.unsupported_programs.join(", ")
+        );
+    }
+
+    for pool in &report.pools {
+        println!(
+            "{}\t{}\t{}\t{} / {}\treserves {} / {}",
+            pool.protocol_slug,
+            pool.program_label,
+            pool.pool_address,
+            pool.token_x_mint,
+            pool.token_y_mint,
+            pool.reserve_x.as_deref().unwrap_or("unknown"),
+            pool.reserve_y.as_deref().unwrap_or("unknown")
+        );
+    }
+}
+
+fn format_bytes(bytes: f64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+    const GIB: f64 = MIB * 1024.0;
+    if bytes >= GIB {
+        format!("{:.2} GiB", bytes / GIB)
+    } else if bytes >= MIB {
+        format!("{:.2} MiB", bytes / MIB)
+    } else if bytes >= KIB {
+        format!("{:.2} KiB", bytes / KIB)
+    } else {
+        format!("{bytes:.0} B")
+    }
 }
 
 fn load_dotenv() {
