@@ -1201,7 +1201,6 @@ const RAYDIUM_AMM_V4_ADMIN_INSTRUCTIONS: &[&str] = &[
 const RAYDIUM_AMM_V4_HIGH_IMPACT_INSTRUCTIONS: &[&str] = &[
     "migrateToOpenBook",
     "setParams",
-    "withdrawPnl",
     "withdrawSrm",
     "adminCancelOrders",
     "updateConfigAccount",
@@ -3110,6 +3109,19 @@ mod tests {
         assert_eq!(signal.instruction_name.as_deref(), Some("set_params"));
         assert!(signal.high_impact);
         assert_eq!(signal.discriminator_hex, "06");
+    }
+
+    #[test]
+    fn keeps_raydium_amm_v4_withdraw_pnl_as_non_high_impact_admin() {
+        let program_id = Pubkey::from_str("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8").unwrap();
+        let signal = resolve_protocol_instruction(program_id, &[7])
+            .expect("known Raydium AMM v4 withdrawPnl");
+
+        assert_eq!(signal.protocol.slug, "raydium");
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+        assert_eq!(signal.instruction_name.as_deref(), Some("withdraw_pnl"));
+        assert!(!signal.high_impact);
+        assert_eq!(signal.discriminator_hex, "07");
     }
 
     #[test]
