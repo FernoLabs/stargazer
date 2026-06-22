@@ -23,6 +23,7 @@ pub mod event_kind {
     pub const PROGRAM_DORMANT_ACTIVITY: &str = "program_dormant_activity";
     pub const PROGRAM_METRIC_ALERT: &str = "program_metric_alert";
     pub const PROGRAM_UNKNOWN_INSTRUCTION: &str = "program_unknown_instruction";
+    pub const TOKEN_LIQUIDITY_LOW: &str = "token_liquidity_low";
     pub const MULTISIG_PROPOSAL_ACTIVATED: &str = "multisig_proposal_activated";
     pub const MULTISIG_PROPOSAL_APPROVED: &str = "multisig_proposal_approved";
     pub const MULTISIG_PROPOSAL_REJECTED: &str = "multisig_proposal_rejected";
@@ -882,7 +883,8 @@ fn is_default_defi_watch_event(event: &ChainEvent) -> bool {
         | event_kind::PROGRAM_MIGRATED_TO_LOADER_V4
         | event_kind::PROGRAM_UNKNOWN_INSTRUCTION
         | event_kind::PROGRAM_DORMANT_ACTIVITY
-        | event_kind::PROGRAM_METRIC_ALERT => true,
+        | event_kind::PROGRAM_METRIC_ALERT
+        | event_kind::TOKEN_LIQUIDITY_LOW => true,
         event_kind::NAME_SERVICE_DOMAIN_CREATED
         | event_kind::NAME_SERVICE_DOMAIN_UPDATED
         | event_kind::NAME_SERVICE_DOMAIN_TRANSFERRED

@@ -6,6 +6,7 @@ use crate::{
         apply_program_version_payload,
     },
     delivery,
+    liquidity_pools::{self, LiquidityPoolRecord},
     models::{
         ChainEvent, MetricAlertRule, ProgramDataWrite, ProgramIdlDataWrite,
         ProtocolMetricObservation, event_kind, now_ts, target_type,
@@ -149,6 +150,7 @@ struct KaminoReserveConfigUpdate {
 struct ParsedTransactionArtifacts {
     events: Vec<ChainEvent>,
     metric_observations: Vec<ProtocolMetricObservation>,
+    liquidity_pool_observations: Vec<LiquidityPoolRecord>,
     program_activities: Vec<ProgramActivityObservation>,
     program_data_writes: Vec<ProgramDataWrite>,
     program_idl_data_writes: Vec<ProgramIdlDataWrite>,
@@ -210,6 +212,8 @@ pub(crate) struct IngestTransactionResult {
     pub(crate) inserted_event_count: usize,
     pub(crate) parsed_metric_observation_count: usize,
     pub(crate) inserted_metric_observation_count: usize,
+    pub(crate) parsed_liquidity_pool_observation_count: usize,
+    pub(crate) inserted_liquidity_pool_count: usize,
     pub(crate) program_data_write_count: usize,
     pub(crate) program_idl_data_write_count: usize,
     pub(crate) program_version_update_count: usize,
@@ -666,11 +670,13 @@ pub(crate) async fn ingest_resolved_transaction(
     let mut result = IngestTransactionResult {
         matched: !events.is_empty()
             || !parsed.metric_observations.is_empty()
+            || !parsed.liquidity_pool_observations.is_empty()
             || !parsed.program_data_writes.is_empty()
             || !parsed.program_idl_data_writes.is_empty()
             || detected_payment_count > 0,
         parsed_event_count: events.len(),
         parsed_metric_observation_count: parsed.metric_observations.len(),
+        parsed_liquidity_pool_observation_count: parsed.liquidity_pool_observations.len(),
         program_data_write_count: parsed.program_data_writes.len(),
         program_idl_data_write_count: parsed.program_idl_data_writes.len(),
         ..Default::default()
@@ -762,6 +768,26 @@ pub(crate) async fn ingest_resolved_transaction(
         }
     }
 
+    for pool in parsed.liquidity_pool_observations {
+        let inserted = state
+            .db
+            .upsert_liquidity_pool(&pool)
+            .await
+            .context("upsert liquidity pool observation")?;
+        if inserted {
+            result.inserted_liquidity_pool_count += 1;
+            info!(
+                slot = pool.first_seen_slot.unwrap_or_default(),
+                signature = pool.first_seen_signature.as_deref().unwrap_or("unknown"),
+                pool = %pool.pool_address,
+                protocol = %pool.protocol_slug,
+                token_x = %pool.token_x_mint,
+                token_y = %pool.token_y_mint,
+                "indexed new liquidity pool",
+            );
+        }
+    }
+
     for activity in parsed.program_activities {
         let previous_activity = state
             .db
@@ -850,6 +876,7 @@ async fn parse_transaction_events(
 ) -> Result<ParsedTransactionArtifacts> {
     let mut events = Vec::new();
     let mut metric_observations = Vec::new();
+    let mut liquidity_pool_observations = Vec::new();
     let mut program_activities = Vec::new();
     let mut program_data_writes = Vec::new();
     let mut program_idl_data_writes = Vec::new();
@@ -859,6 +886,15 @@ async fn parse_transaction_events(
             program_activity_observation(tx, instruction, slot, block_time, &index.to_string())
         {
             program_activities.push(activity);
+        }
+        if let Some(pool) = liquidity_pools::pool_observation_from_instruction(
+            tx,
+            instruction,
+            slot,
+            block_time,
+            &index.to_string(),
+        ) {
+            liquidity_pool_observations.push(pool);
         }
         let mut top_level_artifacts = parse_instruction(
             state.clone(),
@@ -891,6 +927,15 @@ async fn parse_transaction_events(
                     program_activity_observation(tx, inner_instruction, slot, block_time, &path)
                 {
                     program_activities.push(activity);
+                }
+                if let Some(pool) = liquidity_pools::pool_observation_from_instruction(
+                    tx,
+                    inner_instruction,
+                    slot,
+                    block_time,
+                    &path,
+                ) {
+                    liquidity_pool_observations.push(pool);
                 }
                 let artifacts = parse_instruction(
                     state.clone(),
@@ -925,6 +970,7 @@ async fn parse_transaction_events(
     Ok(ParsedTransactionArtifacts {
         events,
         metric_observations,
+        liquidity_pool_observations,
         program_activities,
         program_data_writes,
         program_idl_data_writes,

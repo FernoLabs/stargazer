@@ -622,7 +622,6 @@ const JUPITER_LIQUIDITY_HIGH_IMPACT_INSTRUCTIONS: &[&str] = &[
     "unpause_user",
     "update_authority",
     "update_auths",
-    "update_exchange_price",
     "update_guardians",
     "update_rate_data_v2",
     "update_revenue_collector",
@@ -1486,7 +1485,7 @@ const PROTOCOL_SPECS: &[ProtocolSpec] = &[
         slug: "raydium",
         name: "Raydium",
         program_label: "CLMM",
-        program_id: "DRayAUgENGQBKVaX8owNhgzkEDyoHTGVEGHVJT1E9pfH",
+        program_id: "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
         instruction_name_style: InstructionNameStyle::SnakeCase,
         instruction_catalog: Some(InstructionCatalogSpec::Standard(RAYDIUM_CLMM_INSTRUCTIONS)),
         admin_instructions: RAYDIUM_CLMM_ADMIN_INSTRUCTIONS,
@@ -1497,7 +1496,7 @@ const PROTOCOL_SPECS: &[ProtocolSpec] = &[
         slug: "raydium",
         name: "Raydium",
         program_label: "CPMM",
-        program_id: "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb",
+        program_id: "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
         instruction_name_style: InstructionNameStyle::SnakeCase,
         instruction_catalog: Some(InstructionCatalogSpec::Standard(RAYDIUM_CPMM_INSTRUCTIONS)),
         admin_instructions: RAYDIUM_CPMM_ADMIN_INSTRUCTIONS,
@@ -1508,6 +1507,41 @@ const PROTOCOL_SPECS: &[ProtocolSpec] = &[
         slug: "raydium",
         name: "Raydium",
         program_label: "Legacy AMM v4",
+        program_id: "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+        instruction_name_style: InstructionNameStyle::CamelCase,
+        instruction_catalog: Some(InstructionCatalogSpec::Standard(
+            RAYDIUM_AMM_V4_INSTRUCTIONS,
+        )),
+        admin_instructions: RAYDIUM_AMM_V4_ADMIN_INSTRUCTIONS,
+        high_impact_instructions: RAYDIUM_AMM_V4_HIGH_IMPACT_INSTRUCTIONS,
+        unknown_alerts: true,
+    },
+    ProtocolSpec {
+        slug: "raydium",
+        name: "Raydium",
+        program_label: "CLMM (devnet)",
+        program_id: "DRayAUgENGQBKVaX8owNhgzkEDyoHTGVEGHVJT1E9pfH",
+        instruction_name_style: InstructionNameStyle::SnakeCase,
+        instruction_catalog: Some(InstructionCatalogSpec::Standard(RAYDIUM_CLMM_INSTRUCTIONS)),
+        admin_instructions: RAYDIUM_CLMM_ADMIN_INSTRUCTIONS,
+        high_impact_instructions: RAYDIUM_CLMM_HIGH_IMPACT_INSTRUCTIONS,
+        unknown_alerts: true,
+    },
+    ProtocolSpec {
+        slug: "raydium",
+        name: "Raydium",
+        program_label: "CPMM (devnet)",
+        program_id: "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb",
+        instruction_name_style: InstructionNameStyle::SnakeCase,
+        instruction_catalog: Some(InstructionCatalogSpec::Standard(RAYDIUM_CPMM_INSTRUCTIONS)),
+        admin_instructions: RAYDIUM_CPMM_ADMIN_INSTRUCTIONS,
+        high_impact_instructions: RAYDIUM_CPMM_HIGH_IMPACT_INSTRUCTIONS,
+        unknown_alerts: true,
+    },
+    ProtocolSpec {
+        slug: "raydium",
+        name: "Raydium",
+        program_label: "Legacy AMM v4 (devnet)",
         program_id: "DRaya7Kj3aMWQSy19kSjvmuwq9docCHofyP9kanQGaav",
         instruction_name_style: InstructionNameStyle::CamelCase,
         instruction_catalog: Some(InstructionCatalogSpec::Standard(
@@ -2884,6 +2918,23 @@ mod tests {
     }
 
     #[test]
+    fn keeps_jupiter_lend_liquidity_price_refresh_as_non_high_impact_admin() {
+        let program_id = Pubkey::from_str("jupeiUmn818Jg1ekPURTpr4mFo29p46vygyykFJ3wZC").unwrap();
+        let signal = resolve_protocol_instruction(
+            program_id,
+            &discriminator_for_name("update_exchange_price", InstructionNameStyle::SnakeCase),
+        )
+        .expect("known Jupiter Lend liquidity price refresh instruction");
+
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("update_exchange_price")
+        );
+        assert!(!signal.high_impact);
+    }
+
+    #[test]
     fn ignores_pumpfun_creator_migration_as_non_admin() {
         let program_id = Pubkey::from_str("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P").unwrap();
         let signal = resolve_protocol_instruction(
@@ -2971,7 +3022,7 @@ mod tests {
 
     #[test]
     fn resolves_curated_protocol_program() {
-        let program_id = Pubkey::from_str("DRayAUgENGQBKVaX8owNhgzkEDyoHTGVEGHVJT1E9pfH").unwrap();
+        let program_id = Pubkey::from_str("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK").unwrap();
         let protocol = protocol_for_program(program_id).expect("raydium should be curated");
 
         assert_eq!(protocol.slug, "raydium");

@@ -382,6 +382,10 @@ fn format_telegram_message(config: &Config, event: &ChainEvent) -> String {
             protocol_digest_lines(config, event),
             PROTOCOL_DIGEST_PREFIXES,
         ),
+        event_kind::TOKEN_LIQUIDITY_LOW => (
+            token_liquidity_digest_lines(event),
+            TOKEN_LIQUIDITY_DIGEST_PREFIXES,
+        ),
         event_kind::MULTISIG_PROPOSAL_ACTIVATED
         | event_kind::MULTISIG_PROPOSAL_APPROVED
         | event_kind::MULTISIG_PROPOSAL_REJECTED
@@ -478,6 +482,19 @@ const PROTOCOL_DIGEST_PREFIXES: &[&str] = &[
     "Discriminator:",
 ];
 
+const TOKEN_LIQUIDITY_DIGEST_PREFIXES: &[&str] = &[
+    "Token:",
+    "Pool:",
+    "DEX:",
+    "Reserve:",
+    "Reserve USD:",
+    "Threshold:",
+    "Critical:",
+    "Drop:",
+    "Low since:",
+    "Wallet balance:",
+];
+
 const MULTISIG_DIGEST_PREFIXES: &[&str] = &[
     "Decoded protocol:",
     "Decoded action:",
@@ -510,6 +527,7 @@ fn event_title(event: &ChainEvent) -> &'static str {
         event_kind::PROGRAM_ADMIN_INSTRUCTION => "Protocol admin instruction",
         event_kind::PROGRAM_METRIC_ALERT => "Protocol metric anomaly",
         event_kind::PROGRAM_UNKNOWN_INSTRUCTION => "Critical unknown protocol instruction",
+        event_kind::TOKEN_LIQUIDITY_LOW => "Token liquidity low",
         event_kind::MULTISIG_PROPOSAL_ACTIVATED => "Multisig proposal activated",
         event_kind::MULTISIG_PROPOSAL_APPROVED => "Multisig approval",
         event_kind::MULTISIG_PROPOSAL_REJECTED => "Multisig rejection",
@@ -912,6 +930,65 @@ fn protocol_digest_lines(config: &Config, event: &ChainEvent) -> Vec<String> {
     lines
 }
 
+fn token_liquidity_digest_lines(event: &ChainEvent) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    if let Some(symbol) = payload_str(event, "token_symbol") {
+        lines.push(format!("Token: {symbol}"));
+    }
+
+    if let Some(pool_address) = payload_str(event, "pool_address") {
+        lines.push(format!("Pool: {pool_address}"));
+    }
+
+    if let Some(dex_id) = payload_str(event, "dex_id") {
+        lines.push(format!("DEX: {dex_id}"));
+    }
+
+    if let Some(reserve) = payload_f64(event, "watched_token_reserve") {
+        let symbol = payload_str(event, "token_symbol").unwrap_or("token");
+        lines.push(format!("Reserve: {reserve:.8} {symbol}"));
+    }
+
+    if let Some(reserve_usd) = payload_f64(event, "watched_token_reserve_usd") {
+        lines.push(format!("Reserve USD: {reserve_usd:.2}"));
+    }
+
+    if let Some(threshold) = payload_f64(event, "min_token_reserve") {
+        let symbol = payload_str(event, "token_symbol").unwrap_or("token");
+        lines.push(format!("Threshold: {threshold:.8} {symbol}"));
+    } else if let Some(threshold_usd) = payload_f64(event, "min_token_reserve_usd") {
+        lines.push(format!("Threshold: {threshold_usd:.2} USD"));
+    }
+
+    if let Some(reason) = payload_str(event, "critical_reason") {
+        lines.push(format!("Critical: {reason}"));
+    }
+
+    if let Some(delta) = payload_f64(event, "watched_token_reserve_delta") {
+        if delta < 0.0 {
+            let symbol = payload_str(event, "token_symbol").unwrap_or("token");
+            let ratio = payload_f64(event, "watched_token_reserve_delta_ratio")
+                .map(|value| format!(" ({:.2}%)", value * 100.0))
+                .unwrap_or_default();
+            lines.push(format!("Drop: {:.8} {symbol}{ratio}", delta.abs()));
+        }
+    }
+
+    if let Some(low_since) = event.payload.get("low_since") {
+        if let Some(slot) = low_since.get("slot").and_then(serde_json::Value::as_i64) {
+            lines.push(format!("Low since: slot {slot}"));
+        }
+    }
+
+    if let Some(wallet_balance) = payload_f64(event, "wallet_token_balance") {
+        let symbol = payload_str(event, "token_symbol").unwrap_or("token");
+        lines.push(format!("Wallet balance: {wallet_balance:.8} {symbol}"));
+    }
+
+    lines
+}
+
 fn append_authority_digest_lines(lines: &mut Vec<String>, event: &ChainEvent) {
     if let Some(authority) = payload_str(event, "authority") {
         let authority_label = payload_str(event, "authority_label").unwrap_or("Authority");
@@ -1157,6 +1234,9 @@ mod tests {
             solana_pay_spl_token: None,
             solana_pay_label: "FireWatch".to_owned(),
             solana_pay_link_ttl_hours: 72,
+            liquidity_pool_snapshot_retention_days: 3,
+            watched_liquidity_pool_snapshot_retention_days: 7,
+            liquidity_pool_snapshot_prune_interval_seconds: 6 * 60 * 60,
         }
     }
 
