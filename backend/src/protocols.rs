@@ -2577,6 +2577,31 @@ pub fn resolve_protocol_instruction(
         .iter()
         .find(|definition| definition.program_id == program_id)?;
 
+    if is_raydium_amm_v4_definition(definition) {
+        if let Some((raw_name, discriminator)) = parse_raydium_amm_v4_instruction(data) {
+            return Some(build_signal(
+                definition,
+                Some(raw_name),
+                definition
+                    .admin_instructions
+                    .contains(&raw_name)
+                    .then_some(ProtocolSignalKind::Admin),
+                discriminator,
+            ));
+        }
+
+        if definition.unknown_alerts {
+            return Some(build_signal(
+                definition,
+                None,
+                Some(ProtocolSignalKind::Unknown),
+                unknown_discriminator_bytes(data).as_slice(),
+            ));
+        }
+
+        return None;
+    }
+
     if let Some((raw_name, discriminator)) = definition
         .instruction_catalog
         .as_ref()
@@ -2614,6 +2639,84 @@ pub fn resolve_protocol_instruction(
     }
 
     None
+}
+
+fn is_raydium_amm_v4_definition(definition: &ProtocolDefinition) -> bool {
+    definition.slug == "raydium" && definition.program_label.starts_with("Legacy AMM v4")
+}
+
+fn parse_raydium_amm_v4_instruction(data: &[u8]) -> Option<(&'static str, &'static [u8])> {
+    let (&tag, rest) = data.split_first()?;
+    if !is_valid_raydium_amm_v4_payload(tag, rest) {
+        return None;
+    }
+
+    RAYDIUM_AMM_V4_INSTRUCTIONS
+        .iter()
+        .find(|instruction| instruction.discriminator == [tag])
+        .map(|instruction| (instruction.name, instruction.discriminator))
+}
+
+fn is_valid_raydium_amm_v4_payload(tag: u8, rest: &[u8]) -> bool {
+    match tag {
+        0 => rest.len() >= 9,
+        1 => rest.len() >= 25,
+        2 => rest.len() >= 6,
+        3 => rest.len() >= 24,
+        4 => rest.len() >= 8,
+        5 => true,
+        6 => is_valid_raydium_amm_v4_set_params_payload(rest),
+        7 => true,
+        8 => rest.len() >= 8,
+        9 => rest.len() >= 16,
+        10 => rest.len() >= 1,
+        11 => rest.len() >= 16,
+        12 => is_valid_raydium_amm_v4_simulate_payload(rest),
+        13 => rest.len() >= 2,
+        14 => true,
+        15 => is_valid_raydium_amm_v4_update_config_payload(rest),
+        16 => rest.len() >= 16,
+        17 => rest.len() >= 16,
+        _ => false,
+    }
+}
+
+fn is_valid_raydium_amm_v4_set_params_payload(rest: &[u8]) -> bool {
+    let Some((&param, value)) = rest.split_first() else {
+        return false;
+    };
+
+    match param {
+        9 => value.len() >= 64,
+        10 => value.len() >= 32,
+        12 => value.len() >= 16,
+        0..=8 | 11 | 13..=17 => value.len() >= 8,
+        _ => false,
+    }
+}
+
+fn is_valid_raydium_amm_v4_simulate_payload(rest: &[u8]) -> bool {
+    let Some((&param, value)) = rest.split_first() else {
+        return false;
+    };
+
+    match param {
+        0 | 3 => true,
+        1 | 2 => value.len() >= 16,
+        _ => false,
+    }
+}
+
+fn is_valid_raydium_amm_v4_update_config_payload(rest: &[u8]) -> bool {
+    let Some((&param, value)) = rest.split_first() else {
+        return false;
+    };
+
+    match param {
+        0 | 1 => value.len() >= 32,
+        2 => value.len() >= 8,
+        _ => false,
+    }
 }
 
 fn build_signal(
@@ -2958,6 +3061,68 @@ mod tests {
         assert_eq!(signal.instruction_name.as_deref(), Some("swap_base_in_v2"));
         assert!(!signal.high_impact);
         assert_eq!(signal.discriminator_hex, "10");
+    }
+
+    #[test]
+    fn ignores_historical_raydium_amm_v4_swap_base_in_v2_cpi_payloads() {
+        let program_id = Pubkey::from_str("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8").unwrap();
+        let payloads: &[&[u8]] = &[
+            &[16, 207, 75, 193, 69, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            &[16, 8, 230, 194, 66, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            &[16, 178, 148, 26, 36, 45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        ];
+
+        for payload in payloads {
+            let signal = resolve_protocol_instruction(program_id, payload)
+                .expect("known historical Raydium AMM v4 swapBaseInV2 CPI");
+
+            assert!(signal.signal_kind.is_none());
+            assert_eq!(signal.instruction_name.as_deref(), Some("swap_base_in_v2"));
+            assert!(!signal.high_impact);
+            assert_eq!(signal.discriminator_hex, "10");
+        }
+    }
+
+    #[test]
+    fn ignores_raydium_amm_v4_swap_base_out_as_non_admin() {
+        let program_id = Pubkey::from_str("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8").unwrap();
+        let signal = resolve_protocol_instruction(
+            program_id,
+            &[11, 128, 150, 152, 0, 0, 0, 0, 0, 64, 66, 15, 0, 0, 0, 0, 0],
+        )
+        .expect("known Raydium AMM v4 swapBaseOut instruction");
+
+        assert_eq!(signal.protocol.slug, "raydium");
+        assert!(signal.signal_kind.is_none());
+        assert_eq!(signal.instruction_name.as_deref(), Some("swap_base_out"));
+        assert!(!signal.high_impact);
+        assert_eq!(signal.discriminator_hex, "0b");
+    }
+
+    #[test]
+    fn classifies_raydium_amm_v4_set_params_as_high_impact_admin() {
+        let program_id = Pubkey::from_str("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8").unwrap();
+        let signal =
+            resolve_protocol_instruction(program_id, &[6, 11, 128, 150, 152, 0, 0, 0, 0, 0])
+                .expect("known Raydium AMM v4 setParams instruction");
+
+        assert_eq!(signal.protocol.slug, "raydium");
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+        assert_eq!(signal.instruction_name.as_deref(), Some("set_params"));
+        assert!(signal.high_impact);
+        assert_eq!(signal.discriminator_hex, "06");
+    }
+
+    #[test]
+    fn classifies_malformed_raydium_amm_v4_known_tag_as_unknown() {
+        let program_id = Pubkey::from_str("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8").unwrap();
+        let signal =
+            resolve_protocol_instruction(program_id, &[16, 1, 2, 3]).expect("malformed swap tag");
+
+        assert_eq!(signal.protocol.slug, "raydium");
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Unknown));
+        assert!(signal.instruction_name.is_none());
+        assert_eq!(signal.discriminator_hex, "10010203");
     }
 
     #[test]

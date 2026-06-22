@@ -5996,6 +5996,7 @@ impl Database {
                   AND json_extract(payload_json, '$.program_label') = 'Legacy AMM v4'
                   AND (
                     json_extract(payload_json, '$.discriminator') LIKE '09%'
+                    OR json_extract(payload_json, '$.discriminator') LIKE '0b%'
                     OR json_extract(payload_json, '$.discriminator') LIKE '10%'
                     OR json_extract(payload_json, '$.discriminator') LIKE '11%'
                   )
