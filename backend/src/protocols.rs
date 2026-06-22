@@ -1074,7 +1074,6 @@ const RAYDIUM_CLMM_ADMIN_INSTRUCTIONS: &[&str] = &[
 ];
 
 const RAYDIUM_CLMM_HIGH_IMPACT_INSTRUCTIONS: &[&str] = &[
-    "collect_protocol_fee",
     "create_amm_config",
     "set_reward_params",
     "transfer_reward_owner",
@@ -1106,7 +1105,6 @@ const RAYDIUM_CPMM_ADMIN_INSTRUCTIONS: &[&str] = &[
 ];
 
 const RAYDIUM_CPMM_HIGH_IMPACT_INSTRUCTIONS: &[&str] = &[
-    "collect_protocol_fee",
     "create_amm_config",
     "update_amm_config",
     "update_pool_status",
@@ -3111,6 +3109,40 @@ mod tests {
         assert_eq!(signal.instruction_name.as_deref(), Some("set_params"));
         assert!(signal.high_impact);
         assert_eq!(signal.discriminator_hex, "06");
+    }
+
+    #[test]
+    fn keeps_raydium_clmm_protocol_fee_collection_as_non_high_impact_admin() {
+        let program_id = Pubkey::from_str("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK").unwrap();
+        let signal = resolve_protocol_instruction(
+            program_id,
+            &discriminator_for_name("collect_protocol_fee", InstructionNameStyle::SnakeCase),
+        )
+        .expect("known Raydium CLMM protocol fee collection");
+
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("collect_protocol_fee")
+        );
+        assert!(!signal.high_impact);
+    }
+
+    #[test]
+    fn keeps_raydium_cpmm_protocol_fee_collection_as_non_high_impact_admin() {
+        let program_id = Pubkey::from_str("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C").unwrap();
+        let signal = resolve_protocol_instruction(
+            program_id,
+            &discriminator_for_name("collect_protocol_fee", InstructionNameStyle::SnakeCase),
+        )
+        .expect("known Raydium CPMM protocol fee collection");
+
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("collect_protocol_fee")
+        );
+        assert!(!signal.high_impact);
     }
 
     #[test]
