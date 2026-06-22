@@ -1112,23 +1112,79 @@ const RAYDIUM_CPMM_HIGH_IMPACT_INSTRUCTIONS: &[&str] = &[
     "update_pool_status",
 ];
 
-const RAYDIUM_AMM_V4_INSTRUCTIONS: &[&str] = &[
-    "initialize",
-    "initialize2",
-    "monitorStep",
-    "deposit",
-    "withdraw",
-    "migrateToOpenBook",
-    "setParams",
-    "withdrawPnl",
-    "withdrawSrm",
-    "swapBaseIn",
-    "preInitialize",
-    "swapBaseOut",
-    "simulateInfo",
-    "adminCancelOrders",
-    "createConfigAccount",
-    "updateConfigAccount",
+const RAYDIUM_AMM_V4_INSTRUCTIONS: &[InstructionSpec] = &[
+    InstructionSpec {
+        name: "initialize",
+        discriminator: &[0],
+    },
+    InstructionSpec {
+        name: "initialize2",
+        discriminator: &[1],
+    },
+    InstructionSpec {
+        name: "monitorStep",
+        discriminator: &[2],
+    },
+    InstructionSpec {
+        name: "deposit",
+        discriminator: &[3],
+    },
+    InstructionSpec {
+        name: "withdraw",
+        discriminator: &[4],
+    },
+    InstructionSpec {
+        name: "migrateToOpenBook",
+        discriminator: &[5],
+    },
+    InstructionSpec {
+        name: "setParams",
+        discriminator: &[6],
+    },
+    InstructionSpec {
+        name: "withdrawPnl",
+        discriminator: &[7],
+    },
+    InstructionSpec {
+        name: "withdrawSrm",
+        discriminator: &[8],
+    },
+    InstructionSpec {
+        name: "swapBaseIn",
+        discriminator: &[9],
+    },
+    InstructionSpec {
+        name: "preInitialize",
+        discriminator: &[10],
+    },
+    InstructionSpec {
+        name: "swapBaseOut",
+        discriminator: &[11],
+    },
+    InstructionSpec {
+        name: "simulateInfo",
+        discriminator: &[12],
+    },
+    InstructionSpec {
+        name: "adminCancelOrders",
+        discriminator: &[13],
+    },
+    InstructionSpec {
+        name: "createConfigAccount",
+        discriminator: &[14],
+    },
+    InstructionSpec {
+        name: "updateConfigAccount",
+        discriminator: &[15],
+    },
+    InstructionSpec {
+        name: "swapBaseInV2",
+        discriminator: &[16],
+    },
+    InstructionSpec {
+        name: "swapBaseOutV2",
+        discriminator: &[17],
+    },
 ];
 
 const RAYDIUM_AMM_V4_ADMIN_INSTRUCTIONS: &[&str] = &[
@@ -1509,7 +1565,7 @@ const PROTOCOL_SPECS: &[ProtocolSpec] = &[
         program_label: "Legacy AMM v4",
         program_id: "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
         instruction_name_style: InstructionNameStyle::CamelCase,
-        instruction_catalog: Some(InstructionCatalogSpec::Standard(
+        instruction_catalog: Some(InstructionCatalogSpec::Explicit(
             RAYDIUM_AMM_V4_INSTRUCTIONS,
         )),
         admin_instructions: RAYDIUM_AMM_V4_ADMIN_INSTRUCTIONS,
@@ -1544,7 +1600,7 @@ const PROTOCOL_SPECS: &[ProtocolSpec] = &[
         program_label: "Legacy AMM v4 (devnet)",
         program_id: "DRaya7Kj3aMWQSy19kSjvmuwq9docCHofyP9kanQGaav",
         instruction_name_style: InstructionNameStyle::CamelCase,
-        instruction_catalog: Some(InstructionCatalogSpec::Standard(
+        instruction_catalog: Some(InstructionCatalogSpec::Explicit(
             RAYDIUM_AMM_V4_INSTRUCTIONS,
         )),
         admin_instructions: RAYDIUM_AMM_V4_ADMIN_INSTRUCTIONS,
@@ -2886,6 +2942,33 @@ mod tests {
             signal.instruction_name.as_deref(),
             Some("modify_market_setting")
         );
+    }
+
+    #[test]
+    fn ignores_raydium_amm_v4_swap_base_in_v2_as_non_admin() {
+        let program_id = Pubkey::from_str("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8").unwrap();
+        let signal = resolve_protocol_instruction(
+            program_id,
+            &[16, 142, 19, 95, 0, 0, 0, 0, 0, 3, 210, 13, 0, 0, 0, 0, 0],
+        )
+        .expect("known Raydium AMM v4 swapBaseInV2 instruction");
+
+        assert_eq!(signal.protocol.slug, "raydium");
+        assert!(signal.signal_kind.is_none());
+        assert_eq!(signal.instruction_name.as_deref(), Some("swap_base_in_v2"));
+        assert!(!signal.high_impact);
+        assert_eq!(signal.discriminator_hex, "10");
+    }
+
+    #[test]
+    fn classifies_unknown_raydium_amm_v4_tag_as_unknown() {
+        let program_id = Pubkey::from_str("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8").unwrap();
+        let signal = resolve_protocol_instruction(program_id, &[99, 1, 2, 3]).expect("unknown tag");
+
+        assert_eq!(signal.protocol.slug, "raydium");
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Unknown));
+        assert!(signal.instruction_name.is_none());
+        assert_eq!(signal.discriminator_hex, "63010203");
     }
 
     #[test]
