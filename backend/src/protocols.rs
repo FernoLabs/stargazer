@@ -1050,6 +1050,7 @@ const RAYDIUM_CLMM_INSTRUCTIONS: &[&str] = &[
     "close_limit_order",
     "open_limit_order",
     "set_reward_params",
+    "settle_limit_order",
     "swap",
     "swap_router_base_in",
     "swap_v2",
@@ -3199,6 +3200,27 @@ mod tests {
         );
         assert!(!signal.high_impact);
         assert_eq!(signal.discriminator_hex, "4c7c800fd55725fa");
+    }
+
+    #[test]
+    fn ignores_raydium_clmm_settle_limit_order_as_known_non_admin() {
+        let program_id = Pubkey::from_str("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK").unwrap();
+        let signal = resolve_protocol_instruction(
+            program_id,
+            &[
+                0xcd, 0x4e, 0x74, 0x21, 0x5c, 0x69, 0x1a, 0x60, 0x00, 0x00,
+            ],
+        )
+        .expect("known Raydium CLMM settle limit order");
+
+        assert_eq!(signal.protocol.slug, "raydium");
+        assert!(signal.signal_kind.is_none());
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("settle_limit_order")
+        );
+        assert!(!signal.high_impact);
+        assert_eq!(signal.discriminator_hex, "cd4e74215c691a60");
     }
 
     #[test]
