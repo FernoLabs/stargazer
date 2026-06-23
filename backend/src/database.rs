@@ -6011,6 +6011,63 @@ impl Database {
         Ok(result.rows_affected())
     }
 
+    pub async fn mark_raydium_clmm_limit_order_false_positive_deliveries(
+        &self,
+        delivered_at: i64,
+    ) -> Result<u64> {
+        let event_result = sqlx::query(
+            r#"
+            UPDATE events
+            SET delivered_at = ?,
+                last_error = NULL,
+                next_retry_at = ?
+            WHERE delivered_at IS NULL
+              AND kind = 'program_unknown_instruction'
+              AND target_address = 'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK'
+              AND json_extract(payload_json, '$.protocol') = 'raydium'
+              AND json_extract(payload_json, '$.program_label') = 'CLMM'
+              AND json_extract(payload_json, '$.discriminator') IN (
+                '9d20dab7471d1293',
+                '4c7c800fd55725fa',
+                'cd4e74215c691a60'
+              );
+            "#,
+        )
+        .bind(delivered_at)
+        .bind(delivered_at)
+        .execute(&self.pool)
+        .await?;
+
+        let delivery_result = sqlx::query(
+            r#"
+            UPDATE telegram_deliveries
+            SET delivered_at = ?,
+                last_error = NULL,
+                next_retry_at = ?
+            WHERE delivered_at IS NULL
+              AND event_id IN (
+                SELECT id
+                FROM events
+                WHERE kind = 'program_unknown_instruction'
+                  AND target_address = 'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK'
+                  AND json_extract(payload_json, '$.protocol') = 'raydium'
+                  AND json_extract(payload_json, '$.program_label') = 'CLMM'
+                  AND json_extract(payload_json, '$.discriminator') IN (
+                    '9d20dab7471d1293',
+                    '4c7c800fd55725fa',
+                    'cd4e74215c691a60'
+                  )
+              );
+            "#,
+        )
+        .bind(delivered_at)
+        .bind(delivered_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(event_result.rows_affected() + delivery_result.rows_affected())
+    }
+
     pub async fn mark_telegram_delivery_failure(
         &self,
         delivery_id: &str,
