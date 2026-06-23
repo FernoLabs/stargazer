@@ -319,6 +319,16 @@ async fn main() -> Result<()> {
             "marked Raydium CLMM limit order false-positive deliveries as delivered"
         );
     }
+    let suppressed_false_positive_deliveries = state
+        .db
+        .mark_kamino_reserve_config_parser_false_positive_deliveries(models::now_ts())
+        .await?;
+    if suppressed_false_positive_deliveries > 0 {
+        warn!(
+            count = suppressed_false_positive_deliveries,
+            "marked Kamino reserve config parser false-positive deliveries as delivered"
+        );
+    }
 
     spawn_block_time_repair(state.clone());
     spawn_sns_label_bootstrap(state.clone());

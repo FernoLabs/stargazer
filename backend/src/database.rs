@@ -6068,6 +6068,57 @@ impl Database {
         Ok(event_result.rows_affected() + delivery_result.rows_affected())
     }
 
+    pub async fn mark_kamino_reserve_config_parser_false_positive_deliveries(
+        &self,
+        delivered_at: i64,
+    ) -> Result<u64> {
+        let event_result = sqlx::query(
+            r#"
+            UPDATE events
+            SET delivered_at = ?,
+                last_error = NULL,
+                next_retry_at = ?
+            WHERE delivered_at IS NULL
+              AND kind = 'program_admin_instruction'
+              AND target_address = 'KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD'
+              AND json_extract(payload_json, '$.protocol') = 'kamino_lend'
+              AND json_extract(payload_json, '$.instruction_name') = 'update_reserve_config'
+              AND json_extract(payload_json, '$.kamino_update_config_mode') = 'unknown'
+              AND json_extract(payload_json, '$.kamino_update_config_value_len') = '0';
+            "#,
+        )
+        .bind(delivered_at)
+        .bind(delivered_at)
+        .execute(&self.pool)
+        .await?;
+
+        let delivery_result = sqlx::query(
+            r#"
+            UPDATE telegram_deliveries
+            SET delivered_at = ?,
+                last_error = NULL,
+                next_retry_at = ?
+            WHERE delivered_at IS NULL
+              AND event_id IN (
+                SELECT id
+                FROM events
+                WHERE kind = 'program_admin_instruction'
+                  AND target_address = 'KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD'
+                  AND json_extract(payload_json, '$.protocol') = 'kamino_lend'
+                  AND json_extract(payload_json, '$.instruction_name') = 'update_reserve_config'
+                  AND json_extract(payload_json, '$.kamino_update_config_mode') = 'unknown'
+                  AND json_extract(payload_json, '$.kamino_update_config_value_len') = '0'
+              );
+            "#,
+        )
+        .bind(delivered_at)
+        .bind(delivered_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(event_result.rows_affected() + delivery_result.rows_affected())
+    }
+
     pub async fn mark_telegram_delivery_failure(
         &self,
         delivery_id: &str,

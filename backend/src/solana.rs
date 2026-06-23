@@ -141,7 +141,7 @@ struct ProtocolInstructionDetails {
 }
 
 struct KaminoReserveConfigUpdate {
-    mode: u64,
+    mode: u8,
     mode_name: &'static str,
     value_len: usize,
     skip_validation: bool,
@@ -3219,10 +3219,11 @@ fn parse_kamino_reserve_config_update(data: &[u8]) -> Option<KaminoReserveConfig
         return None;
     }
 
-    let mode = u64::from_le_bytes(data.get(8..16)?.try_into().ok()?);
-    let value_len = u32::from_le_bytes(data.get(16..20)?.try_into().ok()?) as usize;
-    let skip_validation_offset = 20_usize.checked_add(value_len)?;
-    data.get(20..skip_validation_offset)?;
+    let mode = *data.get(8)?;
+    let value_len = u32::from_le_bytes(data.get(9..13)?.try_into().ok()?) as usize;
+    let value_offset = 13_usize;
+    let skip_validation_offset = value_offset.checked_add(value_len)?;
+    data.get(value_offset..skip_validation_offset)?;
     let skip_validation = match data.get(skip_validation_offset)? {
         0 => false,
         1 => true,
@@ -3237,7 +3238,7 @@ fn parse_kamino_reserve_config_update(data: &[u8]) -> Option<KaminoReserveConfig
     })
 }
 
-fn kamino_update_config_mode_name(mode: u64) -> &'static str {
+fn kamino_update_config_mode_name(mode: u8) -> &'static str {
     match mode {
         1 => "update_loan_to_value_pct",
         2 => "update_max_liquidation_bonus_bps",
@@ -3299,23 +3300,24 @@ fn kamino_update_config_mode_name(mode: u64) -> &'static str {
 }
 
 fn kamino_reserve_config_update_high_impact(update: &KaminoReserveConfigUpdate) -> bool {
-    update.skip_validation
-        || update.mode_name == "unknown"
-        || matches!(
-            update.mode,
-            1..=3
-                | 4..=7
-                | 11..=16
-                | 18..=25
-                | 30..=36
-                | 39
-                | 42..=44
-                | 47
-                | 48
-                | 49
-                | 50
-                | 51..=55
-        )
+    let sensitive_mode = matches!(
+        update.mode,
+        1..=3
+            | 4..=7
+            | 11..=16
+            | 18..=25
+            | 30..=36
+            | 39
+            | 42..=44
+            | 47
+            | 48
+            | 49
+            | 50
+            | 51..=55
+    );
+    let maintenance_mode = matches!(update.mode, 8 | 28 | 29 | 37 | 38);
+
+    update.mode_name == "unknown" || sensitive_mode || (update.skip_validation && !maintenance_mode)
 }
 
 fn orca_config_extension_authority_details(
@@ -3982,7 +3984,15 @@ mod tests {
             .expect("orca config extension authority event")
     }
 
-    fn sample_kamino_reserve_config_event(mode: u64, skip_validation: bool) -> ChainEvent {
+    fn sample_kamino_reserve_config_event(mode: u8, skip_validation: bool) -> ChainEvent {
+        sample_kamino_reserve_config_event_with_value(mode, &[], skip_validation)
+    }
+
+    fn sample_kamino_reserve_config_event_with_value(
+        mode: u8,
+        value: &[u8],
+        skip_validation: bool,
+    ) -> ChainEvent {
         let lending_market_owner = Pubkey::new_unique();
         let lending_market = Pubkey::new_unique();
         let reserve = Pubkey::new_unique();
@@ -4004,7 +4014,7 @@ mod tests {
         let instruction = ResolvedInstruction {
             program_id_index: 3,
             accounts: vec![0, 1, 2],
-            data: kamino_reserve_config_update_data(mode, &[], skip_validation),
+            data: kamino_reserve_config_update_data(mode, value, skip_validation),
             stack_height: Some(1),
         };
 
@@ -4014,13 +4024,9 @@ mod tests {
             .expect("kamino reserve config event")
     }
 
-    fn kamino_reserve_config_update_data(
-        mode: u64,
-        value: &[u8],
-        skip_validation: bool,
-    ) -> Vec<u8> {
+    fn kamino_reserve_config_update_data(mode: u8, value: &[u8], skip_validation: bool) -> Vec<u8> {
         let mut data = anchor_discriminator("update_reserve_config").to_vec();
-        data.extend_from_slice(&mode.to_le_bytes());
+        data.push(mode);
         data.extend_from_slice(&(value.len() as u32).to_le_bytes());
         data.extend_from_slice(value);
         data.push(u8::from(skip_validation));
@@ -4171,6 +4177,44 @@ mod tests {
                 .get("kamino_update_config_mode")
                 .and_then(|value| value.as_str()),
             Some("update_borrow_limit")
+        );
+    }
+
+    #[test]
+    fn decodes_kamino_reserve_config_mode_from_borsh_enum_layout() {
+        let event = sample_kamino_reserve_config_event_with_value(29, &[0x0a, 0x00], true);
+
+        assert_eq!(event.kind, event_kind::PROGRAM_ADMIN_INSTRUCTION);
+        assert!(!event.tags.iter().any(|tag| tag == "severity:high"));
+        assert!(!event.tags.iter().any(|tag| tag == "impact:high"));
+        assert!(!TelegramEventScope::DefiWatch.matches_event(&event));
+        assert_eq!(
+            event
+                .payload
+                .get("kamino_update_config_mode")
+                .and_then(|value| value.as_str()),
+            Some("deprecated_update_deposit_withdrawal_cap_current_total")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("kamino_update_config_mode_id")
+                .and_then(|value| value.as_str()),
+            Some("29")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("kamino_update_config_value_len")
+                .and_then(|value| value.as_str()),
+            Some("2")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("kamino_update_config_skip_validation")
+                .and_then(|value| value.as_str()),
+            Some("true")
         );
     }
 
