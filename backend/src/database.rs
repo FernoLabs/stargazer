@@ -6011,7 +6011,7 @@ impl Database {
         Ok(result.rows_affected())
     }
 
-    pub async fn mark_raydium_clmm_limit_order_false_positive_deliveries(
+    pub async fn mark_raydium_clmm_known_false_positive_deliveries(
         &self,
         delivered_at: i64,
     ) -> Result<u64> {
@@ -6029,7 +6029,9 @@ impl Database {
               AND json_extract(payload_json, '$.discriminator') IN (
                 '9d20dab7471d1293',
                 '4c7c800fd55725fa',
-                'cd4e74215c691a60'
+                'cd4e74215c691a60',
+                '2b44d4a7592fa401',
+                '759d3c674231a300'
               );
             "#,
         )
@@ -6055,7 +6057,9 @@ impl Database {
                   AND json_extract(payload_json, '$.discriminator') IN (
                     '9d20dab7471d1293',
                     '4c7c800fd55725fa',
-                    'cd4e74215c691a60'
+                    'cd4e74215c691a60',
+                    '2b44d4a7592fa401',
+                    '759d3c674231a300'
                   )
               );
             "#,

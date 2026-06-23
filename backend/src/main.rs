@@ -311,12 +311,12 @@ async fn main() -> Result<()> {
     }
     let suppressed_false_positive_deliveries = state
         .db
-        .mark_raydium_clmm_limit_order_false_positive_deliveries(models::now_ts())
+        .mark_raydium_clmm_known_false_positive_deliveries(models::now_ts())
         .await?;
     if suppressed_false_positive_deliveries > 0 {
         warn!(
             count = suppressed_false_positive_deliveries,
-            "marked Raydium CLMM limit order false-positive deliveries as delivered"
+            "marked Raydium CLMM known false-positive deliveries as delivered"
         );
     }
     let suppressed_false_positive_deliveries = state

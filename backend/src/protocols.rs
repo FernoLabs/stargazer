@@ -1037,8 +1037,10 @@ const RAYDIUM_CLMM_INSTRUCTIONS: &[&str] = &[
     "collect_remaining_rewards",
     "create_amm_config",
     "create_operation_account",
+    "create_customizable_pool",
     "create_pool",
     "create_support_mint_associated",
+    "decrease_limit_order",
     "decrease_liquidity",
     "decrease_liquidity_v2",
     "increase_liquidity",
@@ -1066,6 +1068,7 @@ const RAYDIUM_CLMM_ADMIN_INSTRUCTIONS: &[&str] = &[
     "collect_protocol_fee",
     "create_amm_config",
     "create_operation_account",
+    "create_customizable_pool",
     "create_pool",
     "initialize_reward",
     "set_reward_params",
@@ -3203,13 +3206,49 @@ mod tests {
     }
 
     #[test]
+    fn keeps_raydium_clmm_customizable_pool_creation_as_non_high_impact_admin() {
+        let program_id = Pubkey::from_str("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK").unwrap();
+        let signal = resolve_protocol_instruction(
+            program_id,
+            &[0x2b, 0x44, 0xd4, 0xa7, 0x59, 0x2f, 0xa4, 0x01],
+        )
+        .expect("known Raydium CLMM customizable pool creation");
+
+        assert_eq!(signal.protocol.slug, "raydium");
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("create_customizable_pool")
+        );
+        assert!(!signal.high_impact);
+        assert_eq!(signal.discriminator_hex, "2b44d4a7592fa401");
+    }
+
+    #[test]
+    fn ignores_raydium_clmm_decrease_limit_order_as_known_non_admin() {
+        let program_id = Pubkey::from_str("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK").unwrap();
+        let signal = resolve_protocol_instruction(
+            program_id,
+            &[0x75, 0x9d, 0x3c, 0x67, 0x42, 0x31, 0xa3, 0x00],
+        )
+        .expect("known Raydium CLMM decrease limit order");
+
+        assert_eq!(signal.protocol.slug, "raydium");
+        assert!(signal.signal_kind.is_none());
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("decrease_limit_order")
+        );
+        assert!(!signal.high_impact);
+        assert_eq!(signal.discriminator_hex, "759d3c674231a300");
+    }
+
+    #[test]
     fn ignores_raydium_clmm_settle_limit_order_as_known_non_admin() {
         let program_id = Pubkey::from_str("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK").unwrap();
         let signal = resolve_protocol_instruction(
             program_id,
-            &[
-                0xcd, 0x4e, 0x74, 0x21, 0x5c, 0x69, 0x1a, 0x60, 0x00, 0x00,
-            ],
+            &[0xcd, 0x4e, 0x74, 0x21, 0x5c, 0x69, 0x1a, 0x60, 0x00, 0x00],
         )
         .expect("known Raydium CLMM settle limit order");
 
