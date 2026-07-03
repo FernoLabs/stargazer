@@ -40,7 +40,7 @@
 	function promoPlanLabel(planId: string) {
 		if (planId === 'ferno-member') return 'Ferno member';
 		if (planId === 'paid') return 'Custom Plan';
-		if (planId === 'pro') return 'Pro response';
+		if (planId === 'pro') return 'Company Pro';
 		return planId;
 	}
 
@@ -640,7 +640,7 @@
 								<span>Plan</span>
 								<select name="entitlement_plan_id">
 									<option value="paid">Custom Plan</option>
-									<option value="pro">Pro response</option>
+									<option value="pro">Company Pro</option>
 									<option value="ferno-member">Ferno member</option>
 								</select>
 							</label>
@@ -783,7 +783,7 @@
 							<select name="promo_plan_id">
 								<option value="paid">Custom Plan</option>
 								<option value="ferno-member">Ferno member</option>
-								<option value="pro">Pro response</option>
+								<option value="pro">Company Pro</option>
 							</select>
 						</label>
 					</div>

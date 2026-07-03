@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { resolve } from '$app/paths';
+	import { onMount } from 'svelte';
 	import { nextPageOffset } from '$lib/api-pagination';
-	import { protocolDisplayName, protocolPageHref } from '$lib/catalog';
-	import ActivityEventRow from '$lib/components/ActivityEventRow.svelte';
+	import { protocolDisplayName } from '$lib/catalog';
+	import ProtocolCombobox from '$lib/components/ProtocolCombobox.svelte';
+	import SimpleEventFeed from '$lib/components/SimpleEventFeed.svelte';
 	import type { ChainEvent, EventsResponse } from '$lib/types';
 	import type { PageData } from './$types';
 
@@ -19,6 +22,8 @@
 		coverage: CoverageFilter;
 		tag: string;
 	};
+
+	const LIVE_FEED_REFRESH_MS = 8_000;
 
 	function scopeToTab(scope: string | null): ActivityTab {
 		return scope === 'critical' ||
@@ -38,7 +43,6 @@
 		return coverage === 'known' ? 'known' : 'all';
 	}
 
-	let filtersOpen = $state(false);
 	let activeTab = $derived.by(() => scopeToTab(data.initialFilters.scope));
 	let severityFilter = $state<SeverityFilter>('all');
 	let protocolFilter = $state('all');
@@ -48,19 +52,20 @@
 	const initialChunk = (() => ({
 		events: [...data.events],
 		summary: data.summary,
-		totalCount: data.totalCount,
 		scopeCounts: data.scopeCounts,
 		nextOffset: data.nextOffset
 	}))();
 	let events = $state<ChainEvent[]>(initialChunk.events);
 	let summary = $state<PageData['summary']>(initialChunk.summary);
-	let totalCount = $state(initialChunk.totalCount);
 	let scopeCounts = $state<EventsResponse['scope_counts']>(initialChunk.scopeCounts);
 	let nextOffset = $state<number | null>(initialChunk.nextOffset);
 	let isLoadingMore = $state(false);
 	let isRefreshing = $state(false);
 	let loadMoreError = $state<string | null>(null);
 	let refreshError = $state<string | null>(null);
+	let lastLiveRefreshAt = $state<number | null>(Date.now());
+	let liveClock = $state(Date.now());
+	let liveInsertedCount = $state(0);
 	let loadSentinel = $state<HTMLDivElement | null>(null);
 	let lastQuerySignature = $state('');
 	let filterRequestId = 0;
@@ -84,7 +89,6 @@
 		searchText = initialQuery.search;
 		events = data.events;
 		summary = data.summary;
-		totalCount = data.totalCount;
 		scopeCounts = data.scopeCounts;
 		nextOffset = data.nextOffset;
 		loadMoreError = null;
@@ -108,17 +112,12 @@
 	});
 
 	const tabs = [
-		{ id: 'all', label: 'All' },
 		{ id: 'critical', label: 'Critical' },
-		{ id: 'defi', label: 'DeFi' },
-		{ id: 'programs', label: 'Programs' },
-		{ id: 'idl', label: 'IDL' },
-		{ id: 'multisig', label: 'Multisig' }
+		{ id: 'defi', label: 'Protocols' },
+		{ id: 'programs', label: 'Program changes' },
+		{ id: 'multisig', label: 'Squads' },
+		{ id: 'all', label: 'All activity' }
 	] as const;
-
-	function allEvents() {
-		return events;
-	}
 
 	function queryStateFromData(): EventQueryState {
 		return {
@@ -169,7 +168,7 @@
 	}
 
 	function buildEventsUrl(offset: number, queryState = currentQueryState()) {
-		return `${data.backendBaseUrl}/api/events?${buildSearchParams(offset, queryState).toString()}`;
+		return `${resolve('/events/live')}?${buildSearchParams(offset, queryState).toString()}`;
 	}
 
 	async function fetchEventsPage(offset: number, queryState: EventQueryState) {
@@ -179,10 +178,6 @@
 		}
 
 		return (await response.json()) as EventsResponse;
-	}
-
-	function responseTotalCount(payload: EventsResponse) {
-		return payload.total_count ?? payload.summary?.total_count ?? payload.items.length;
 	}
 
 	function responseScopeCounts(payload: EventsResponse) {
@@ -201,10 +196,50 @@
 
 			events = payload.items;
 			summary = payload.summary;
-			totalCount = responseTotalCount(payload);
 			scopeCounts = responseScopeCounts(payload);
 			nextOffset = nextPageOffset(payload.links);
 			lastQuerySignature = expectedSignature;
+			lastLiveRefreshAt = Date.now();
+			liveInsertedCount = 0;
+		} catch (error) {
+			if (requestId === filterRequestId) {
+				refreshError = error instanceof Error ? error.message : 'Could not refresh events';
+			}
+		} finally {
+			if (requestId === filterRequestId) {
+				isRefreshing = false;
+			}
+		}
+	}
+
+	async function refreshLatestEvents() {
+		if (!browser || isRefreshing || isLoadingMore) return;
+		if (document.visibilityState !== 'visible') return;
+
+		const queryState = currentQueryState();
+		const expectedSignature = querySignature(queryState, 0);
+		const requestId = filterRequestId;
+		isRefreshing = true;
+		refreshError = null;
+
+		try {
+			const payload = await fetchEventsPage(0, queryState);
+			if (requestId !== filterRequestId || querySignature(currentQueryState(), 0) !== expectedSignature) return;
+
+			const seenIds = new Set(events.map((event) => event.id));
+			const latestIds = new Set(payload.items.map((event) => event.id));
+			const inserted = payload.items.filter((event) => !seenIds.has(event.id));
+			const olderEvents = events.filter((event) => !latestIds.has(event.id));
+			const mergedEvents = [...payload.items, ...olderEvents];
+
+			events = mergedEvents;
+			summary = payload.summary;
+			scopeCounts = responseScopeCounts(payload);
+			const latestNextOffset = nextPageOffset(payload.links);
+			nextOffset = latestNextOffset === null ? null : Math.max(latestNextOffset, mergedEvents.length);
+			lastQuerySignature = expectedSignature;
+			lastLiveRefreshAt = Date.now();
+			liveInsertedCount = inserted.length;
 		} catch (error) {
 			if (requestId === filterRequestId) {
 				refreshError = error instanceof Error ? error.message : 'Could not refresh events';
@@ -234,7 +269,6 @@
 			const appended = payload.items.filter((event) => !seen.has(event.id));
 			events = [...events, ...appended];
 			summary = payload.summary;
-			totalCount = responseTotalCount(payload);
 			scopeCounts = responseScopeCounts(payload);
 			nextOffset = nextPageOffset(payload.links);
 		} catch (error) {
@@ -243,6 +277,34 @@
 			isLoadingMore = false;
 		}
 	}
+
+	onMount(() => {
+		if (!browser) return;
+
+		void refreshLatestEvents();
+
+		const interval = window.setInterval(() => {
+			void refreshLatestEvents();
+		}, LIVE_FEED_REFRESH_MS);
+		const clock = window.setInterval(() => {
+			liveClock = Date.now();
+		}, 1_000);
+
+		function refreshWhenVisible() {
+			if (document.visibilityState === 'visible') {
+				liveClock = Date.now();
+				void refreshLatestEvents();
+			}
+		}
+
+		document.addEventListener('visibilitychange', refreshWhenVisible);
+
+		return () => {
+			window.clearInterval(interval);
+			window.clearInterval(clock);
+			document.removeEventListener('visibilitychange', refreshWhenVisible);
+		};
+	});
 
 	$effect(() => {
 		if (!browser || !loadSentinel) return;
@@ -299,7 +361,7 @@
 		return protocolDisplayName(data.defiProtocols, protocolFilter);
 	}
 
-	function scopedHref(scope: typeof activeTab) {
+	function scopedQuery(scope: ActivityTab) {
 		const search = new URLSearchParams();
 		if (protocolFilter !== 'all') search.set('protocol', protocolFilter);
 		if (data.initialFilters.target) search.set('target', data.initialFilters.target);
@@ -309,20 +371,12 @@
 		if (coverageFilter !== 'all') search.set('coverage', coverageFilter);
 		if (tagFilter.trim()) search.set('tag', tagFilter.trim());
 		const query = search.toString();
-		return query ? `/events?${query}` : '/events';
+		return query ? `?${query}` : '';
 	}
 
-	function protocolOptions() {
-		const options = data.defiProtocols.map((protocol) => ({
-			slug: protocol.slug,
-			name: protocol.name
-		}));
-
-		if (!options.some((option) => option.slug === 'squads')) {
-			options.push({ slug: 'squads', name: 'Squads' });
-		}
-
-		return options;
+	function scopedRoute(scope: ActivityTab): '/events' | `/events?${string}` {
+		const query = scopedQuery(scope);
+		return query ? (`/events${query}` as `/events?${string}`) : '/events';
 	}
 
 	function activeFilterBadges() {
@@ -330,7 +384,7 @@
 
 		if (severityFilter !== 'all') badges.push(`Severity: ${severityFilter}`);
 		if (protocolFilter !== 'all') badges.push(`Protocol: ${protocolDisplayName(data.defiProtocols, protocolFilter)}`);
-		if (coverageFilter === 'known') badges.push('Known DeFi only');
+		if (coverageFilter === 'known') badges.push('Known protocols only');
 		if (tagFilter.trim()) badges.push(`Tag: ${tagFilter.trim()}`);
 		if (searchText.trim()) badges.push(`Search: ${searchText.trim()}`);
 
@@ -382,7 +436,7 @@
 	}
 
 	function filteredEvents() {
-		return allEvents().filter(matchesFilters);
+		return events.filter(matchesFilters);
 	}
 
 	function tabCount(id: (typeof tabs)[number]['id']) {
@@ -412,143 +466,150 @@
 		searchText = '';
 	}
 
+	function liveStatusLabel() {
+		if (isRefreshing) return 'updating';
+		if (lastLiveRefreshAt == null) return 'starting';
+		const elapsedSeconds = Math.floor((liveClock - lastLiveRefreshAt) / 1000);
+		return elapsedSeconds <= 1 ? 'now' : `${elapsedSeconds}s ago`;
+	}
+
+	function feedCardDescription() {
+		if (refreshError) return 'Refresh delayed. Retrying automatically.';
+		if (liveInsertedCount > 0) {
+			return `${liveInsertedCount} new event${liveInsertedCount === 1 ? '' : 's'} since the last refresh.`;
+		}
+		return `Auto-refreshing. Last update ${liveStatusLabel()}.`;
+	}
+
 </script>
 
 <svelte:head>
-	<title>FireWatch Activity</title>
+	<title>FireWatch Feed</title>
 </svelte:head>
 
 <div class="page-shell">
-	<section class="panel activity-header">
-		<div class="header-row">
-			<h1>Activity</h1>
-			<div class="header-stats">
-			<span>Loaded {allEvents().length}</span>
-			<span>Visible {filteredEvents().length}</span>
-			<span>Critical {tabCount('critical')}</span>
-			<span>Matching {totalCount}</span>
+	<section class="panel sticky-panel">
+		{#if currentProtocolLabel() || data.eventsBackendError || refreshError}
+			<div class="toolbar-status">
+				{#if currentProtocolLabel()}
+					<p class="context-line">
+						Filtered for {currentProtocolLabel()}.
+						<a href={resolve('/protocols/[slug]', { slug: protocolFilter })}>Open protocol page</a>
+					</p>
+				{/if}
+				{#if data.eventsBackendError}
+					<p class="flash error">Events unavailable: {data.eventsBackendError}</p>
+				{/if}
+				{#if refreshError}
+					<p class="flash error">Could not refresh events: {refreshError}</p>
+				{/if}
 			</div>
-		</div>
-		{#if currentProtocolLabel()}
-			<p class="context-line">
-				Filtered for {currentProtocolLabel()}.
-				<a href={protocolPageHref(protocolFilter)}>Open protocol page</a>
-			</p>
 		{/if}
-		{#if data.eventsBackendError}
-			<p class="flash error">Events unavailable: {data.eventsBackendError}</p>
-		{/if}
-		{#if refreshError}
-			<p class="flash error">Could not refresh events: {refreshError}</p>
-		{/if}
-	</section>
 
-		<section class="panel sticky-panel">
-			<div class="toolbar-top">
-				<div class="tab-row" role="tablist" aria-label="Activity views">
-				{#each tabs as tab}
-					<a class:active={activeTab === tab.id} class="tab-button" href={scopedHref(tab.id)}>
+		<input
+			id="event-filters-toggle"
+			class="filter-checkbox"
+			type="checkbox"
+			checked={activeFilterCount() > 0}
+			aria-label="Show event filters"
+		/>
+
+		<div class="toolbar-top">
+			<div class="tab-row" role="tablist" aria-label="Activity views">
+				{#each tabs as tab (tab.id)}
+					<a class:active={activeTab === tab.id} class="tab-button" href={resolve(scopedRoute(tab.id))}>
 						{tab.label}
 						<span>{tabCount(tab.id)}</span>
 					</a>
 				{/each}
 			</div>
 
-				<div class="toolbar-actions">
-					<input
-						class="quick-search"
-						bind:value={searchText}
-						type="search"
-						placeholder="Search activity"
-						aria-label="Search activity"
-					/>
-					{#if isRefreshing}
-						<span class="toolbar-meta">Updating</span>
-					{/if}
-					{#if activeFilterCount() > 0}
-						<span class="toolbar-meta">{activeFilterCount()} filters</span>
-					{/if}
-					<button class="filter-toggle" type="button" onclick={() => (filtersOpen = !filtersOpen)}>
-						{filtersOpen ? 'Hide filters' : 'Filters'}
-				</button>
+			<div class="toolbar-actions">
+				<input
+					class="quick-search"
+					bind:value={searchText}
+					type="search"
+					placeholder="Search activity"
+					aria-label="Search activity"
+				/>
+				{#if isRefreshing}
+					<span class="toolbar-meta">Updating</span>
+				{/if}
+				{#if liveInsertedCount > 0}
+					<span class="toolbar-meta">{liveInsertedCount} new</span>
+				{/if}
+				{#if activeFilterCount() > 0}
+					<span class="toolbar-meta">{activeFilterCount()} filters</span>
+				{/if}
+				<label class="filter-toggle" for="event-filters-toggle">Filters</label>
 			</div>
 		</div>
 
-			{#if activeFilterBadges().length > 0}
-				<div class="active-filter-row">
-					{#each activeFilterBadges() as badge}
-						<span class="active-filter">{badge}</span>
-					{/each}
-					<a class="shortcut-button reset-button" href="/events" onclick={resetFilters}>Reset</a>
-				</div>
+		{#if activeFilterBadges().length > 0}
+			<div class="active-filter-row">
+				{#each activeFilterBadges() as badge (badge)}
+					<span class="active-filter">{badge}</span>
+				{/each}
+				<a class="shortcut-button reset-button" href={resolve('/events')} onclick={resetFilters}>Reset</a>
+			</div>
 		{/if}
 
-		{#if filtersOpen}
-			<div class="filter-drawer">
-				<div class="filter-grid">
-					<label>
-						<span>Severity</span>
-						<select bind:value={severityFilter}>
-							<option value="all">All</option>
-							<option value="critical">Critical</option>
-							<option value="high">High</option>
-							<option value="standard">Standard</option>
-						</select>
-					</label>
+		<div class="filter-drawer">
+			<div class="filter-grid">
+				<label>
+					<span>Severity</span>
+					<select bind:value={severityFilter}>
+						<option value="all">All</option>
+						<option value="critical">Critical</option>
+						<option value="high">High</option>
+						<option value="standard">Standard</option>
+					</select>
+				</label>
 
-					<label>
-						<span>Protocol</span>
-						<select bind:value={protocolFilter}>
-							<option value="all">All protocols</option>
-							{#each protocolOptions() as protocol}
-								<option value={protocol.slug}>{protocol.name}</option>
-							{/each}
-						</select>
-					</label>
-
-					<label>
-						<span>Catalog</span>
-						<select bind:value={coverageFilter}>
-							<option value="all">All programs</option>
-							<option value="known">FireWatch-known DeFi only</option>
-						</select>
-					</label>
-
-					<label>
-						<span>Tag</span>
-						<input bind:value={tagFilter} type="text" placeholder="signal:idl_update" />
-					</label>
-
+				<div class="filter-field">
+					<span>Protocol</span>
+					<ProtocolCombobox
+						protocols={data.defiProtocols}
+						value={protocolFilter}
+						onSelect={(slug) => (protocolFilter = slug)}
+					/>
 				</div>
 
-					<div class="shortcut-row">
-						<a class="shortcut-button" href={scopedHref('critical')}>Critical only</a>
-					<a class="shortcut-button" href={scopedHref('idl')}>IDL changes</a>
-					<a class="shortcut-button" href={scopedHref('programs')}>Program updates</a>
-						<button class="shortcut-button" type="button" onclick={() => (tagFilter = 'signal:unknown_instruction')}>
-							Unknown instructions
-						</button>
-					</div>
-				</div>
-			{/if}
-		</section>
+				<label>
+					<span>Coverage</span>
+					<select bind:value={coverageFilter}>
+						<option value="all">All programs</option>
+						<option value="known">Known protocols only</option>
+					</select>
+				</label>
+
+				<label>
+					<span>Tag</span>
+					<input bind:value={tagFilter} type="text" placeholder="signal:idl_update" />
+				</label>
+			</div>
+
+			<div class="shortcut-row">
+				<a class="shortcut-button" href={resolve(scopedRoute('critical'))}>Critical only</a>
+				<a class="shortcut-button" href={resolve(scopedRoute('programs'))}>Program updates</a>
+				<a class="shortcut-button" href={resolve(scopedRoute('multisig'))}>Squads activity</a>
+				<a class="shortcut-button" href={resolve(scopedRoute('idl'))}>IDL changes</a>
+			</div>
+		</div>
+	</section>
 
 	<section class="events-grid">
-		{#if filteredEvents().length === 0}
-			<div class="panel empty-panel">
-				<p class="empty-state">No events match the current filters.</p>
-			</div>
-		{:else}
-			{#each filteredEvents() as event}
-				<ActivityEventRow
-					{event}
-					explorerCluster={data.explorerCluster}
-					protocols={data.defiProtocols}
-					activeTag={tagFilter}
-					onTagSelect={(tag) => (tagFilter = tag)}
-				/>
-			{/each}
-		{/if}
+		<SimpleEventFeed
+			events={filteredEvents()}
+			protocols={data.defiProtocols}
+			title="Live activity"
+			description={feedCardDescription()}
+			relativeTimestamps={true}
+			nowMs={liveClock}
+			showFeedLink={false}
+			explorerCluster={data.explorerCluster}
+			emptyLabel="No live activity matches these filters yet."
+		/>
 	</section>
 
 	<div bind:this={loadSentinel} class="scroll-sentinel" aria-hidden="true"></div>
@@ -586,13 +647,6 @@
 		padding: 0.86rem 0.96rem;
 	}
 
-	.activity-header {
-		display: grid;
-		gap: 0.4rem;
-	}
-
-	.header-row,
-	.header-stats,
 	.tab-row,
 	.toolbar-actions,
 	.active-filter-row,
@@ -609,47 +663,12 @@
 		width: 100%;
 	}
 
-	h1,
 	p {
 		margin: 0;
 	}
 
-	.empty-state,
-	.context-line,
-	.header-stats span {
+	.context-line {
 		color: #5f6c79;
-	}
-
-	h1 {
-		font-size: 1.18rem;
-		line-height: 1.2;
-		letter-spacing: 0;
-	}
-
-	.header-row {
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.7rem;
-	}
-
-	.header-stats {
-		gap: 0;
-	}
-
-	.header-stats span {
-		display: inline-flex;
-		align-items: baseline;
-		padding-right: 0.7rem;
-		margin-right: 0.7rem;
-		border-right: 1px solid rgba(23, 32, 42, 0.1);
-		font-size: 0.78rem;
-		font-weight: 600;
-	}
-
-	.header-stats span:last-child {
-		padding-right: 0;
-		margin-right: 0;
-		border-right: none;
 	}
 
 	.context-line {
@@ -673,6 +692,11 @@
 		display: grid;
 		gap: 0.55rem;
 		box-shadow: 0 2px 8px rgba(23, 32, 42, 0.05);
+	}
+
+	.toolbar-status {
+		display: grid;
+		gap: 0.4rem;
 	}
 
 	.toolbar-top {
@@ -700,11 +724,31 @@
 		color: #5f6c79;
 	}
 
+	.filter-checkbox {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0 0 0 0);
+		white-space: nowrap;
+		border: 0;
+	}
+
+	.filter-checkbox:focus-visible ~ .toolbar-top .filter-toggle {
+		outline: 2px solid rgba(189, 74, 23, 0.28);
+		outline-offset: 2px;
+	}
+
 	.filter-drawer {
-		display: grid;
+		display: none;
 		gap: 0.6rem;
 		padding-top: 0.08rem;
 		border-top: 1px solid rgba(23, 32, 42, 0.06);
+	}
+
+	.filter-checkbox:checked ~ .filter-drawer {
+		display: grid;
 	}
 
 	.filter-grid {
@@ -751,6 +795,7 @@
 
 	.filter-toggle {
 		color: #17202a;
+		user-select: none;
 	}
 
 	.tab-button span {
@@ -773,12 +818,14 @@
 		background: transparent;
 	}
 
-	label {
+	label,
+	.filter-field {
 		display: grid;
 		gap: 0.28rem;
 	}
 
-	label span {
+	label span,
+	.filter-field > span {
 		font-size: 0.76rem;
 		font-weight: 600;
 		color: #63717d;
@@ -845,10 +892,6 @@
 		color: #9c3929;
 	}
 
-	.empty-panel {
-		padding: 1.2rem;
-	}
-
 	@media (max-width: 980px) {
 		.toolbar-top {
 			flex-direction: column;
@@ -866,35 +909,6 @@
 		.panel {
 			border-radius: 8px;
 			padding: 0.8rem;
-		}
-
-		.header-row {
-			align-items: flex-start;
-			flex-direction: column;
-		}
-
-		.header-stats {
-			display: grid;
-			grid-template-columns: repeat(2, minmax(0, 1fr));
-			gap: 1px;
-			width: 100%;
-			overflow: hidden;
-			border: 1px solid rgba(23, 32, 42, 0.07);
-			border-radius: 8px;
-			background: rgba(23, 32, 42, 0.07);
-		}
-
-		.header-stats span {
-			display: grid;
-			margin: 0;
-			padding: 0.54rem 0.62rem;
-			border-right: 0;
-			background: #fbfaf8;
-			line-height: 1.25;
-		}
-
-		.header-stats span:last-child {
-			padding-right: 0.62rem;
 		}
 
 		.quick-search {

@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { protocolActivityPageHref, protocolPageHref } from '$lib/catalog';
-	import ProtocolIdentity from '$lib/components/ProtocolIdentity.svelte';
-	import { hasRiskGrade, projectRiskSummary, riskGradeDisplay, riskGradeTone } from '$lib/risk';
-	import type { ChainEvent, DefiProtocolDescriptor, EventsResponse, ProgramRiskSummary } from '$lib/types';
+	import { protocolSlugAliases } from '$lib/catalog';
+	import ProtocolActivityCard from '$lib/components/ProtocolActivityCard.svelte';
+	import type { DefiProtocolDescriptor } from '$lib/types';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -16,9 +15,8 @@
 		error: string | null;
 	};
 
-	type ProtocolCard = {
+	type ProtocolRow = {
 		protocol: DefiProtocolDescriptor;
-		risk: ProgramRiskSummary;
 		activity: ProtocolActivitySummary;
 		searchText: string;
 	};
@@ -32,74 +30,30 @@
 	};
 
 	let searchQuery = $state(page.url.searchParams.get('search') ?? '');
-	let remoteSearchMatches = $state<Record<string, string>>({});
-	let remoteSearchLoading = $state(false);
-	let remoteSearchError = $state<string | null>(null);
-	let remoteSearchRun = 0;
 
-	let rows = $derived.by(() =>
+	const rows = $derived.by<ProtocolRow[]>(() =>
 		data.defiProtocols
 			.map((protocol) => {
 				const activity = data.protocolActivitySummaries[protocol.slug] ?? EMPTY_ACTIVITY;
 				return {
 					protocol,
-					risk: projectRiskSummary(protocol, activity.error ? null : activity.total),
 					activity,
 					searchText: protocolSearchText(protocol)
 				};
 			})
 			.sort(protocolSort)
 	);
-	let normalizedSearch = $derived(normalizeSearch(searchQuery));
-	let knownProtocolSlugs = $derived(data.defiProtocols.map((protocol) => protocol.slug));
-	let visibleRows = $derived.by(() =>
+	const normalizedSearch = $derived(normalizeSearch(searchQuery));
+	const visibleRows = $derived.by(() =>
 		rows.filter(
 			(row) =>
 				!normalizedSearch ||
-				row.searchText.includes(normalizedSearch) ||
-				Boolean(remoteSearchMatches[row.protocol.slug])
+				row.searchText.includes(normalizedSearch)
 		)
 	);
-	let loadedActivityCount = $derived(
+	const loadedActivityCount = $derived(
 		rows.reduce((count, row) => count + (row.activity.error ? 0 : 1), 0)
 	);
-
-	$effect(() => {
-		const query = searchQuery.trim();
-		remoteSearchMatches = {};
-		remoteSearchError = null;
-
-		if (!isAddressSearch(query)) {
-			remoteSearchLoading = false;
-			return;
-		}
-
-		const run = ++remoteSearchRun;
-		const controller = new AbortController();
-		const debounce = window.setTimeout(async () => {
-			remoteSearchLoading = true;
-
-			try {
-				const matches = await loadRemoteSearchMatches(query, controller.signal);
-				if (run === remoteSearchRun) {
-					remoteSearchMatches = matches;
-				}
-			} catch (error) {
-				if (!controller.signal.aborted && run === remoteSearchRun) {
-					remoteSearchError = error instanceof Error ? error.message : 'Activity search unavailable';
-				}
-			} finally {
-				if (run === remoteSearchRun) {
-					remoteSearchLoading = false;
-				}
-			}
-		}, 220);
-
-		return () => {
-			controller.abort();
-			window.clearTimeout(debounce);
-		};
-	});
 
 	function normalizeSearch(value: string) {
 		return value.trim().toLowerCase();
@@ -109,12 +63,20 @@
 		return [
 			protocol.name,
 			protocol.slug,
+			...protocolSlugAliases(protocol.slug),
+			...protocolSlugAliases(protocol.slug).map((slug) => slug.replaceAll('_', ' ')),
 			protocol.program_id,
 			...protocol.programs.flatMap((program) => [
 				program.label,
 				program.program_id,
 				program.idl_metadata_address,
 				program.anchor_legacy_idl_address ?? ''
+			]),
+			...(protocol.related_multisigs ?? []).flatMap((link) => [
+				link.multisig,
+				link.authority,
+				link.program_id,
+				link.program_label
 			]),
 			...protocol.sol_domains
 		]
@@ -123,12 +85,10 @@
 			.toLowerCase();
 	}
 
-	function protocolSort(left: ProtocolCard, right: ProtocolCard) {
+	function protocolSort(left: ProtocolRow, right: ProtocolRow) {
 		return (
 			right.activity.total - left.activity.total ||
 			right.activity.critical - left.activity.critical ||
-			right.risk.unreviewed_critical - left.risk.unreviewed_critical ||
-			right.risk.critical_total - left.risk.critical_total ||
 			left.protocol.name.localeCompare(right.protocol.name)
 		);
 	}
@@ -141,39 +101,44 @@
 		return activity.error ? '-' : formatCount(value);
 	}
 
-	function plural(value: number, singular: string, pluralLabel = `${singular}s`) {
-		return value === 1 ? singular : pluralLabel;
+	function pluralLabel(count: number, singular: string, plural = `${singular}s`) {
+		return `${formatCount(count)} ${count === 1 ? singular : plural}`;
 	}
 
 	function ruleCount(protocol: DefiProtocolDescriptor) {
-		const instructionRules = [...protocol.admin_instruction_filters];
-		for (const instruction of protocol.high_impact_instruction_filters) {
-			if (!instructionRules.includes(instruction)) instructionRules.push(instruction);
-		}
-
-		return (
-			instructionRules.length + protocol.amount_triggers.length + (protocol.unknown_alerts ? 1 : 0)
-		);
+		return protocol.amount_triggers.length + (protocol.coverage === 'admin_signals' ? 1 : 0);
 	}
 
-	function knownSurfaceCount(protocol: DefiProtocolDescriptor) {
-		return protocol.programs.length + protocol.sol_domains.length + ruleCount(protocol);
+	function trackedSourceParts(protocol: DefiProtocolDescriptor) {
+		const multisigCount = uniqueRelatedMultisigCount(protocol);
+		const rules = ruleCount(protocol);
+		return [
+			protocol.sol_domains.length > 0 ? pluralLabel(protocol.sol_domains.length, 'wallet') : null,
+			protocol.programs.length > 0 ? pluralLabel(protocol.programs.length, 'program') : null,
+			multisigCount > 0 ? pluralLabel(multisigCount, 'multisig') : null,
+			rules > 0 ? pluralLabel(rules, 'rule') : null
+		].filter((part): part is string => Boolean(part));
 	}
 
-	function criticalActivityHref(slug: string) {
-		return `${protocolActivityPageHref(slug)}?severity=critical`;
+	function uniqueRelatedMultisigCount(protocol: DefiProtocolDescriptor) {
+		return new Set((protocol.related_multisigs ?? []).map((link) => link.multisig).filter(Boolean)).size;
 	}
 
-	function unresolvedHref(slug: string) {
-		return protocolPageHref(slug);
+	function trackedSourceLabel(protocol: DefiProtocolDescriptor) {
+		const parts = trackedSourceParts(protocol);
+		return parts.length > 0 ? parts.join(', ') : 'No tracked items';
 	}
 
-	function localMatchLabel(protocol: DefiProtocolDescriptor) {
+	function matchLabel(protocol: DefiProtocolDescriptor) {
 		if (!normalizedSearch) return null;
 
 		if (
-			protocol.name.toLowerCase().includes(normalizedSearch) ||
-			protocol.slug.toLowerCase().includes(normalizedSearch)
+			[protocol.name, protocol.slug, ...protocolSlugAliases(protocol.slug)].some((value) =>
+				value.toLowerCase().includes(normalizedSearch)
+			) ||
+			protocolSlugAliases(protocol.slug).some((slug) =>
+				slug.replaceAll('_', ' ').toLowerCase().includes(normalizedSearch)
+			)
 		) {
 			return 'Protocol name';
 		}
@@ -183,116 +148,56 @@
 				.filter(Boolean)
 				.some((value) => value?.toLowerCase().includes(normalizedSearch))
 		);
-		if (program) {
-			return `Program surface: ${program.label}`;
-		}
+		if (program) return `Source: ${program.label}`;
 
 		const domain = protocol.sol_domains.find((candidate) =>
 			candidate.toLowerCase().includes(normalizedSearch)
 		);
-		if (domain) {
-			return `.sol domain: ${domain}`;
-		}
+		if (domain) return `.sol name: ${domain}`;
 
-		return remoteSearchMatches[protocol.slug] ?? null;
+		return null;
 	}
 
-	function isAddressSearch(value: string) {
-		return /^[1-9A-HJ-NP-Za-km-z]{20,64}$/.test(value.trim());
+	function protocolMatchLine(protocol: DefiProtocolDescriptor) {
+		const match = matchLabel(protocol);
+		return match ? `Match: ${match}` : null;
 	}
 
-	function payloadString(event: ChainEvent, key: string) {
-		const value = event.payload[key];
-		return typeof value === 'string' ? value : null;
+	function protocolSummary(row: ProtocolRow) {
+		if (row.activity.error) return `Activity unavailable: ${row.activity.error}`;
+		if (row.activity.total === 0) return 'No indexed alerts for this protocol yet.';
+		return `${formatCount(row.activity.total)} indexed alerts across monitored sources.`;
 	}
 
-	function linkedProtocolSlugs(event: ChainEvent) {
-		const linked = event.payload.linked_protocols;
-		if (!Array.isArray(linked)) return [];
-
-		return linked
-			.map((item) => {
-				if (!item || typeof item !== 'object') return null;
-				const protocol = (item as Record<string, unknown>).protocol;
-				return typeof protocol === 'string' ? protocol : null;
-			})
-			.filter((value): value is string => Boolean(value));
+	function protocolCardMetrics(row: ProtocolRow) {
+		return [
+			{ label: 'Total', value: formatActivityCount(row.activity, row.activity.total) },
+			{ label: 'Critical', value: formatActivityCount(row.activity, row.activity.critical) },
+			{ label: 'High', value: formatActivityCount(row.activity, row.activity.high) }
+		];
 	}
 
-	function eventProtocolSlugs(event: ChainEvent) {
-		const slugs: string[] = [];
-
-		function addKnownSlug(slug: string | null) {
-			if (!slug || !knownProtocolSlugs.includes(slug) || slugs.includes(slug)) return;
-			slugs.push(slug);
-		}
-
-		for (const tag of event.tags) {
-			if (!tag.startsWith('protocol:')) continue;
-			const slug = tag.slice('protocol:'.length);
-			addKnownSlug(slug);
-		}
-
-		for (const slug of [
-			payloadString(event, 'protocol'),
-			payloadString(event, 'decoded_protocol'),
-			payloadString(event, 'protocol_slug'),
-			...linkedProtocolSlugs(event)
-		]) {
-			addKnownSlug(slug);
-		}
-
-		return slugs;
-	}
-
-	async function eventsPayload(search: URLSearchParams, signal: AbortSignal) {
-		const response = await fetch(`${data.backendBaseUrl}/api/events?${search.toString()}`, {
-			signal
-		});
-		if (!response.ok) throw new Error('Activity search unavailable');
-		return (await response.json()) as EventsResponse;
-	}
-
-	async function loadRemoteSearchMatches(query: string, signal: AbortSignal) {
-		const search = new URLSearchParams({ 'page[size]': '80', 'page[offset]': '0', search: query });
-		const exactTarget = new URLSearchParams({
-			'page[size]': '80',
-			'page[offset]': '0',
-			target_address: query
-		});
-		const payloads = await Promise.all([
-			eventsPayload(search, signal),
-			eventsPayload(exactTarget, signal)
-		]);
-		const matches: Record<string, string> = {};
-
-		for (const event of payloads.flatMap((payload) => payload.items)) {
-			for (const slug of eventProtocolSlugs(event)) {
-				matches[slug] = event.target_address === query ? 'Activity target address' : 'Activity address';
-			}
-		}
-
-		return matches;
-	}
 </script>
 
 <svelte:head>
-	<title>Tracked protocols · FireWatch</title>
+	<title>Protocols - FireWatch</title>
 </svelte:head>
 
-<div class="page-shell">
-	<section class="panel page-top">
-		<div class="title-copy">
-			<h1>Tracked protocols</h1>
-			<p>Sorted by indexed activity. Search by protocol, program address, .sol domain, or activity address.</p>
+<div class="directory-shell">
+	<section class="directory-top" aria-labelledby="protocols-title">
+		<div class="title-panel">
+			<h1 id="protocols-title">Protocols</h1>
+			<p>Search the watchlist and open a protocol page to inspect live activity.</p>
 		</div>
+	</section>
 
+	<section class="sticky-search-panel" aria-label="Search protocols">
 		<label class="search-box">
 			<span>Search protocols</span>
 			<input
 				bind:value={searchQuery}
 				type="search"
-				placeholder="Name, program address, multisig wallet, .sol"
+				placeholder="Protocol, wallet, program address, .sol"
 				autocomplete="off"
 				spellcheck="false"
 			/>
@@ -300,92 +205,31 @@
 
 		<div class="result-meta">
 			<span>{formatCount(visibleRows.length)} of {formatCount(rows.length)} protocols</span>
-			{#if loadedActivityCount > 0}
-				<span>Sorted by activity</span>
-			{:else}
-				<span>Activity index unavailable in this preview</span>
-			{/if}
 			<span>{formatCount(loadedActivityCount)} activity indexes loaded</span>
-			{#if remoteSearchLoading}
-				<span>Checking indexed addresses...</span>
-			{/if}
-			{#if remoteSearchError}
-				<span class="warning">{remoteSearchError}</span>
-			{/if}
 		</div>
 	</section>
 
-	<section class="protocol-grid" aria-label="Tracked protocol cards">
+	<section class="protocol-list-panel" aria-label="Protocol directory">
 		{#if visibleRows.length === 0}
-			<div class="panel empty-state">
-				<p>No protocol matched this search yet.</p>
-			</div>
+			<p class="empty-state">No protocol matched this search.</p>
 		{:else}
-			{#each visibleRows as row (row.protocol.slug)}
-				<article class="protocol-card">
-					<div class="card-header">
-						<a class="protocol-name" href={protocolPageHref(row.protocol.slug)}>
-							<ProtocolIdentity slug={row.protocol.slug} label={row.protocol.name} />
-						</a>
-						<a
-							class={`grade grade-${riskGradeTone(row.risk)}`}
-							href={protocolPageHref(row.protocol.slug)}
-							aria-label={`Open ${row.protocol.name} score detail`}
-						>
-							{hasRiskGrade(row.risk) ? `Grade ${row.risk.grade}` : riskGradeDisplay(row.risk)}
-						</a>
-					</div>
-
-					{#if localMatchLabel(row.protocol)}
-						<p class="match-line">Match: {localMatchLabel(row.protocol)}</p>
-					{/if}
-
-					<div class="activity-strip" aria-label={`${row.protocol.name} activity summary`}>
-						<a href={protocolActivityPageHref(row.protocol.slug)}>
-							<span>All activity</span>
-							<strong>{formatActivityCount(row.activity, row.activity.total)}</strong>
-						</a>
-						<a href={criticalActivityHref(row.protocol.slug)}>
-							<span>Critical</span>
-							<strong>{formatActivityCount(row.activity, row.activity.critical)}</strong>
-						</a>
-						<a href={unresolvedHref(row.protocol.slug)}>
-							<span>Unresolved</span>
-							<strong>{formatCount(row.risk.unreviewed_critical)}</strong>
-						</a>
-					</div>
-
-					<div class="surface-row" aria-label={`${row.protocol.name} tracked surfaces`}>
-						<span>
-							<strong>{formatCount(row.protocol.programs.length)}</strong>
-							{plural(row.protocol.programs.length, 'program')}
-						</span>
-						<span>
-							<strong>{formatCount(row.protocol.sol_domains.length)}</strong>
-							.sol
-						</span>
-						<span>
-							<strong>{formatCount(ruleCount(row.protocol))}</strong>
-							{plural(ruleCount(row.protocol), 'rule')}
-						</span>
-						<span>
-							<strong>{formatCount(knownSurfaceCount(row.protocol))}</strong>
-							{plural(knownSurfaceCount(row.protocol), 'surface')}
-						</span>
-					</div>
-
-					<div class="card-actions">
-						<a href={protocolActivityPageHref(row.protocol.slug)}>Open activity</a>
-						<a href={protocolPageHref(row.protocol.slug)}>Open protocol</a>
-					</div>
-				</article>
-			{/each}
+			<div class="protocol-list">
+				{#each visibleRows as row (row.protocol.slug)}
+					<ProtocolActivityCard
+						protocol={row.protocol}
+						metrics={protocolCardMetrics(row)}
+						sourceLabel={trackedSourceLabel(row.protocol)}
+						latestLine={protocolSummary(row)}
+						matchLine={protocolMatchLine(row.protocol)}
+					/>
+				{/each}
+			</div>
 		{/if}
 	</section>
 </div>
 
 <style>
-	.page-shell {
+	.directory-shell {
 		width: min(var(--fw-page-max), calc(100vw - 2rem));
 		margin: 0 auto;
 		padding: 1rem 0 2.4rem;
@@ -393,15 +237,38 @@
 		gap: 0.86rem;
 	}
 
-	.panel,
-	.protocol-card {
-		background: #fff;
-		border: 1px solid rgba(23, 32, 42, 0.08);
-		border-radius: 10px;
+	.directory-top {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 0.86rem;
+		align-items: stretch;
 	}
 
-	.panel {
-		padding: 0.92rem 1rem;
+	.title-panel,
+	.sticky-search-panel,
+	.protocol-list-panel {
+		border: 1px solid var(--fw-border);
+		border-radius: 8px;
+		background: #fff;
+	}
+
+	.title-panel {
+		display: grid;
+		gap: 0.78rem;
+		align-content: start;
+		padding: 1rem;
+	}
+
+	.sticky-search-panel {
+		position: sticky;
+		top: 3.18rem;
+		z-index: 20;
+		display: grid;
+		grid-template-columns: minmax(16rem, 1fr) auto;
+		align-items: end;
+		gap: 0.7rem;
+		padding: 0.7rem 1rem;
+		box-shadow: 0 1px 0 rgba(23, 32, 42, 0.04);
 	}
 
 	h1,
@@ -410,26 +277,15 @@
 	}
 
 	h1 {
-		font-size: 1.82rem;
-		line-height: 1.04;
+		font-size: 2.2rem;
+		line-height: 1;
 		letter-spacing: 0;
 	}
 
 	p,
 	.empty-state {
-		color: #5f6c79;
-	}
-
-	.page-top {
-		display: grid;
-		grid-template-columns: minmax(260px, 1fr) minmax(280px, 440px);
-		gap: 0.8rem 1rem;
-		align-items: end;
-	}
-
-	.title-copy {
-		display: grid;
-		gap: 0.25rem;
+		color: var(--fw-muted);
+		line-height: 1.5;
 	}
 
 	.search-box {
@@ -437,17 +293,17 @@
 		gap: 0.32rem;
 		color: #596775;
 		font-size: 0.78rem;
-		font-weight: 750;
+		font-weight: 760;
 	}
 
 	.search-box input {
 		width: 100%;
-		min-height: 2.45rem;
-		border: 1px solid rgba(23, 32, 42, 0.14);
-		border-radius: 8px;
+		min-height: 2.46rem;
 		padding: 0.48rem 0.62rem;
+		border: 1px solid rgba(23, 32, 42, 0.14);
+		border-radius: 7px;
 		background: #fff;
-		color: #17202a;
+		color: var(--fw-ink);
 		font: inherit;
 		font-size: 0.9rem;
 		font-weight: 650;
@@ -455,193 +311,64 @@
 	}
 
 	.search-box input:focus {
-		border-color: rgba(189, 74, 23, 0.55);
-		box-shadow: 0 0 0 3px rgba(189, 74, 23, 0.1);
+		border-color: rgba(173, 78, 34, 0.48);
+		box-shadow: 0 0 0 3px rgba(173, 78, 34, 0.1);
 	}
 
 	.result-meta {
-		grid-column: 1 / -1;
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.32rem 0.7rem;
-		color: #687684;
+		justify-content: flex-end;
+		gap: 0.36rem 0.7rem;
+		color: var(--fw-muted);
 		font-size: 0.78rem;
 		font-weight: 700;
+		text-align: right;
 	}
 
-	.warning {
-		color: #9c3929;
+	.protocol-list-panel {
+		padding: 0 1rem;
 	}
 
-	.protocol-grid {
+	.protocol-list {
 		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-		gap: 0.78rem;
 	}
 
 	.empty-state {
-		grid-column: 1 / -1;
-		padding: 1rem;
+		padding: 1rem 0;
 	}
 
-	.protocol-card {
-		min-width: 0;
-		padding: 0.84rem;
-		display: grid;
-		gap: 0.72rem;
-	}
-
-	.card-header {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		gap: 0.7rem;
-		align-items: center;
-	}
-
-	.protocol-name {
-		min-width: 0;
-		text-decoration: none;
-	}
-
-	.grade {
-		display: inline-flex;
-		align-items: center;
-		min-height: 1.75rem;
-		padding: 0.24rem 0.48rem;
-		border: 1px solid rgba(33, 109, 77, 0.22);
-		border-radius: 8px;
-		background: rgba(33, 109, 77, 0.08);
-		color: #216d4d;
-		font-size: 0.78rem;
-		font-weight: 800;
-		text-decoration: none;
-		white-space: nowrap;
-	}
-
-	.grade-c,
-	.grade-d {
-		border-color: rgba(138, 94, 30, 0.22);
-		background: rgba(138, 94, 30, 0.09);
-		color: #8a5e1e;
-	}
-
-	.grade-f {
-		border-color: rgba(156, 57, 41, 0.22);
-		background: rgba(156, 57, 41, 0.09);
-		color: #9c3929;
-	}
-
-	.grade-unscored {
-		border-color: rgba(92, 106, 119, 0.22);
-		background: rgba(92, 106, 119, 0.08);
-		color: #5c6a77;
-	}
-
-	.match-line {
-		color: #6a4f3c;
-		font-size: 0.78rem;
-		font-weight: 700;
-	}
-
-	.activity-strip {
-		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-		border: 1px solid rgba(23, 32, 42, 0.08);
-		border-radius: 8px;
-		overflow: hidden;
-	}
-
-	.activity-strip a {
-		min-width: 0;
-		padding: 0.58rem 0.62rem;
-		display: grid;
-		gap: 0.14rem;
-		text-decoration: none;
-		border-right: 1px solid rgba(23, 32, 42, 0.08);
-	}
-
-	.activity-strip a:last-child {
-		border-right: 0;
-	}
-
-	.activity-strip span {
-		color: #687684;
-		font-size: 0.72rem;
-		font-weight: 750;
-	}
-
-	.activity-strip strong {
-		color: #17202a;
-		font-size: 1rem;
-		line-height: 1;
-	}
-
-	.surface-row {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.42rem 0.62rem;
-		color: #62707d;
-		font-size: 0.78rem;
-		font-weight: 700;
-	}
-
-	.surface-row strong {
-		margin-right: 0.18rem;
-		color: #17202a;
-		font-size: 0.82rem;
-	}
-
-	.card-actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.62rem;
-		margin-top: auto;
-	}
-
-	.card-actions a {
-		color: #9f4820;
-		font-size: 0.82rem;
-		font-weight: 800;
-		text-decoration: none;
-	}
-
-	.card-actions a:hover,
-	.activity-strip a:hover,
-	.grade:hover {
-		text-decoration: underline;
-	}
-
-	@media (max-width: 1180px) {
-		.protocol-grid {
-			grid-template-columns: repeat(2, minmax(0, 1fr));
+	@media (max-width: 900px) {
+		.directory-top {
+			grid-template-columns: 1fr;
 		}
 	}
 
-	@media (max-width: 820px) {
-		.page-shell {
+	@media (max-width: 560px) {
+		.directory-shell {
 			width: min(100vw - 1rem, var(--fw-page-max));
 			padding-top: 0.8rem;
 		}
 
-		.page-top,
-		.protocol-grid {
+		h1 {
+			font-size: 1.9rem;
+		}
+
+		.protocol-list-panel {
+			padding: 0 0.8rem;
+		}
+
+		.sticky-search-panel {
+			top: 2.98rem;
 			grid-template-columns: 1fr;
-		}
-	}
-
-	@media (max-width: 440px) {
-		.card-header,
-		.activity-strip {
-			grid-template-columns: 1fr;
+			align-items: stretch;
+			padding: 0.64rem 0.8rem;
 		}
 
-		.activity-strip a {
-			border-right: 0;
-			border-bottom: 1px solid rgba(23, 32, 42, 0.08);
+		.result-meta {
+			justify-content: flex-start;
+			text-align: left;
 		}
 
-		.activity-strip a:last-child {
-			border-bottom: 0;
-		}
 	}
 </style>

@@ -100,7 +100,8 @@ export const load = (async ({ fetch, params, cookies }) => {
 		return {
 			error: await readBackendError(response),
 			session: null,
-			user: null
+			user: null,
+			subscriptions: []
 		};
 	}
 
@@ -118,6 +119,7 @@ export const load = (async ({ fetch, params, cookies }) => {
 		session: payload.session,
 		user: payload.user,
 		billing: payload.billing,
+		subscriptions: payload.subscriptions,
 		customPlanPricing: customPlanPricing()
 	};
 }) satisfies PageServerLoad;
@@ -139,6 +141,7 @@ export const actions = {
 			.map((value) => value.trim())
 			.filter(Boolean);
 		const billing = String(form.get('billing') ?? 'month');
+		const deliveryMode = String(form.get('delivery_mode') ?? 'live');
 
 		const response = await backendOriginRequest(
 			fetch,
@@ -148,9 +151,12 @@ export const actions = {
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({
 					protocol_slugs: form.getAll('protocol_slugs').map(String),
+					protocol_levels: form.getAll('protocol_levels').map(String),
 					program_ids: form.getAll('program_ids').map(String),
 					wallet_addresses: walletAddresses,
 					sol_domains: solDomains,
+					unsubscribe_ids: form.getAll('unsubscribe_ids').map(String),
+					delivery_mode: deliveryMode,
 					billing
 				})
 			}

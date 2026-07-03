@@ -1,0 +1,5020 @@
+{
+  "source": "defillama_adapters + dimension_adapters + protocol_websites",
+  "chain": "Solana",
+  "unsupported_defillama_protocol_count": 549,
+  "item_count": 110,
+  "program_count": 148,
+  "idl_program_count": 41,
+  "idl_account_count": 43,
+  "items": [
+    {
+      "slug": "0xroulette_protocol",
+      "defillama_slug": "0xroulette-protocol",
+      "name": "0xRoulette Protocol",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "Rou1svrgkcuo1rBNkP1XaESrD9xRpukx2uLY5MsgK14",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/0xRoulette/index.js",
+          "source_path": "index.js",
+          "evidence": "const { Connection, PublicKey } = require('@solana/web3.js'); const PROGRAM_ID = \"Rou1svrgkcuo1rBNkP1XaESrD9xRpukx2uLY5MsgK14\"; const VAULT_ACCOUNT_SIZE = 120; const VAULT_DISCRIMINATOR = Buffer.from('e6fbf1538bca5d",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "4izxqJqoX6JYDUTUtKnjNzFJgVgxBpLnyRwka4eCRH86",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "5W9k7axpd8jJRdVTuctUETUhhEpReUSa9wiSByQSd2hH",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "1intro",
+      "defillama_slug": "1intro",
+      "name": "1INTRO",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "DEXYosS6oEGvk8uCDayvwEZz4qEyDJRf9nFgYCaqPMTm",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/1intro/index.js",
+          "source_path": "index.js",
+          "evidence": "64' } ] } }], \"errors\": [], \"metadata\": { \"address\": \"DEXYosS6oEGvk8uCDayvwEZz4qEyDJRf9nFgYCaqPMTm\" } }; async function tvl() { const provider = getProvider() const program = new Pr",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "GGneLstpFSv9CE7GGkixDR1LyFjWRnniq1NiwzEza77k",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "9V9ZUaB4Wuj7kNmfe6Ukkk8wrpu2rMgCrDrgdE2FzDUk",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "aggrelend",
+      "defillama_slug": "aggrelend",
+      "name": "AggreLend",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "AGGREbma2Gi9unS1mPptAcG4HmkMTLNmqcunYaSSf46b",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/AggreLend/index.js",
+          "source_path": "index.js",
+          "evidence": "} } ], \"events\": [], \"errors\": [], \"types\": [] }; const PROGRAM_ID = 'AGGREbma2Gi9unS1mPptAcG4HmkMTLNmqcunYaSSf46b' const tvl = async (api) => { const provider = getProvider() const program = new Pro",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "Ez5pSF9dQWqoRJuXjBZYp3GS2FnMfJbZq5DGzs45zkBS",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "3LiVwMvXRhYMUGDgZeAckZuQaxTPimL4MVYbAKD1ZcCk",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "allstake",
+      "defillama_slug": "allstake",
+      "name": "Allstake",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "a11zL6Uxue6mYG3JD3APmnVhS4RVjGTJZbENY7L6ZfD",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/allstake/index.js",
+          "source_path": "index.js",
+          "evidence": "ALLSTAKE_NEAR_CONTRACT = 'allstake.near'; const ALLSTAKE_SOLANA_PROGRAM = new PublicKey('a11zL6Uxue6mYG3JD3APmnVhS4RVjGTJZbENY7L6ZfD'); const ALLSTAKE_ETHEREUM_STRATEGY_MANAGER_CONTRACT = '0x344F8B88357A710937f2b3db9d1B974",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "EGZ6XjMuJHo3tBM1V4nJRJQT6aA9hBLh6oCvsLoKtVq3",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "EzFyf4upuuEdc6HPw9tb7okrY8BevMvyRSyBNUsmEpD9",
+              "present": true,
+              "owner": "a11zL6Uxue6mYG3JD3APmnVhS4RVjGTJZbENY7L6ZfD",
+              "executable": false,
+              "lamports": 16411680,
+              "space": 2230
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "alphaq",
+      "defillama_slug": "alphaq",
+      "name": "AlphaQ",
+      "sources": [
+        "dexs",
+        "fees"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "ALPHAQmeA7bjrVuccPsYPiCvsi428SNwte66Srvs4pHA",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/dexs/alphaq",
+          "source_path": "index.ts",
+          "evidence": "er_instruction_index from solana.instruction_calls where executing_account = 'ALPHAQmeA7bjrVuccPsYPiCvsi428SNwte66Srvs4pHA' and TIME_RANGE and tx_success = true ) select SUM(amount_usd)",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "Ai3M2315gbffs9GGV78eBuMJPNJTeKXYxrTMnHxcgxd9",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "7r6Pqp1KinMTGqUfQiYw46mUzHAPCeHzMH4aNRwmf4hx",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "ample",
+      "defillama_slug": "ample",
+      "name": "Ample",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "BPdfgbFKNQELh96XFqAZGBRfe3CJ6Ly1JJ4fmAVgWcU8",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/ample/index.js",
+          "source_path": "index.js",
+          "evidence": "ceipt tokens (jlUSDC / jlWSOL), which are priced by DefiLlama. const SOLANA_PROGRAM_ID = 'BPdfgbFKNQELh96XFqAZGBRfe3CJ6Ly1JJ4fmAVgWcU8' const VAULT_ACCOUNT_SIZE = 424 // distinguishes vault accounts from the config account c",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "A5XTJefvoPPuqdFjSTj1dH3QgoFDoJ3h4v8A21ch96mH",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "6BQ5SzgtksNZ2vV3bi5rbaeHNZbNRS5d1k9xzY7YZeSP",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "ape_jupiter",
+      "defillama_slug": "ape-jupiter",
+      "name": "Ape Jupiter",
+      "sources": [
+        "dexs",
+        "fees"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "JSW99DKmxNyREQM14SQLDykeBvEUG63TeohrvmofEiw",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/dexs/jup-ape",
+          "source_path": "index.ts",
+          "evidence": "solana.instruction_calls WHERE executing_account = 'JSW99DKmxNyREQM14SQLDykeBvEUG63TeohrvmofEiw' AND varbinary_starts_with (data, 0xe445a52e51cb9a1d516ce3becdd00ac4)",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "3xXCq3xATHwckyB9TRPvzbATadkvhSSUQ4zSQfbYybGp",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "8GA5awXTwsUhy8Pwo4ChesvRE6SmDEUbspRQPQmPwxAB",
+              "present": true,
+              "owner": "JSW99DKmxNyREQM14SQLDykeBvEUG63TeohrvmofEiw",
+              "executable": false,
+              "lamports": 16662240,
+              "space": 2266
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "archer_exchange",
+      "defillama_slug": "archer-exchange",
+      "name": "Archer Exchange",
+      "sources": [
+        "dexs",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "Archer8kgiavM61GyusMzaaS2ft5sALtNsD1HxkUPMhy",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/archer-exchange/index.js",
+          "source_path": "index.js",
+          "evidence": "on, sumTokens2 } = require(\"../helper/solana\"); const ARCHER_PROGRAM_ID = new PublicKey(\"Archer8kgiavM61GyusMzaaS2ft5sALtNsD1HxkUPMhy\"); // ASCII \"ACHRMKT1\" \u2014 discriminator for MarketStateHeader accounts (see archer_v1 IDL",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "2GQqwfjCo2hFqdHWULtDxq21yLcFUWiwSzmB3BjXRVyx",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "3qUMHVTMZtNYfRxKP29wqdMsRiSFyRbH2Jz2Kp6YvnEi",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "armada",
+      "defillama_slug": "armada",
+      "name": "Armada",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "ArmN3Av2boBg8pkkeCK9UuCN9zSUVc2UQg1qR2sKwm8d",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/armada/index.js",
+          "source_path": "index.js",
+          "evidence": "vl(api) { const anchorProvider = getProvider(); const programId = new PublicKey( \"ArmN3Av2boBg8pkkeCK9UuCN9zSUVc2UQg1qR2sKwm8d\" ); const armadaProgram = new Program(ArmadaIDL, programId, anchorProvider); const",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "3469nULfFRvZb6SjDRrN4ijpudxwS5rwY7iAeXakFA5P",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "BnN5PwnajXUvWcmZrUVmLLUWPivC1PDUCbXHTKDQjMPk",
+              "present": true,
+              "owner": "ArmN3Av2boBg8pkkeCK9UuCN9zSUVc2UQg1qR2sKwm8d",
+              "executable": false,
+              "lamports": 32503200,
+              "space": 4542
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "arrow",
+      "defillama_slug": "arrow",
+      "name": "Arrow",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "ARoWLTBWoWrKMvxEiaE2EH9DrWyV7mLpKywGDWxBGeq9",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/arrow/index.js",
+          "source_path": "index.js",
+          "evidence": "} = require(\"../helper/solana\"); async function tvl() { const arrowId = new PublicKey('ARoWLTBWoWrKMvxEiaE2EH9DrWyV7mLpKywGDWxBGeq9') const quarryId = new PublicKey('QMNeHCGYnLVDn1icRAfQZpjPLBNkfGbSKRB83G5d8KB') const",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "BDTj7drjeq3u3xSqAHTvsrdW2DZ8ho4x4T33kUtQk8jV",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "GfryxKbMna62pafeyxsuwo228LnoPYw3gfDJpDhi3xVy",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "atomiq_exchange",
+      "defillama_slug": "atomiq-exchange",
+      "name": "atomiq exchange",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "4hfUykhqmD7ZRvNh1HuzVKEY7ToENixtdUKZspNDCrEM",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/atomiq-exchange/index.js",
+          "source_path": "index.js",
+          "evidence": "r/solana\"); const { PublicKey } = require(\"@solana/web3.js\"); const ATOMIQ_PROGRAM_ID = \"4hfUykhqmD7ZRvNh1HuzVKEY7ToENixtdUKZspNDCrEM\"; const config = { btnx: { vaults: [\"0xe510D5781C6C849284Fb25Dc20b1684cEC445",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "7bPqtdCoRD2pBZWnVs3gypubtcBtyLmLqbHzPS66piMZ",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "8KzoBJafA28Zwn7Yh4VcjHnKDHv9amnFtegpbkMB53ov",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "ave.ai",
+      "defillama_slug": "ave.ai",
+      "name": "Ave.ai",
+      "sources": [
+        "dexs",
+        "fees"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "AveaiuA1emN71q9mS2QQ9BEWNAAHmp8sHSvwLFHQjufM",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/fees/aveai",
+          "source_path": "index.ts",
+          "evidence": "2025-01-17\", feeWallet: \"2416yFoX5ep69Ae8u4EoWN2b1jRMC8diygQDf4zqNAQG\", program: \"AveaiuA1emN71q9mS2QQ9BEWNAAHmp8sHSvwLFHQjufM\", }, }; const fetchEVM = async (options: FetchOptions) => { const { getLogs, createB",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "47BuE2Bb2qKPZcQ1rL8cy7HKxx1aiFpwBdt9KCh7s9c9",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "5HoGhEEW2RRnU62E8iAAUCT7bEQsS4MCvTcVLp2kRGFE",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "basedbid",
+      "defillama_slug": "basedbid",
+      "name": "basedbid",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "CuodpYRDz4k87K6ZUFxk7X8JkVv5dNVZAcTQX2TEzTef",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/basedbid/index.js",
+          "source_path": "index.js",
+          "evidence": "ES.base.WETH, megaeth: ADDRESSES.megaeth.ETH, } const SOL_PROGRAM_ID = new PublicKey('CuodpYRDz4k87K6ZUFxk7X8JkVv5dNVZAcTQX2TEzTef') const SOL_APP_STORAGE = new PublicKey('VNRAfUMxvfeirwB1spXd78qGev5h2z8wWBd3Kay19ns') co",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "FitkDjByNTfGxNUPiTwB9vGR1KQFpS6WzwAd2eUj8Bjy",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "3GsdKRDbrBDJFDFH3iBKStJg3kAsZ5gXFRWurvMPLSJo",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "beamable_network",
+      "defillama_slug": "beamable-network",
+      "name": "Beamable Network",
+      "sources": [
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "WSTKhDg9nQ8h2ZmnmNdR6heSGU6uYJSwdUNpzSYXBSe",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/fees/beamable-network",
+          "source_path": "index.ts",
+          "evidence": "ock_slot, block_time FROM solana.instruction_calls WHERE executing_account = 'WSTKhDg9nQ8h2ZmnmNdR6heSGU6uYJSwdUNpzSYXBSe' AND tx_success = true AND substr(data, 1, 1) = 0x0b AND block_ti",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "6Nx9za9MBvRMx1fPxY3WFYHBPZshtsSkbVmVVJhQqdm5",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "AVVFxnBLVnjx5gJEiMzokxAqpAynNSuZkCPiU4nCChE5",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "bisonfi",
+      "defillama_slug": "bisonfi",
+      "name": "BisonFi",
+      "sources": [
+        "dexs"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "BiSoNHVpsVZW2F7rx2eQ59yQwKxzU5NvBcmKshCSUypi",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/dexs/bisonfi",
+          "source_path": "index.ts",
+          "evidence": "// Program: BiSoNHVpsVZW2F7rx2eQ59yQwKxzU5NvBcmKshCSUypi import { Dependencies, FetchOptions, SimpleAdapter } from \"../../adapters/types\"; import",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "44RZWH7GC21TcngoB5iqVcW2iA6LuvApbobTD7n2ZVGS",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "6WXqJfCHxFvrPfcdgjooFgBuVCdFyqzNEP35GAXo3L7V",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "boop.fun",
+      "defillama_slug": "boop.fun",
+      "name": "boop.fun",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "boop8hVGQGqehUK2iVEMEnMrL5RbjywRzHKBmBE7ry4",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/fees/boop-fun",
+          "source_path": "index.ts",
+          "evidence": "WHERE tx_success = TRUE AND inner_executing_account = 'boop8hVGQGqehUK2iVEMEnMrL5RbjywRzHKBmBE7ry4' AND ( VARBINARY_STARTS_WITH (data, 0x2debe1b511da408",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "9WmkDQzeS2qkPfSsBNWdhykaF8JGMXtdFzNAteXF2aDZ",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "3HsS8PecBaFDTBFgdCDSWAgV5PCbkVUenJdSVQi7FtkM",
+              "present": true,
+              "owner": "boop8hVGQGqehUK2iVEMEnMrL5RbjywRzHKBmBE7ry4",
+              "executable": false,
+              "lamports": 91426560,
+              "space": 13008
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "bubblegum",
+      "defillama_slug": "bubblegum",
+      "name": "Bubblegum",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "71ywu6cFWETLyiz1KcuMwq2wfguYfra7b1bCPinVqKm3",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/bubblegum/index.js",
+          "source_path": "index.js",
+          "evidence": "t-deploy program (6eLrwpk\u2026) that holds zero markets. const CURVE_PROGRAM = new PublicKey(\"71ywu6cFWETLyiz1KcuMwq2wfguYfra7b1bCPinVqKm3\"); // Anchor 8-byte account discriminator for the `BondingCurve` account. const BONDING_",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "AZYP48Z8uJE7hmXnCY5xLYpDLbxrZzkYFVNTiCUWW6Zc",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "JBF6ogJ28fgbKNegcnhGjaCpZaEY2fdNoiCrVdJn3fdY",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "ccip",
+      "defillama_slug": "ccip",
+      "name": "CCIP",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "8eqh8wppT9c5rw4ERqNCffvU6cNFJWff9WmkcYtmGiqC",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/ccip/index.js",
+          "source_path": "index.js",
+          "evidence": "tokensAndOwners }) } async function solanaTvl(api) { const LR_PROGRAM = new PublicKey('8eqh8wppT9c5rw4ERqNCffvU6cNFJWff9WmkcYtmGiqC') const POOL_SIGNER_SEED = Buffer.from('ccip_tokenpool_signer') // Anchor discrim. f",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "79qhEFCK2QBdNqJ9gf5ERrYH2xJFQPS11qfnaXALnwE3",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "2czLKYhxqyL356zaJCJLx8dheGYwhRMfMqbKx8uKFMFD",
+              "present": true,
+              "owner": "8eqh8wppT9c5rw4ERqNCffvU6cNFJWff9WmkcYtmGiqC",
+              "executable": false,
+              "lamports": 70490880,
+              "space": 10000
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "credible_finance",
+      "defillama_slug": "credible-finance",
+      "name": "Credible Finance",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "ChYswtf6MRpPDpcVftANnj1g3ryVH9fpJ1XvjWRzxaGP",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/credible-finance/index.js",
+          "source_path": "index.js",
+          "evidence": "('bs58') // Credible Finance lending program on Solana const PROGRAM_ID = new PublicKey('ChYswtf6MRpPDpcVftANnj1g3ryVH9fpJ1XvjWRzxaGP') // Anchor `Pool` account. Layout (after 8-byte discriminator): // owner, borrower, l",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "GPZwaxn3oBv4rLQ5Ndn4LxJfp4ME85mUAb24U4SxmW8z",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "3pJGXV3rP7qdN9taPyLv3mkx4ZLb9rPpSwFP9FnJ7jJU",
+              "present": true,
+              "owner": "ChYswtf6MRpPDpcVftANnj1g3ryVH9fpJ1XvjWRzxaGP",
+              "executable": false,
+              "lamports": 35635200,
+              "space": 4992
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "credix",
+      "defillama_slug": "credix",
+      "name": "Credix",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "CRDx2YkdtYtGZXGHZ59wNv1EwKHQndnRc1gT4p8i2vPX",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/credix/index.js",
+          "source_path": "index.js",
+          "evidence": "eivables-factoring\"; const USDC = ADDRESSES.solana.USDC; const programId = new PublicKey(\"CRDx2YkdtYtGZXGHZ59wNv1EwKHQndnRc1gT4p8i2vPX\"); const encodeSeedString = (seedString) => Buffer.from(utils.bytes.utf8.encode(seedStr",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "6BePnvpr5UxVe7qvZDdpa7T55i8ArVxGmDu7fQx4SJrc",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "3gr2kRV7AHp5ZWwtAhUfV7AJynG4QGyp5PasruvfGC8g",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "cropper_amm",
+      "defillama_slug": "cropper-amm",
+      "name": "Cropper AMM",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "CTMAxxk34HjKWxQ3QLZK1HpaLXmBveao3ESePXbiyfzh",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/cropper.js",
+          "source_path": "cropper.js",
+          "evidence": "helper/solana\"); const { PublicKey } = require('@solana/web3.js') const DEX_PROGRAM_ID = 'CTMAxxk34HjKWxQ3QLZK1HpaLXmBveao3ESePXbiyfzh' async function fetchStaking() { return sumTokens2({ owners: ['5mEH7a7abQwUEXqfusVepc3",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "5xwEQBc6V7HG4PQ8x8PxSYS4QZsaRKnvnbPMUGdq14wr",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "HZeVjdis4BpeZUTMKxvsCGieWjBaCe85JwzA5Firuj47",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "cube",
+      "defillama_slug": "cube",
+      "name": "Cube",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/cube/index.js",
+          "source_path": "index.js",
+          "evidence": "ube). // Source of truth: sdk/src/config/networks.ts in cubee.ee/sdk. const PROGRAM_ID = \"8iQtGj9mcUfFUGaiCpPy89swC3s8YTC8FhVZWfgeZhwu\"; // CubicPool account anchor discriminator (first 8 bytes of the account // data). Hard",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "GRMtpNMSvR5RHgjAJFqfTji2sEgqYbqV4mfhPqCCprCi",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "GmXandMYDrKbtUU5cReY85CxnSYpzEV191EqgrvC5Ctm",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "cykura",
+      "defillama_slug": "cykura",
+      "name": "Cykura",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "cysPXAjehMpVKUapzbMCCnpFxUFFryEWEaLgnb9NrR8",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/cykura/index.js",
+          "source_path": "index.js",
+          "evidence": "] } } ], \"events\": [], \"errors\": [], \"metadata\": { \"address\": \"cysPXAjehMpVKUapzbMCCnpFxUFFryEWEaLgnb9NrR8\" } } async function tvl() { const provider = getProvider() const program = new Pro",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "7LwJXnFLMLddiAaCMpnsTdiXNCyYEkiJdT3YwEqLJY6R",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "6cdRDo9eQheBbfQ64hmcuCEHzZfBsyNTRJiauJGUe1th",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "deltatrade",
+      "defillama_slug": "deltatrade",
+      "name": "DeltaTrade",
+      "sources": [
+        "dexs",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "CNLGhYQgNwjyDfHZTEjHfk1MPkqwP96qZahWN82UfcLM",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/deltatrade.js",
+          "source_path": "deltatrade.js",
+          "evidence": "blicKey('FRcbUFpGHQppvXAyJrNYLKME1BQfowh4xKZB2vt9j6yn'); const programId = new PublicKey('CNLGhYQgNwjyDfHZTEjHfk1MPkqwP96qZahWN82UfcLM'); const GRID_CONTRACT_ID = 'grid.deltatrade.near'; const DCA_CONTRACT_ID = 'dca.deltatr",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "9BvB3Wc8vd6apNGrJ8SQfFyC5NgGzLvYACmXBXUs5NdG",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "2AXLCu8Q4xv2U1hoy29Q2BquSHgjVJZ1HBJ7WV7XCKkw",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "deriverse",
+      "defillama_slug": "deriverse",
+      "name": "Deriverse",
+      "sources": [
+        "dexs",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "DRVSpZ2YUYYKgZP8XtLhAGtT1zYSCKzeHfb4DgRnrgqD",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/deriverse/index.js",
+          "source_path": "index.js",
+          "evidence": "require('@project-serum/anchor/dist/cjs/utils/bytes'); const PROGRAM_ID = new PublicKey(\"DRVSpZ2YUYYKgZP8XtLhAGtT1zYSCKzeHfb4DgRnrgqD\"); const PROGRAM_VERSION = 1; const TOKEN_STATE_TAG = 4; const TOKEN_STATE_SIZE = 88; con",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "7dcX4dt86zDeG4u8L7shsN1QnpcqbTp97rxAjmoRJncy",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "8zuDAJaQSGw5pU6bhqzkc8Z2KSk8w5uiSEgJfxnZvN33",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "dooar",
+      "defillama_slug": "dooar",
+      "name": "DOOAR",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "Dooar9JkhdZ7J3LHN3A7YCuoGRUggXhQaG4kijfLGU2j",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/dooar/index.js",
+          "source_path": "index.js",
+          "evidence": "const { decodeAccount } = require('../helper/utils/solana/layout'); const PROGRAM_ID = 'Dooar9JkhdZ7J3LHN3A7YCuoGRUggXhQaG4kijfLGU2j'; const TOKEN_SWAP_SIZE = 324; async function getDooarTokenAccounts(chain) { const co",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "2stCc5am1KgKiX6KvYTSabqzFuUuWZWBQFGTaG2iPQVS",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "8CdnhFimJBNApuJSc1nMFB6ut63h2gu2m3vrVRmNqJvh",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "doublezero_edge",
+      "defillama_slug": "doublezero-edge",
+      "name": "DoubleZero Edge",
+      "sources": [
+        "fees"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "dzshrr3yL57SB13sJPYHYo3TV8Bo1i1FxkyrZr3bKNE",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/fees/doublezero-edge",
+          "source_path": "index.ts",
+          "evidence": "tx_id FROM solana.instruction_calls WHERE executing_account = 'dzshrr3yL57SB13sJPYHYo3TV8Bo1i1FxkyrZr3bKNE' AND tx_success AND array_join(log_messages, ' ') LIKE '%Transfer",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "6mAH5e79HCbkFWbPZt2Sz8fnqR2A4SwkxxBnTzYAtDQe",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "4Aqe7XAkMWVRE8vLWrpisnvVizSQrm6n98p9C3bJpzPS",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "dradex",
+      "defillama_slug": "dradex",
+      "name": "Dradex",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "dp2waEWSBy5yKmq65ergoU3G6qRLmqa6K7We4rZSKph",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/dradex/index.js",
+          "source_path": "index.js",
+          "evidence": "tvl }, } async function tvl() { const provider = getProvider() const programId = 'dp2waEWSBy5yKmq65ergoU3G6qRLmqa6K7We4rZSKph' const idl = await Program.fetchIdl(programId, provider) const program = new Program(",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "5fAbHxEBU8DijQrNzS7LYXhWn4TGWB88E8y3pBzZWeSa",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "5RpwrevNDL6BcjfvBJJxsofvFJwsC7WrtL9Gurp7gG3b",
+              "present": true,
+              "owner": "dp2waEWSBy5yKmq65ergoU3G6qRLmqa6K7We4rZSKph",
+              "executable": false,
+              "lamports": 26378400,
+              "space": 3662
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "dual_finance",
+      "defillama_slug": "dual-finance",
+      "name": "Dual Finance",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "4yx1NJ4Vqf2zT1oVLk4SySBhhDJXmXFt88ncm4gPxtL7",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/dual/index.js",
+          "source_path": "index.js",
+          "evidence": "[i.vaultSpl, i.vaultUsdc]) .flat() const stakingOptionsProgramID = new PublicKey(\"4yx1NJ4Vqf2zT1oVLk4SySBhhDJXmXFt88ncm4gPxtL7\"); let stakingOptionsAccounts = await connection.getProgramAccounts(stakingOptionsProgr",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "HARmBTYrLaJHySxWQKdAigNWUPGpkAxoTmRP3sb98qSh",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "39zsr5NmGQjNjb4hCT1Ka1PssyXM8Q1rtRzsUkEdE85K",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 2",
+          "program_id": "DiPbvUUJkDhV9jFtQsDFnMEMRJyjW5iS6NMwoySiW8ki",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/dual/index.js",
+          "source_path": "index.js",
+          "evidence": "Accounts() { const connection = getConnection(); const dualProgramID = new PublicKey(\"DiPbvUUJkDhV9jFtQsDFnMEMRJyjW5iS6NMwoySiW8ki\"); let programAccounts = await connection.getProgramAccounts(dualProgramID, { filte",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "6JkCNqzTxtmgwwSa2QMbZr5C5HNeAtuzFpZjrz1xizWk",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "73JcTuyMFFXn6TV1aBfZYuLpo5YNUNWCmHkpJ6DmaAAT",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 3",
+          "program_id": "DuALd6fooWzVDkaTsQzDAxPGYCnLrnWamdNNTNxicdX8",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/dual/index.js",
+          "source_path": "index.js",
+          "evidence": "Accounts.push(parsedSo[i].reverseVault); } } const gsoProgramID = new PublicKey(\"DuALd6fooWzVDkaTsQzDAxPGYCnLrnWamdNNTNxicdX8\"); let gsoAccounts = await connection.getProgramAccounts(gsoProgramID, { filters: [",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "5CqZu1DQ8egKwuRkLwc8ShvVCdgKYHaDCbpzTCVTpGpy",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "3dvD4mLFnSq6tX5TR6cN1ifP14Q1qj6oBwzq1FcK7FNT",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "dumpflow",
+      "defillama_slug": "dumpflow",
+      "name": "DumpFlow",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "DumpFunGAgW6kPHzWMA3Nnqecyrd6SGnLZvNGp2aHwEa",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/dumpflow/index.js",
+          "source_path": "index.js",
+          "evidence": "bonding curve. TVL sums SOL across all authority PDAs. const PROGRAM_ID = new PublicKey(\"DumpFunGAgW6kPHzWMA3Nnqecyrd6SGnLZvNGp2aHwEa\"); // Anchor discriminator: sha256(\"account:LiquidityPool\")[0:8] const DISC_LIQUIDITY_PO",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "BAKAZ4XtqWHEecT8Ru91Sg5aYV6tHNriKp3ATW34kA8s",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "K5kVesuwd8X8VBGRy1xypij5XRqwemWqcRd1mXNJtE4",
+              "present": true,
+              "owner": "DumpFunGAgW6kPHzWMA3Nnqecyrd6SGnLZvNGp2aHwEa",
+              "executable": false,
+              "lamports": 34521600,
+              "space": 4832
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "dumpfun_gamified_launcher",
+      "defillama_slug": "dumpfun-gamified-launcher",
+      "name": "Dumpfun Gamified Launcher",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "Minefw2Nic7LBvSw9rN59e8wycUzrKMBF2PZzFHKsqd",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/dumpfun-gamified-launcher/index.js",
+          "source_path": "index.js",
+          "evidence": "a\"); const { PublicKey } = require(\"@solana/web3.js\"); const PROGRAM_ID = new PublicKey(\"Minefw2Nic7LBvSw9rN59e8wycUzrKMBF2PZzFHKsqd\"); const ACCOUNT_TYPES = [ { disc: [167, 142, 34, 6, 66, 173, 50, 139], size: 100 },",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "HDDkQca5fjSCs7MFsxPnVbS9kGe83Ztj93UoaLXJCyNz",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "GXBZ9YaMLyMrNaBGJHyFSbnDBCV2XRNDrDoQbwd3eq5s",
+              "present": true,
+              "owner": "Minefw2Nic7LBvSw9rN59e8wycUzrKMBF2PZzFHKsqd",
+              "executable": false,
+              "lamports": 132741120,
+              "space": 18944
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "exotic_finance",
+      "defillama_slug": "exotic-finance",
+      "name": "Exotic Finance",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "4whGbgs4juSkn2Ywobrs5UL8zRhwmgBtMJUW5R8BqRFp",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/exoticfinance/index.js",
+          "source_path": "index.js",
+          "evidence": "per/solana') const { PublicKey } = require(\"@solana/web3.js\") const VAULT_PROGRAM_ID = '4whGbgs4juSkn2Ywobrs5UL8zRhwmgBtMJUW5R8BqRFp'; const USDC_MINT = ADDRESSES.solana.USDC const INDEX_ARRAY = [0, 1]; const PDA_ENCODING",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "DpJRRYVofAn2zfqsZMxN3nrnjTFf6HczYhGG2vLJJdLE",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "Fqto5pVed4CS1kreL3Lhz7rRhn1RL67yxF8gunowHUaC",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "exotic_markets",
+      "defillama_slug": "exotic-markets",
+      "name": "Exotic Markets",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "exomt54Csh4fvkUiyV5h6bjNqxDqLdpgHJmLd4eqynk",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/exotic-markets/index.js",
+          "source_path": "index.js",
+          "evidence": "napshot = require('./vaults.json') // ---- Config ---- const PROGRAM_ID = new PublicKey('exomt54Csh4fvkUiyV5h6bjNqxDqLdpgHJmLd4eqynk') const TOKEN_PROG = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') // scan",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "64rdEF2xAB7vAREvnt9KGPqLw7y7p8Pevb18bA3Mb13L",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "EZc7W1SHjttv56TkVpmBLkNDqqGxm5hxg9pzVB4sepRE",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "exponent_v2",
+      "defillama_slug": "exponent-v2",
+      "name": "Exponent V2",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "sVau1tXvayVWfotzm9Ahcv2qfnnfRWttt78BCnNC6dD",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/exponent-v2/index.js",
+          "source_path": "index.js",
+          "evidence": "r/solana\"); const { Program } = require(\"@coral-xyz/anchor\"); const idl = { \"address\": \"sVau1tXvayVWfotzm9Ahcv2qfnnfRWttt78BCnNC6dD\", \"metadata\": {\"name\": \"exponent_vaults\", \"version\": \"0.1.0\", \"spec\": \"0.1.0\", \"descrip",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "Cm7yrRP3NqSa8VBNLYty1WRVxFh1g9ea8Hn4PLuvDfGA",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "8ohc3E4jaynBfBtgWRfAMFHoDLLJ5Tewz2L5uoKq8shR",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "follows",
+      "defillama_slug": "follows",
+      "name": "Follows",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "FoLLukXuiZ5kSq3YWCxEmRUt7yDiE9WJCnh76sdC8RTc",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/follows/index.js",
+          "source_path": "index.js",
+          "evidence": "require('../helper/solana'); async function tvl() { const programId = new PublicKey( 'FoLLukXuiZ5kSq3YWCxEmRUt7yDiE9WJCnh76sdC8RTc' ); const connection = getConnection(); const accounts = await connection.getProgramA",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "5MBY3YnCjuzSVQvA3uZrLw3UxXYW4yGYmS43g9r8KNxz",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "n9qS2iEuvPYRFTz6x19HXLEUDaXGyqgbrW9ex17ciMY",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "frakt",
+      "defillama_slug": "frakt",
+      "name": "FRAKT",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "A66HabVL3DzNzeJgcHYtRRNW1ZRMKwBfrdSR4kLsZ9DJ",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/frakt/index.js",
+          "source_path": "index.js",
+          "evidence": "ata = getAllData() return data async function getAllData() { const programId = 'A66HabVL3DzNzeJgcHYtRRNW1ZRMKwBfrdSR4kLsZ9DJ' const provider = getProvider() const idl = await getConfig('frakt-idl', 'https:/",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "ADgUXtz9A1tWVG69T5bbuvaAFsPNqYBVNXoGE9TCL9jS",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "9NMnbeWvUi5fMta3wqr8irK3qrhjEA4FiYjtMgEPGSRv",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "friendzy",
+      "defillama_slug": "friendzy",
+      "name": "Friendzy",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "FrenAezyygcqNKaCkYNzBAxTCo717wh1bgnKLqnxP8Cq",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/friendzy-gg/index.js",
+          "source_path": "index.js",
+          "evidence": "= PublicKey.findProgramAddressSync( [textEncoder.encode(\"bank\")], new PublicKey('FrenAezyygcqNKaCkYNzBAxTCo717wh1bgnKLqnxP8Cq') ); return sumTokens2({ solOwners: [bank.toBase58()] }) } module.exports = { time",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "J31wM8evhHnQimmBnCcrWtmcYC3Bn9vdRHjjSszSrctm",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "Dq7V9vwwj3F8chP9Yruyvp1xDM9Dbvx4qpc932vw1D4w",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "futarchy_amm",
+      "defillama_slug": "futarchy-amm",
+      "name": "Futarchy AMM",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "FUTARELBfJfQ8RDGhg1wdhddq1odMAJUePHFuBYfUxKq",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/futarchy-amm/index.js",
+          "source_path": "index.js",
+          "evidence": "elper/solana') const { Program, } = require(\"@project-serum/anchor\") const PROGRAM_ID = 'FUTARELBfJfQ8RDGhg1wdhddq1odMAJUePHFuBYfUxKq' // Futarchy AMM program async function tvl(api) { const provider = getProvider()",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "FMYUuNUqiHDTp9E3tgiT1B65FE4r6igRYAbF3dG3gEy6",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "Cgg4TGESEzsewehRcFnbDaGmBznwkH23Ro1HqWz5VdtG",
+              "present": true,
+              "owner": "FUTARELBfJfQ8RDGhg1wdhddq1odMAJUePHFuBYfUxKq",
+              "executable": false,
+              "lamports": 64825440,
+              "space": 9186
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "goat_swap",
+      "defillama_slug": "goat-swap",
+      "name": "Goat Swap",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "Goats192jeQq3r2sn8pe69LyJtisLMfEoq8LyDienct1",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/goatswap/index.js",
+          "source_path": "index.js",
+          "evidence": "/helper/solana\"); const { PublicKey, } = require(\"@solana/web3.js\"); const programId = 'Goats192jeQq3r2sn8pe69LyJtisLMfEoq8LyDienct1'; function getPoolAuthority(pool) { return PublicKey.findProgramAddressSync( [Buff",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "C75hqXURuGKArg47mLWUpSr4k8LM7rHMYWhdNwy45ahe",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "26STTgXeZTdYXzVAUVULh8VMrTS8HoYC46vaY68Le6ms",
+              "present": true,
+              "owner": "Goats192jeQq3r2sn8pe69LyJtisLMfEoq8LyDienct1",
+              "executable": false,
+              "lamports": 17497440,
+              "space": 2386
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "guacswap",
+      "defillama_slug": "guacswap",
+      "name": "GuacSwap",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "Gswppe6ERWKpUTXvRPfXdzHhiCyJvLadVvXGfdpBqcE1",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/guacswap/index.js",
+          "source_path": "index.js",
+          "evidence": "u128' } ] } }, ], errors: [], metadata: { address: 'Gswppe6ERWKpUTXvRPfXdzHhiCyJvLadVvXGfdpBqcE1', } }",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "8xLnyQHCLDzZDx4mVs5KQ3iqQijrMxSMh7stuhaZU1QV",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "BBvVcNCC2X4qp4gTUCTxfkMt5VteNG2ynEmahmdCcEUK",
+              "present": true,
+              "owner": "Gswppe6ERWKpUTXvRPfXdzHhiCyJvLadVvXGfdpBqcE1",
+              "executable": false,
+              "lamports": 30345600,
+              "space": 4232
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "heaven",
+      "defillama_slug": "heaven",
+      "name": "Heaven",
+      "sources": [
+        "dexs",
+        "fees"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "HEAVENoP2qxoeuF8Dj2oT1GHEnu49U5mJYkdeC8BAX2o",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/dexs/heaven-dex",
+          "source_path": "index.ts",
+          "evidence": "AND block_time <= from_unixtime(${options.endTimestamp}) AND executing_account = 'HEAVENoP2qxoeuF8Dj2oT1GHEnu49U5mJYkdeC8BAX2o' AND outer_executing_account = 'HEAVENoP2qxoeuF8Dj2oT1GHEnu49U5mJYkdeC8BAX2o'",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "383SvV3m4HZhwGGB14qhtNMabnxeaKs5M2gXsvBBSJg3",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "3TterTDCj25JKEr9169Y2bPDujE7gU1J62jHiHLGW4Sc",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "hedgehog_markets",
+      "defillama_slug": "hedgehog-markets",
+      "name": "Hedgehog Markets",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "P2PototC41acvjMc9cvAoRjFjtaRD5Keo9PvNJfRwf3",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/tree/main/projects/hedgehog-markets",
+          "source_path": "solana.js",
+          "evidence": "} async function addP2PDepositTokenAccounts() { const programId = new PublicKey(\"P2PototC41acvjMc9cvAoRjFjtaRD5Keo9PvNJfRwf3\"); const result = await connection.getProgramAccounts(programId, { encoding: \"",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "Gu2mVmsjBHsN9Uzvnqfc3MK1PTdHuYeAyYN1rUYwfJNX",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "5wVwMCMhNWzdST7GrHE9zNVmTUSnNA9v5E4JhLPeHs2u",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 2",
+          "program_id": "P2PzLraW8YF87BxqZTZ5kgrfvzcrKGPnqUBNhqmcV9B",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/tree/main/projects/hedgehog-markets",
+          "source_path": "solana.js",
+          "evidence": "ts/hedgehog-program-library/blob/master/p2p/idl.json const programId = new PublicKey(\"P2PzLraW8YF87BxqZTZ5kgrfvzcrKGPnqUBNhqmcV9B\"); const poolOwner = \"J9EH18EWSo8s69gouHGNy5zFHkhcHRbb9zBZXwSG4cHy\"; owners.push(",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "3LsXPaqP7KYht8ysgTHZsWnKTeZPJJjWur5mggR7eTLU",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "4jB4xx4ao4h4ygK7ZnatTQMB52hAaBnkXkcKohSV8T1b",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 3",
+          "program_id": "PARrVs6F5egaNuz8g6pKJyU4ze3eX5xGZCFb3GLiVvu",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/tree/main/projects/hedgehog-markets",
+          "source_path": "solana.js",
+          "evidence": "nt); }); } async function addParimutuel() { const programId = new PublicKey(\"PARrVs6F5egaNuz8g6pKJyU4ze3eX5xGZCFb3GLiVvu\"); const poolOwner = \"3SAUPiGiATqv8TBgvzSJqpLxLGF6LbJamvimueJQT7WT\"; owners.push(",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "CMS9HrvHrZ4JuH1xxaToUsdhhiKQoMSitZ2BbMBT6ffy",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "BSnTQgPLAaePqLvsiqeYzVyFgKS7eQQSANBtjDHGnZfB",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 4",
+          "program_id": "PLYaNRbQs9GWyVQdcLrzPvvZu7NH4W2sneyHcEimLr7",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/tree/main/projects/hedgehog-markets",
+          "source_path": "solana.js",
+          "evidence": "(deposit); } } async function addParlay() { const programId = new PublicKey(\"PLYaNRbQs9GWyVQdcLrzPvvZu7NH4W2sneyHcEimLr7\"); const poolOwner = \"8Y46GkrbUqXnbs6kPD6SWr44NjcKPEWYzvpAn8UB5duR\"; owners.push(",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "FNupxXPJD8kkHXCUGvFm7WVNc2MdeqBtwXxNPY8hjnD8",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "BuJ6wpzojzPeaWmN7bbWfaXLUEPzgUMNT1CvrDpZk3K7",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "hub3",
+      "defillama_slug": "hub3",
+      "name": "hub3",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "2pi53pUUC5S4zyUU6Wrbe6EfYXS9LNcpikpwPFahtQQw",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/hub3-ee/index.js",
+          "source_path": "index.js",
+          "evidence": "require(\"../helper/solana\"); async function tvl() { const programId = new PublicKey(\"2pi53pUUC5S4zyUU6Wrbe6EfYXS9LNcpikpwPFahtQQw\"); const accounts = await getConnection().getProgramAccounts(programId, { filters:",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "9z7er621w4A2To6PQgw8uR2cWgN98Dp8DoL2nJ1RHByy",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "CvvvpRLWnPxsVcKhrGojsifrmxb1JCTRURpy16MtpkYr",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "humidifi",
+      "defillama_slug": "humidifi",
+      "name": "HumidiFi",
+      "sources": [
+        "dexs",
+        "fees"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "9H6tua7jkLhdm3w8BvgpTn5LZNU7g4ZynDmCiNN3q6Rp",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/dexs/humidifi",
+          "source_path": "index.ts",
+          "evidence": "// Program: 9H6tua7jkLhdm3w8BvgpTn5LZNU7g4ZynDmCiNN3q6Rp import { Dependencies, FetchOptions, SimpleAdapter } from \"../../adapters/types\" import",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "GFnq94bLU8mKfsj9YXpT9b1x4LfXSNwkBZbjTowXCvnM",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "8v3bn6yE1YM6towWprJxf3zwr8uiWs1tMXCLwqCFeL9g",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "investin",
+      "defillama_slug": "investin",
+      "name": "Investin",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "8dbbmZXbLsUirEsgaBVcPBEdciESza6L2zkEuer4crR",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/investin/index.js",
+          "source_path": "index.js",
+          "evidence": "n = getConnection() const accounts = await connection.getProgramAccounts(new PublicKey('8dbbmZXbLsUirEsgaBVcPBEdciESza6L2zkEuer4crR'), { filters: [{ dataSize: 3160 }] }) const data = accounts.map(i => de",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "jJ1A6YKX2pBsfrqKN67XdkQMPjZDTWzJSgFHB6YqzXG",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "HNp4TUvDbMC9nRNF6xx6Wv8T7MDsuZe5zLUWRuSbtsBp",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "jet_fixed_term",
+      "defillama_slug": "jet-fixed-term",
+      "name": "Jet Fixed Term",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "JPTermEg2DwrV39xb1Fs7z1VUxcvdPT7mE7cyGsQ4xt",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/jet-protocol-v2-fixed-term/index.js",
+          "source_path": "index.js",
+          "evidence": "r\"); const { getProvider, sumTokens2, } = require(\"../helper/solana\"); const programId = 'JPTermEg2DwrV39xb1Fs7z1VUxcvdPT7mE7cyGsQ4xt'; const idl = require('./idl.json') async function tvl() { const provider = getProvide",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "Ct2CWMwnbTzVaZrNT5fRVBGkw1HepkXmo7GuXqxvE7AX",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "77mZCponKcqAv9N5nbG57rXuvPATwQP1WYCYVE528e3i",
+              "present": true,
+              "owner": "JPTermEg2DwrV39xb1Fs7z1VUxcvdPT7mE7cyGsQ4xt",
+              "executable": false,
+              "lamports": 67358880,
+              "space": 9550
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "jet_v1",
+      "defillama_slug": "jet-v1",
+      "name": "Jet V1",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "JPv1rCqrhagNNmJVM5J1he7msQ5ybtvE1nNuHpDHMNU",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/jetprotocol.js",
+          "source_path": "jetprotocol.js",
+          "evidence": "W9Ci1yMwWz7iGbQYpm5fZmadNQyrYsqch8', blacklistedTokens: Object.keys(debtMapping)}); } // JPv1rCqrhagNNmJVM5J1he7msQ5ybtvE1nNuHpDHMNU // https://docs.jetprotocol.io/jet-protocol/protocol/smart-contracts module.exports = {",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "FyxiZPPWpDCFHVco8tzEXCqb9KTvinNvvandJwyuu88h",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "CjqQ9kx9STBLtSUdypHTjNJsLE4t6uQossjdSzq9jdmY",
+              "present": true,
+              "owner": "JPv1rCqrhagNNmJVM5J1he7msQ5ybtvE1nNuHpDHMNU",
+              "executable": false,
+              "lamports": 35927520,
+              "space": 5034
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "jpow_ai",
+      "defillama_slug": "jpow-ai",
+      "name": "JPOW AI",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "3APJcbC2iHEFGv4y6a8Fi5nQ5u75ML85TQreSr7cpRDs",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/jpow/index.js",
+          "source_path": "index.js",
+          "evidence": "nst { sumTokens2 } = require('../helper/solana'); const JPOW_PROGRAM_ID = new PublicKey('3APJcbC2iHEFGv4y6a8Fi5nQ5u75ML85TQreSr7cpRDs'); const DEPOSITORY_SEED = \"DEPOSITORY\"; const DEPOSITORY_TYPE1_SEED = \"DEPOSITORY_TYPE_",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "BbUMnt3rwNJi8MuPpaKNhebZ5s3Rx6Qj1tzxdHTgC5T1",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "FK9cxViGFWo5FwXWDmpLVkqFHGZqc2enTywcxwKsSHDe",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "jupiter_staked_sol",
+      "defillama_slug": "jupiter-staked-sol",
+      "name": "Jupiter Staked SOL",
+      "sources": [
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "SPMBzsVUuoHA4Jm6KunbsotaahvVikZs1JyTW6iJvbn",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/jupSOL/index.js",
+          "source_path": "index.js",
+          "evidence": "const POOL = '8VpRhuxa7sUUepdY3kQiTmX9rS5vx4WgaXiAnXq4KCtr' const STAKE_POOL_PROGRAM = 'SPMBzsVUuoHA4Jm6KunbsotaahvVikZs1JyTW6iJvbn' const WITHDRAW_AUTHORITY = 'EMjuABxELpYWYEwjkKmQKBNCwdaFAy4QYAs6W9bDQDNw' const RESERVE_",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "5zXVENMgircCwRYgAh2tcXXov6B9HBGhwFb1RRbjLvYg",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "CxWEX9dMLAkgMrheQQ4xTGy9v7TcWRtCcDNHoC6oW6s2",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "krystal",
+      "defillama_slug": "krystal",
+      "name": "Krystal",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "6tgjvHkFUUUbbacEWg225H6AazxoSTso8ix9vkXFScTU",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/tree/main/projects/krystal",
+          "source_path": "idl/krystal_auto_vault.json",
+          "evidence": "{ \"address\": \"6tgjvHkFUUUbbacEWg225H6AazxoSTso8ix9vkXFScTU\", \"metadata\": {\"name\": \"krystal_auto_vault\", \"version\": \"0.1.0\", \"spec\": \"0.1.0\", \"desc",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "4VFf42E1NZJ3CG1wV9W5Es9keLmt9pXYi7m12ftKRBEK",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "3yyCJ8auAzJHNQvod5PN7gtLMb9o3G4tqSFTEWL1bEKd",
+              "present": true,
+              "owner": "6tgjvHkFUUUbbacEWg225H6AazxoSTso8ix9vkXFScTU",
+              "executable": false,
+              "lamports": 16175040,
+              "space": 2196
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "lendao",
+      "defillama_slug": "lendao",
+      "name": "Lendao",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "7abBuE4LdKbyXMxQNJ3UyGVsYmakSAsFQYKgr7GnAht5",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/lendao/index.js",
+          "source_path": "index.js",
+          "evidence": "a\"); const { PublicKey } = require(\"@solana/web3.js\"); const PROGRAM_ID = new PublicKey(\"7abBuE4LdKbyXMxQNJ3UyGVsYmakSAsFQYKgr7GnAht5\"); const USDT_MINT = new PublicKey(ADDRESSES.solana.USDT); const SEED_VAULT_AUTHORITY = B",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "7L9JqPGouxfzf3UGkAwZyQV6sunU5q1ijppuqgafHTjy",
+              "present": true,
+              "owner": "ProgM6JCCvbYkfKqJYHePx4xxSUSqJp7rh8Lyv7nk7S",
+              "executable": false,
+              "lamports": 73922160,
+              "space": 10493
+            },
+            "anchor_legacy": {
+              "address": "Cawm4ETFQ1arXYtVxGbMFKnRbJq1Gtpw7aihVWJmpjya",
+              "present": true,
+              "owner": "7abBuE4LdKbyXMxQNJ3UyGVsYmakSAsFQYKgr7GnAht5",
+              "executable": false,
+              "lamports": 57628800,
+              "space": 8152
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "lifinity_v1",
+      "defillama_slug": "lifinity-v1",
+      "name": "Lifinity V1",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "EewxydAPCCVuNEyrVN68PuSYdQ7wKn27V9Gjeoi8dy3S",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/lifinity/index.js",
+          "source_path": "index.js",
+          "evidence": "m/anchor\"); async function tvl() { const provider = getProvider() const programId = 'EewxydAPCCVuNEyrVN68PuSYdQ7wKn27V9Gjeoi8dy3S' const program = new Program(idl, programId, provider) const data = await program.acc",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "3VDcELQfMpBei6c8fbX86ZaDCUF2EmwXjEKfyHZVqECq",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "CgENUijKv2i63KnMewdSoHqxrUpobayxJgGABK7WMJQ6",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "lifinity_v2",
+      "defillama_slug": "lifinity-v2",
+      "name": "Lifinity V2",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "2wT8Yq49kHgDzXuPxZSaeLaH1qbmGXtEyPy64bL7aD3c",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/lifinity-v2/index.js",
+          "source_path": "index.js",
+          "evidence": "nBAccount }}) => ([tokenAAccount, tokenBAccount,])).flat() } const config = { solana: '2wT8Yq49kHgDzXuPxZSaeLaH1qbmGXtEyPy64bL7aD3c', eclipse: '4UsSbJQZJTfZDFrgvcPBRCSg5BbcQE6dobnriCafzj12', } async function tvl(api) {",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "EV82rBr1qNBRTZnHtoKYTb4RsPZcSuYLkaSMRqEpJGrn",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "n5VzBjC1UwzrzZ2yH659maigGFNc2zto64VTrF7bee9",
+              "present": true,
+              "owner": "2wT8Yq49kHgDzXuPxZSaeLaH1qbmGXtEyPy64bL7aD3c",
+              "executable": false,
+              "lamports": 41203200,
+              "space": 5792
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "luckyfuture",
+      "defillama_slug": "luckyfuture",
+      "name": "LuckyFuture",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "EDnxACbdY1GeXnadh5gRuCJnivP7oQSAHGGAHCma4VzG",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/tree/main/projects/luckyfuture",
+          "source_path": "spotMarkets.js",
+          "evidence": "y('dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH') const CUSTOM_PROGRAM_ID = new PublicKey('EDnxACbdY1GeXnadh5gRuCJnivP7oQSAHGGAHCma4VzG') const SPOT_MARKETS = { 0: { name: 'USDC', mint: ADDRESSES.solana.USDC, d",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "2dmLZrgdqv7osHV7XFmFeXgFJNZwGepd3LEv8UyZVHjR",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "BL9eZnZfczZbzmk8VA8Y67YRhWizqHPicETqVZU5z5pr",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "macaron.bid",
+      "defillama_slug": "macaron.bid",
+      "name": "Macaron.bid",
+      "sources": [
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "BLockwMhb4Z5M3Xw1FdEobBpqTbER5akiyYKkMD4h7uj",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/fees/macaron-bid.ts",
+          "source_path": "macaron-bid.ts",
+          "evidence": "GRAM_ID = 'BidUuhFU1wyjgmpTv4YMQrqzersavZLJRnsgpw3i4k88' const BLOCK_MINING_PROGRAM_ID = 'BLockwMhb4Z5M3Xw1FdEobBpqTbER5akiyYKkMD4h7uj' const fetch = async (options: FetchOptions) => { const timestamp = options.startOfDa",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "3ryn8D43p4WbcyUnrfh1o7SrvPvsmgyRek23eTqnXPEw",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "FxcKy1DNm52XQBCpafzZ2YNMwVfSEiepybanoH7dNFmp",
+              "present": true,
+              "owner": "BLockwMhb4Z5M3Xw1FdEobBpqTbER5akiyYKkMD4h7uj",
+              "executable": false,
+              "lamports": 85775040,
+              "space": 12196
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 2",
+          "program_id": "podGbXLgkgB3ALGsfr7rn1Ct7YJ65QSRuC5w1Zn7qAG",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/macaron-bid.js",
+          "source_path": "macaron-bid.js",
+          "evidence": "STAKING_ADDRESS = '7jirHCE99LM5LKDknU9d3zxpXcxGLEXrh7AkwX9AGqtY' const POD_PROGRAM_ID = 'podGbXLgkgB3ALGsfr7rn1Ct7YJ65QSRuC5w1Zn7qAG' // Pod Account Discriminator (first 8 bytes of account data from IDL) const POD_DISCRIM",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "6D2RAUZXg5ocjQomVeSqhqePHUGq8vcxoGn2iR6RvS9m",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "gVrPxfo3H45kDDhN6NXcAi9iUnPL9jE8K7naE3nAfRS",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "migrate.fun",
+      "defillama_slug": "migrate.fun",
+      "name": "Migrate.Fun",
+      "sources": [
+        "fees"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "migK824DsBMp2eZXdhSBAWFS6PbvA6UN8DV15HfmstR",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/fees/migrate-fun",
+          "source_path": "index.ts",
+          "evidence": "ana.SOL}', 'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB') AND outer_program_id IN ('migK824DsBMp2eZXdhSBAWFS6PbvA6UN8DV15HfmstR') AND block_timestamp >= TO_TIMESTAMP_NTZ('${options.startTimestamp}') AND bl",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "HKBEZvodtvWTprkC7w39zedRX1WR19Pzg9Zjo9k277mg",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "9tuTYZZ27FFpYCTQ1s26Mf7Qw47GC7y7oeqywWDPbBXg",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "minebtc",
+      "defillama_slug": "minebtc",
+      "name": "MineBTC",
+      "sources": [
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "1eotiTH2UxCpPMmtzUDGqf1b8dwM7AMKb8a2Tio51an",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/minebtc/index.js",
+          "source_path": "index.js",
+          "evidence": "er/solana\"); const ADDRESSES = require(\"../helper/coreAssets.json\"); // MineBTC Program: 1eotiTH2UxCpPMmtzUDGqf1b8dwM7AMKb8a2Tio51an const DBTC_MINT = \"CtAu3kc8cQ1jcDMmRTBsDHoPuE3sswCagQ3BuqFDC6dt\"; // Raydium CP-Swap poo",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "rS64SMeLuh2HtSFt5LZa4Ztuzh4Dcbb9PX4npXXQd4N",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "8dvtdRq1YnrZmfzaT5iEMrfCwhs44miJF15oKUKcbvqv",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama dimensions program 2",
+          "program_id": "Hw9uxvtmQdS57N6aNwJA5iqjSqzhRDdopCHgm8EPwkqx",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/fees/minebtc.ts",
+          "source_path": "minebtc.ts",
+          "evidence": "rs/token\"; import ADDRESSES from \"../helpers/coreAssets.json\"; // MineBTC Program (Old): Hw9uxvtmQdS57N6aNwJA5iqjSqzhRDdopCHgm8EPwkqx // Fee structure: 10% protocol fee on all SOL bets // - 1% -> staker SOL rewards vault",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "E5dYyXnhaLr8eanq2NqFR3F1dqQp5W3qdjuttEvXFiWc",
+              "present": true,
+              "owner": "ProgM6JCCvbYkfKqJYHePx4xxSUSqJp7rh8Lyv7nk7S",
+              "executable": false,
+              "lamports": 206524080,
+              "space": 29545
+            },
+            "anchor_legacy": {
+              "address": "GeebYrjrhprgKc4dsgM1SA7ijxz5zMG6wcXoy4h4B8tz",
+              "present": true,
+              "owner": "Hw9uxvtmQdS57N6aNwJA5iqjSqzhRDdopCHgm8EPwkqx",
+              "executable": false,
+              "lamports": 302244960,
+              "space": 43298
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "nxfi_protocol",
+      "defillama_slug": "nxfi-protocol",
+      "name": "NxFi Protocol",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "NxFiv1eeKtKT6dQEP2erBwz2DSKCTdb8WSsxVDwVGJ1",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/nxfi/index.js",
+          "source_path": "index.js",
+          "evidence": "ync function tvl() { const provider = getProvider() const program = new Program(idl, 'NxFiv1eeKtKT6dQEP2erBwz2DSKCTdb8WSsxVDwVGJ1', provider) const reserves = await program.account.reserve.all() return sumTokens2({",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "9FgJwoFzD8GaLPbLbEfVrQRpXHLTGd59nd1LxLcja251",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "6fx46NgaCrwpQZVg1uGntzrM5BLAddifqghryP9sDeWW",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "omnipair",
+      "defillama_slug": "omnipair",
+      "name": "Omnipair",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "omnixgS8fnqHfCcTGKWj6JtKjzpJZ1Y5y9pyFkQDkYE",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/omnipair/index.js",
+          "source_path": "index.js",
+          "evidence": "r/solana') const { Program, web3 } = require('@coral-xyz/anchor') const idl = {\"address\":\"omnixgS8fnqHfCcTGKWj6JtKjzpJZ1Y5y9pyFkQDkYE\",\"metadata\":{\"name\":\"omnipair\",\"version\":\"0.9.9\",\"spec\":\"0.1.0\",\"description\":\"Oracless s",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "BByQzgHhta7yaFQkgf4QEkETDUghd62ivruDC6Uq2KYV",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "4EjYPP6Jiyzn8Kx8K5rNi2ACbb7f7i47F58uAbvuLoX9",
+              "present": true,
+              "owner": "omnixgS8fnqHfCcTGKWj6JtKjzpJZ1Y5y9pyFkQDkYE",
+              "executable": false,
+              "lamports": 96117600,
+              "space": 13682
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "onre",
+      "defillama_slug": "onre",
+      "name": "OnRe",
+      "sources": [
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "onreuGhHHgVzMWSkj2oQDLDtvvGvoepBPkqyaubFcwe",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/onre/index.js",
+          "source_path": "index.js",
+          "evidence": "licKey(\"5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5\"); const PROGRAM_ID = new PublicKey(\"onreuGhHHgVzMWSkj2oQDLDtvvGvoepBPkqyaubFcwe\"); const GET_TVL_DISCRIMINATOR = Buffer.from([88, 225, 219, 204, 86, 91, 184, 51]); const",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "GbTQEQ7VDJU7Q21tue1i3vHjb6hkgQcRFVXeC41g2f3o",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "DaDSbufFvV22r718nYJDD8akNsVX6mizuSehxiN3E2F3",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "orbit_finance",
+      "defillama_slug": "orbit-finance",
+      "name": "Orbit Finance",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "Fn3fA3fjsmpULNL7E9U79jKTe1KHxPtQeWdURCbJXCnM",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/orbit-finance/index.js",
+          "source_path": "index.js",
+          "evidence": "y counts CIPHER locked in the Streamflow staking pool.\", }; const idl = { \"address\": \"Fn3fA3fjsmpULNL7E9U79jKTe1KHxPtQeWdURCbJXCnM\", \"metadata\": {\"name\": \"orbit_finance\", \"version\": \"0.1.0\", \"spec\": \"0.1.0\"}, \"instru",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "8d1PYqbN9CBrhHuWicvUeX61YLfRNsXiwgSHGx9LCVU8",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "HU4ATLXvKnQDpvNNz8JBbvvHQdZu5ihncok1436DHFLn",
+              "present": true,
+              "owner": "Fn3fA3fjsmpULNL7E9U79jKTe1KHxPtQeWdURCbJXCnM",
+              "executable": false,
+              "lamports": 208953120,
+              "space": 29894
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "orca_dex",
+      "defillama_slug": "orca-dex",
+      "name": "Orca DEX",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/orca/index.js",
+          "source_path": "index.js",
+          "evidence": "ortDexTVL('DjVE6JNiYqPL2QXyCUUh8rNjHrbz9hXHNYt99MQ59qw1') const orcaV2Tvl = exportDexTVL('9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP') module.exports = { timetravel: false, solana: { tvl: sdk.util.sumChainTvls([orcaV1",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "E2GiJJc1tkoqgoe2sfbNXNsifZdtNb814B1VXxRUC6jZ",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "BNpjum8CU5axJjezHYhvyaJPScqWWoGWMhWAXbppSSbs",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 2",
+          "program_id": "DjVE6JNiYqPL2QXyCUUh8rNjHrbz9hXHNYt99MQ59qw1",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/orca/index.js",
+          "source_path": "index.js",
+          "evidence": "async function orcaPoolTvlViaConfig() { const tokenAccounts = [] const v1ProgramId = 'DjVE6JNiYqPL2QXyCUUh8rNjHrbz9hXHNYt99MQ59qw1' const { pools } = await getConfig('orca/pools', 'https://api.orca.so/configs') Objec",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "EHEtBY9yxycvmyXFgQHVwrakETsDRXgnmRoog7Vga6FF",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "3r1ygj7wC8sKETmTbzrUqcUwpPq3hYC2gMyEUdei1X4C",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "orca_wavebreak",
+      "defillama_slug": "orca-wavebreak",
+      "name": "Orca Wavebreak",
+      "sources": [
+        "dexs"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "waveQX2yP3H1pVU8djGvEHmYg8uamQ84AuyGtpsrXTF",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/dexs/orca-wavebreak.ts",
+          "source_path": "orca-wavebreak.ts",
+          "evidence": "rack volume by decoding TokenBuyExactIn and TokenSellExactIn events // Program address: waveQX2yP3H1pVU8djGvEHmYg8uamQ84AuyGtpsrXTF const value = (await queryDuneSql(options, `WITH wavebreak_trades AS ( SELECT",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "2TFrm7UcC23aLTPSqBJ86ggJeyXuwAgSZ77pHwEttVAY",
+              "present": true,
+              "owner": "ProgM6JCCvbYkfKqJYHePx4xxSUSqJp7rh8Lyv7nk7S",
+              "executable": false,
+              "lamports": 58116000,
+              "space": 7582
+            },
+            "anchor_legacy": {
+              "address": "J6JhXyVBS9XCGYQxnxpReqXXE9deWa8EYc56yqBWwBGw",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "overpass",
+      "defillama_slug": "overpass",
+      "name": "Overpass",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "WRAPdXmxrH37RKUbH1QMnYrKdNe8w4Kz44t1cXmYeum",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/overpass/index.js",
+          "source_path": "index.js",
+          "evidence": "etConnection } = require(\"../helper/solana\"); const OVERPASS_PROGRAM_ID = new PublicKey(\"WRAPdXmxrH37RKUbH1QMnYrKdNe8w4Kz44t1cXmYeum\"); const LULO_PROGRAM_ID = new PublicKey(\"FL3X2pRsQ9zHENpZSKDRREtccwJuei8yg9fwDu9UN69Q\");",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "8qkyXJTBeptpvchCYg4TXBK6NQwZDTGQKA56pQ8e65cu",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "GUTDVJUqiWQcCy1kRSFHsDi2GcMLPE7kHPYagoaJoweP",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "oxedium",
+      "defillama_slug": "oxedium",
+      "name": "Oxedium",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "oxe2YhrQZ8yjbaHfp6mQXfSJd124qK2sRpdH9ePZXh1",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/oxedium/index.js",
+          "source_path": "index.js",
+          "evidence": "require('../helper/solana'); async function tvl() { const programId = new PublicKey('oxe2YhrQZ8yjbaHfp6mQXfSJd124qK2sRpdH9ePZXh1'); const connection = getConnection(); const OXEDIUM_SEED = Buffer.from(\"oxedium-see",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "5Kx8v6HMz9DXEZvsPimNqHAc5K3dpb7mCNrjisoGALLX",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "gs3dKzGcppr28NVfb8eFYW83XYiWeHknesbqDupBgjr",
+              "present": true,
+              "owner": "oxe2YhrQZ8yjbaHfp6mQXfSJd124qK2sRpdH9ePZXh1",
+              "executable": false,
+              "lamports": 57517440,
+              "space": 8136
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "pancakeswap_amm_v3",
+      "defillama_slug": "pancakeswap-amm-v3",
+      "name": "PancakeSwap AMM V3",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "HpNfyc2Saw7RKkQd8nEL4khUcuPhQ7WwY1B2qjx8jxFq",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/pancakeswap-v3/index.js",
+          "source_path": "index.js",
+          "evidence": "eb3.js') const factory = '0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865' const programId = 'HpNfyc2Saw7RKkQd8nEL4khUcuPhQ7WwY1B2qjx8jxFq' const solTvl = async () => { // throw new Error('pcs v3 returns incorrect tvl') con",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "BJv9AGSJKRVoqJWtoAcXncWrJHqy7sNf63HW98Grzezq",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "CAD7TZySgk4RkqyAkGu3bJFvf8itWsfTtpViRK8TJrKf",
+              "present": true,
+              "owner": "HpNfyc2Saw7RKkQd8nEL4khUcuPhQ7WwY1B2qjx8jxFq",
+              "executable": false,
+              "lamports": 155890080,
+              "space": 22270
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "parcl_v2",
+      "defillama_slug": "parcl-v2",
+      "name": "Parcl V2",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "pAMMTYk2C9tAxenepGk8a1bi9JQtUdnzu3UAh7NxYcW",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/parcl/index.js",
+          "source_path": "index.js",
+          "evidence": "um/anchor\") async function tvl() { const provider = getProvider() const programId = 'pAMMTYk2C9tAxenepGk8a1bi9JQtUdnzu3UAh7NxYcW' const program = new Program(idl, programId, provider) const data = await program.acc",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "G6Vg3yqVB6NTWatrUaUDQyy7Jng8osXebWh2E26s3Td2",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "C59B2DwvsmWpbezJe6icVj7BynXi9WTTkLA2MTpdP9CE",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "parcl_v3",
+      "defillama_slug": "parcl-v3",
+      "name": "Parcl V3",
+      "sources": [
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "pAMMTYk2C9tAxenepGk8a1bi9JQtUdnzu3UAh7NxYcW",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/tree/main/projects/parcl",
+          "source_path": "index.js",
+          "evidence": "um/anchor\") async function tvl() { const provider = getProvider() const programId = 'pAMMTYk2C9tAxenepGk8a1bi9JQtUdnzu3UAh7NxYcW' const program = new Program(idl, programId, provider) const data = await program.acc",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "G6Vg3yqVB6NTWatrUaUDQyy7Jng8osXebWh2E26s3Td2",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "C59B2DwvsmWpbezJe6icVj7BynXi9WTTkLA2MTpdP9CE",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "penguin",
+      "defillama_slug": "penguin",
+      "name": "Penguin",
+      "sources": [
+        "dexs",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "PSwapMdSai8tjrEXcxFeQth87xC4rRsa4VA5mhGhXkP",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/penguin-finance/index.js",
+          "source_path": "index.js",
+          "evidence": "l token value inside the protocol's liquidity pools.\", solana: { tvl: exportDexTVL('PSwapMdSai8tjrEXcxFeQth87xC4rRsa4VA5mhGhXkP'), }, }",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "ErGSSgcfHXD9xmRSkNgtCg9qxmTxKV3hVX3ArbJRxRpy",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "GuqdDrRq3AAMtC6b1KejwZLyhL6HKNpK4NMTiCP6UYCc",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "phoenix_perp",
+      "defillama_slug": "phoenix-perp",
+      "name": "Phoenix Perp",
+      "sources": [
+        "fees",
+        "open_interest"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/fees/phoenix-trade",
+          "source_path": "index.ts",
+          "evidence": "rs/dune\"; import { METRIC } from \"../../helpers/metrics\"; const PHOENIX_PERPS_PROGRAM = \"EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih\"; const EVENTS = { log: \"0x8de6d6f209d1cfaa\", logEventLengths: \"0xf70786cbb5479947\",",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "H6r3zQwpMdsuSgoCFm39WjP6F9sMNyxwe3F3F9PhbqkQ",
+              "present": true,
+              "owner": "ProgM6JCCvbYkfKqJYHePx4xxSUSqJp7rh8Lyv7nk7S",
+              "executable": false,
+              "lamports": 197835760,
+              "space": 28137
+            },
+            "anchor_legacy": {
+              "address": "D75nmud72bxDkvRc2V72wC2oYVcxhneNY57X1z14wLX",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "phoenix_spot",
+      "defillama_slug": "phoenix-spot",
+      "name": "Phoenix Spot",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/ellipisis-phoenix/index.js",
+          "source_path": "index.js",
+          "evidence": "y } = require('@solana/web3.js') async function tvl() { const program = new PublicKey('PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY') const connection = getConnection(); const accounts0 = await connection.getProgramAc",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "5jNmZGUrhUPDchPRBFJ5pMWifqM2EBCBc3ivEeAHGbMB",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "AYyutjn8s93echP5a6pTX5RfmERAaQTcdLTnwz8RffNN",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "pigeonhouse",
+      "defillama_slug": "pigeonhouse",
+      "name": "PigeonHouse",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "BV1RxkAaD5DjXMsnofkVikFUUYdrDg1v8YgsQ3iyDNoL",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/pigeonhouse/index.js",
+          "source_path": "index.js",
+          "evidence": "./helper/solana\"); const { PublicKey } = require(\"@solana/web3.js\"); const PROGRAM_ID = \"BV1RxkAaD5DjXMsnofkVikFUUYdrDg1v8YgsQ3iyDNoL\"; const PIGEON_MINT = \"4fSWEw2wbYEUCcMtitzmeGUfqinoafXxkhqZrA9Gpump\"; const BONDING_CURVE",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "Aezmn7RNordCYoSDJekUeP8WHZ431MQPGuMEex8zSbtu",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "4NSPSSeBaTBSDivYoXA3aAz4V8Q5CBEmfjstbuyhdSvn",
+              "present": true,
+              "owner": "BV1RxkAaD5DjXMsnofkVikFUUYdrDg1v8YgsQ3iyDNoL",
+              "executable": false,
+              "lamports": 60301440,
+              "space": 8536
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "popfi",
+      "defillama_slug": "popfi",
+      "name": "PopFi",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "AfjPnJz75bJiMKYeManVmPVQEGNcSaj9KeF6c5tncQEa",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/popfi/index.js",
+          "source_path": "index.js",
+          "evidence": "nst anchor = require(\"@project-serum/anchor\"); const POPFI_PROGRAM_ID = new PublicKey( \"AfjPnJz75bJiMKYeManVmPVQEGNcSaj9KeF6c5tncQEa\" ); async function tvl() { const vault = PublicKey.findProgramAddressSync( [Buffe",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "4un8Dhb1PzAfoFp3m3WjGEgk4C7bGavsFLzZdwU1NGYE",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "4RuWfEkdL51Pi5QUv8YxwkhgWeuXFe1RCqFd8Ryo1usc",
+              "present": true,
+              "owner": "AfjPnJz75bJiMKYeManVmPVQEGNcSaj9KeF6c5tncQEa",
+              "executable": false,
+              "lamports": 21283680,
+              "space": 2930
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "prophet.fun",
+      "defillama_slug": "prophet.fun",
+      "name": "Prophet.fun",
+      "sources": [
+        "dexs",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "ProPh6ruVL41JR3XXPuy6hN6TPH1ERqpWkZ9dp9YSEe",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/prophet-fun/index.js",
+          "source_path": "index.js",
+          "evidence": "js\"); const { getConfig } = require('../helper/cache'); const programId = new PublicKey('ProPh6ruVL41JR3XXPuy6hN6TPH1ERqpWkZ9dp9YSEe') const globalState = new PublicKey('6PZKJowZMUAgxLxAJmHsrvzEL8PdXNymqYSJDwPRgh6V') const",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "22By1LpXScT7Hk9w34YnQRQ9b3QkCECYR1wZFaJVWeSZ",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "Ai3NYHz2LUWgAojJw3utvopafbwA95edTUdbTHYRXU5w",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "psyoptions",
+      "defillama_slug": "psyoptions",
+      "name": "PsyOptions",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "FASQhaZQT53W9eT9wWnPoBFw8xzZDey9TbMmJj6jCQTs",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/psyoptions/index.js",
+          "source_path": "index.js",
+          "evidence": "okenizedEurosControlledAccounts(anchorProvider) { const programId = new PublicKey( \"FASQhaZQT53W9eT9wWnPoBFw8xzZDey9TbMmJj6jCQTs\" ); const [poolAuthority] = PublicKey.findProgramAddressSync( [textEncoder.encode",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "FPyziffVNVVtG8ruWJQCKDR58P4qiMH8uuG2Adrza24B",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "BbK8VmJJPg8ch3jom6SGicuhhrSdqTxdARzfiKw9qC3t",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 2",
+          "program_id": "PLENDj46Y4hhqitNV2WqLqGLrWKAaH2xJHm2UyHgJLY",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/psyoptions/index.js",
+          "source_path": "index.js",
+          "evidence": "unction getPsyLendTokenAccounts(anchorProvider) { const programId = new PublicKey( \"PLENDj46Y4hhqitNV2WqLqGLrWKAaH2xJHm2UyHgJLY\" ); const program = new Program(PsyLendIdl, programId, anchorProvider); // Load all",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "6EUMxJrKBS1BHut8zgjBx1cebdy7dzXwFriZhQF53nvT",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "CpK9sVRC1smjGoKC6w8C5swuZuaGb5AFYWDTVJNJbr25",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 3",
+          "program_id": "R2y9ip6mxmWUj4pt54jP2hz2dgvMozy9VTSwMWE7evs",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/psyoptions/index.js",
+          "source_path": "index.js",
+          "evidence": "s(anchorProvider) { const program = new Program( PsyAmericanIdl, new PublicKey(\"R2y9ip6mxmWUj4pt54jP2hz2dgvMozy9VTSwMWE7evs\"), anchorProvider ); const optionMarkets = await getAllOptionAccounts(program);",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "CUq1v3o9wZPgku2NdZUDVzEjCwoPHDubN9BaVFSoEu6Z",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "BhqE3C9QBtbeNqi4D14QRnnHTicY1n3UH3mPuv2FyJdy",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "realms",
+      "defillama_slug": "realms",
+      "name": "Realms",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "5sGZEdn32y8nHax7TxEyoHuPS3UXfPWtisgm8kqxat8H",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "6f7XSJF5R4Si5jEJekGiyrwP2m7gSEqLUs', 'Ghope52FuF6HU3AAhJuAAyS2fiqbVhkAotb7YprL5tdS', '5sGZEdn32y8nHax7TxEyoHuPS3UXfPWtisgm8kqxat8H', 'smfjietFKFJ4Sbw1cqESBTpPhF4CwbMwN8kBEC1e5ui', 'GovMaiHfpVPw8BAM1mbdzgmSZYDw2tdP32J",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "Bz6fCfyTXwPqTjosEHFpQAWw7KLbxe89tLT2VJco2ALX",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "9FJoRDhpD9dBYqtjL2sgWvdgaM24EsyKUDjz2EDZceCy",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 2",
+          "program_id": "A7kmu2kUcnQwAVn8B4znQmGJeUrsJ1WEhYVMtmiBLkEr",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "LYY6RdjsgKeFji5kMiG1fSxnxDjDBu4s73', 'ALLGnZikNaJQeN4KCAbDjZRSzvSefUdeTpk18yfizZvT', 'A7kmu2kUcnQwAVn8B4znQmGJeUrsJ1WEhYVMtmiBLkEr', 'MGovW65tDhMMcpEmsegpsdgvzb6zUwGsNjhXFxRAnjd', 'jdaoDN37BrVRvxuXSeyR7xE5Z9CAoQApexG",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "5LdbmYJkjBb8mA4DFHh4GCzseqTW4C6ELNurKa5z2WtR",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "AN1R9wu2XZYnWsjzMWjjpVm2nH5RTqW4D8gdM6uVBdQJ",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 3",
+          "program_id": "AEauWRrpn9Cs6GXujzdp1YhMmv2288kBt3SdEcPYEerr",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "aUuqscLh8Rg2HTxPUXfhhAXDptTLhp1t2J', 'DcG2PZTnj8s4Pnmp7xJswniCskckU5E6XsrKuyD7NYFK', 'AEauWRrpn9Cs6GXujzdp1YhMmv2288kBt3SdEcPYEerr', 'G41fmJzd29v7Qmdi8ZyTBBYa98ghh3cwHBTexqCG1PQJ', 'GovHgfDPyQ1GwazJTDY2avSVY8GGcpmCap",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "DDre2wC5QzzWj8N9VxUAaWtLxQLwyo7Vnug91Jo5Bc2v",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "Ae88TcPs4Lr49ngwV8nxJFk1vp3rKvsbn9oYUAjkkXpu",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 4",
+          "program_id": "ALLGnZikNaJQeN4KCAbDjZRSzvSefUdeTpk18yfizZvT",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "n7NoCF79b2ucQF8XaMdowyPt5ccS6g1PUx', 'GRNPT8MPw3LYY6RdjsgKeFji5kMiG1fSxnxDjDBu4s73', 'ALLGnZikNaJQeN4KCAbDjZRSzvSefUdeTpk18yfizZvT', 'A7kmu2kUcnQwAVn8B4znQmGJeUrsJ1WEhYVMtmiBLkEr', 'MGovW65tDhMMcpEmsegpsdgvzb6zUwGsNj",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "7WmaR2wTFxryxRJnQDTkXpKodXurwyg2PwpUPW2iAxBE",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "5UKrDJ9BjMBA87hXvTGHSub6FHPbFm7oVyXvMdCmwLqm",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 5",
+          "program_id": "DcG2PZTnj8s4Pnmp7xJswniCskckU5E6XsrKuyD7NYFK",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "JeE6NYbQakQvribHykUNgaPJqcgf3UQVnY', 'GqTPL6qRf5aUuqscLh8Rg2HTxPUXfhhAXDptTLhp1t2J', 'DcG2PZTnj8s4Pnmp7xJswniCskckU5E6XsrKuyD7NYFK', 'AEauWRrpn9Cs6GXujzdp1YhMmv2288kBt3SdEcPYEerr', 'G41fmJzd29v7Qmdi8ZyTBBYa98ghh3cwHB",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "7pYYyAV9cA9gcocz2qbwaS2yn3F91wQisaW4ehxHt3Rc",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "HEZ7jyXYgv56Z8zPXqhhf2WDaFTbkzW7LUNm7FDR1nCY",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 6",
+          "program_id": "G41fmJzd29v7Qmdi8ZyTBBYa98ghh3cwHBTexqCG1PQJ",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "s4Pnmp7xJswniCskckU5E6XsrKuyD7NYFK', 'AEauWRrpn9Cs6GXujzdp1YhMmv2288kBt3SdEcPYEerr', 'G41fmJzd29v7Qmdi8ZyTBBYa98ghh3cwHBTexqCG1PQJ', 'GovHgfDPyQ1GwazJTDY2avSVY8GGcpmCapmmCsymRaGe', 'pytGY6tWRgGinSCvRLnSv4fHfBTMoiDGiC",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "Fuu5hixKUbPaq1CkQ4JvoynamfhBa9bFQiuBEjs7XToX",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "FW37LLpdeGWArvSzDHPgxanenu1iaT9TqpvVNipFw44G",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 7",
+          "program_id": "GCockTxUjxuMdojHiABVZ5NKp6At8eTKDiizbPjiCo4m",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "FJ4Sbw1cqESBTpPhF4CwbMwN8kBEC1e5ui', 'GovMaiHfpVPw8BAM1mbdzgmSZYDw2tdP32J2fapoQoYs', 'GCockTxUjxuMdojHiABVZ5NKp6At8eTKDiizbPjiCo4m', 'HT19EcD68zn7NoCF79b2ucQF8XaMdowyPt5ccS6g1PUx', 'GRNPT8MPw3LYY6RdjsgKeFji5kMiG1fSxn",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "GG2GQ2xSfZjZAsxkQh852x5oZnj4mTqmhBs3tBJ2LAcy",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "Bwq4Go4Ln5DCHfR6Rxix8LGMVBJpN8cncXwESd3vS71b",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 8",
+          "program_id": "GMnke6kxYvqoAXgbFGnu84QzvNHoqqTnijWSXYYTFQbB",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "DhMMcpEmsegpsdgvzb6zUwGsNjhXFxRAnjd', 'jdaoDN37BrVRvxuXSeyR7xE5Z9CAoQApexGrQJbnj6V', 'GMnke6kxYvqoAXgbFGnu84QzvNHoqqTnijWSXYYTFQbB', 'hgovkRU6Ghe1Qoyb54HdSLdqN7VtxaifBzRmh9jtd3S', 'jtogvBNH3WBSWDYD5FJfQP2ZxNTuf82zL8G",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "ACik1A7XykBk8kuvLzo6svYNQo77hurVvUtYrbaqbYrV",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "DsBrz8QzGFAqH2dZcqAooZoHnVx1eXkizXow7SA8TrBi",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 9",
+          "program_id": "GRNPT8MPw3LYY6RdjsgKeFji5kMiG1fSxnxDjDBu4s73",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "uMdojHiABVZ5NKp6At8eTKDiizbPjiCo4m', 'HT19EcD68zn7NoCF79b2ucQF8XaMdowyPt5ccS6g1PUx', 'GRNPT8MPw3LYY6RdjsgKeFji5kMiG1fSxnxDjDBu4s73', 'ALLGnZikNaJQeN4KCAbDjZRSzvSefUdeTpk18yfizZvT', 'A7kmu2kUcnQwAVn8B4znQmGJeUrsJ1WEhY",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "GcAL48K3LCbmiA8LPxReG6z1Q5FznpXofbT9hT1YBgfc",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "8zTQeykbuH9ghC5ptKMpLytRkei7dNLdT6am4UdjgjcN",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 10",
+          "program_id": "Ghope52FuF6HU3AAhJuAAyS2fiqbVhkAotb7YprL5tdS",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "47gtCPvgR3oN7W357iehn5WF2Vn9MJvcSxz', 'JPGov2SBA6f7XSJF5R4Si5jEJekGiyrwP2m7gSEqLUs', 'Ghope52FuF6HU3AAhJuAAyS2fiqbVhkAotb7YprL5tdS', '5sGZEdn32y8nHax7TxEyoHuPS3UXfPWtisgm8kqxat8H', 'smfjietFKFJ4Sbw1cqESBTpPhF4CwbMwN8",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "5v4kvXkX3y5NcpqFTs46meuCFGkFJhHNiSyy8L3HL7QQ",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "B2bYnx7JiLqUVQKsxzk4WxhhgG4dEaZcuVotN9Hw5GCj",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 11",
+          "program_id": "GovER5Lthms3bLBqWub97yVrMmEogzX7xNjdXpPPCVZw",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "L Governance program instances that hold Realms DAO treasuries. const GOV_PROGRAMS = [ 'GovER5Lthms3bLBqWub97yVrMmEogzX7xNjdXpPPCVZw', 'gUAedF544JeE6NYbQakQvribHykUNgaPJqcgf3UQVnY', 'GqTPL6qRf5aUuqscLh8Rg2HTxPUXfhhAXDp",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "Bz2TP8yEySSSVRzut9DUBsyETYKjMNSuARfw8UiubbB",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "32NLyfhtm4xHQhgpeBZkjiDMEUir173f1XdsPR36LzgQ",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 12",
+          "program_id": "GovHgfDPyQ1GwazJTDY2avSVY8GGcpmCapmmCsymRaGe",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "Cs6GXujzdp1YhMmv2288kBt3SdEcPYEerr', 'G41fmJzd29v7Qmdi8ZyTBBYa98ghh3cwHBTexqCG1PQJ', 'GovHgfDPyQ1GwazJTDY2avSVY8GGcpmCapmmCsymRaGe', 'pytGY6tWRgGinSCvRLnSv4fHfBTMoiDGiCsesmHWM6U', 'J9uWvULFL47gtCPvgR3oN7W357iehn5WF2V",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "DMTVgXqEJkQW8F6jxEYoWjDGqg6n9C52dcNagG1JbHZg",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "Ehf2Vn2vgRFr3SK1WVzP63MmveQUagSmugLWLKYu5U5j",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 13",
+          "program_id": "GovMaiHfpVPw8BAM1mbdzgmSZYDw2tdP32J2fapoQoYs",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "y8nHax7TxEyoHuPS3UXfPWtisgm8kqxat8H', 'smfjietFKFJ4Sbw1cqESBTpPhF4CwbMwN8kBEC1e5ui', 'GovMaiHfpVPw8BAM1mbdzgmSZYDw2tdP32J2fapoQoYs', 'GCockTxUjxuMdojHiABVZ5NKp6At8eTKDiizbPjiCo4m', 'HT19EcD68zn7NoCF79b2ucQF8XaMdowyPt",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "7RDc7D8gq2YuRFpmQbZfkPbacVo5GvNY1VqnVRAdcLEp",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "5Z8wZpKDpGJLh33GDvNxk7472BhksMVBmNyJGNbPf4b",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 14",
+          "program_id": "GqTPL6qRf5aUuqscLh8Rg2HTxPUXfhhAXDptTLhp1t2J",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "ms3bLBqWub97yVrMmEogzX7xNjdXpPPCVZw', 'gUAedF544JeE6NYbQakQvribHykUNgaPJqcgf3UQVnY', 'GqTPL6qRf5aUuqscLh8Rg2HTxPUXfhhAXDptTLhp1t2J', 'DcG2PZTnj8s4Pnmp7xJswniCskckU5E6XsrKuyD7NYFK', 'AEauWRrpn9Cs6GXujzdp1YhMmv2288kBt3",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "8t8hrhEkoi9RaoirDFgrsAB8AgoPVDzacHD8rjWHCKuz",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "9NmV563Apaxcgwbm5xUwu3urDxASueBa9LN8bV1q9WGz",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 15",
+          "program_id": "HT19EcD68zn7NoCF79b2ucQF8XaMdowyPt5ccS6g1PUx",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "Pw8BAM1mbdzgmSZYDw2tdP32J2fapoQoYs', 'GCockTxUjxuMdojHiABVZ5NKp6At8eTKDiizbPjiCo4m', 'HT19EcD68zn7NoCF79b2ucQF8XaMdowyPt5ccS6g1PUx', 'GRNPT8MPw3LYY6RdjsgKeFji5kMiG1fSxnxDjDBu4s73', 'ALLGnZikNaJQeN4KCAbDjZRSzvSefUdeTp",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "5y7Uc6vYQ74cdpy2QaahK6VZVpFam2869ZT4zf4vn1n1",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "4uy4S3UYu8mDNA233DRKZMfksnJMAGZd8TW6MQyd9h87",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 16",
+          "program_id": "J9uWvULFL47gtCPvgR3oN7W357iehn5WF2Vn9MJvcSxz",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "Q1GwazJTDY2avSVY8GGcpmCapmmCsymRaGe', 'pytGY6tWRgGinSCvRLnSv4fHfBTMoiDGiCsesmHWM6U', 'J9uWvULFL47gtCPvgR3oN7W357iehn5WF2Vn9MJvcSxz', 'JPGov2SBA6f7XSJF5R4Si5jEJekGiyrwP2m7gSEqLUs', 'Ghope52FuF6HU3AAhJuAAyS2fiqbVhkAotb",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "7yjq3ugXvt2yer6ERjSnezQ5fzstvT3QUttxtvSfD5xw",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "BJnY6MJ1kWo1FoJkw1F4SB3pPtBSWcmKJmvG1vyEqfwF",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 17",
+          "program_id": "JPGov2SBA6f7XSJF5R4Si5jEJekGiyrwP2m7gSEqLUs",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "gGinSCvRLnSv4fHfBTMoiDGiCsesmHWM6U', 'J9uWvULFL47gtCPvgR3oN7W357iehn5WF2Vn9MJvcSxz', 'JPGov2SBA6f7XSJF5R4Si5jEJekGiyrwP2m7gSEqLUs', 'Ghope52FuF6HU3AAhJuAAyS2fiqbVhkAotb7YprL5tdS', '5sGZEdn32y8nHax7TxEyoHuPS3UXfPWtis",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "Cg8TwSR2uxRULLGNzHf9Wc9TkY7qEEKFzkuiSdYQrDvW",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "FxVobZVq344zHrX1jwWs85om9MoWz4RZeMtcY6Sx8HUt",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 18",
+          "program_id": "MGovW65tDhMMcpEmsegpsdgvzb6zUwGsNjhXFxRAnjd",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "JQeN4KCAbDjZRSzvSefUdeTpk18yfizZvT', 'A7kmu2kUcnQwAVn8B4znQmGJeUrsJ1WEhYVMtmiBLkEr', 'MGovW65tDhMMcpEmsegpsdgvzb6zUwGsNjhXFxRAnjd', 'jdaoDN37BrVRvxuXSeyR7xE5Z9CAoQApexGrQJbnj6V', 'GMnke6kxYvqoAXgbFGnu84QzvNHoqqTnijW",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "AechCX7iTGTHXSTX2a1FubQYbuUY1iBLstJMGvmJCPXW",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "57EuAi5tMEAoGdu38eWDGAaiouqhNaM21ndKBpXwsXig",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 19",
+          "program_id": "dgov7NC8iaumWw3k8TkmLDybvZBCmd1qwxgLAGAsWxf",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "Ghe1Qoyb54HdSLdqN7VtxaifBzRmh9jtd3S', 'jtogvBNH3WBSWDYD5FJfQP2ZxNTuf82zL8GkEhPeaJx', 'dgov7NC8iaumWw3k8TkmLDybvZBCmd1qwxgLAGAsWxf', ] // GovernanceAccountType discriminators that own treasuries: // V1 Governance/Progra",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "8Jsyucu23epyf6YEEFtaw8MGejSFVCwaokS8BX58fUJZ",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "4ecWrHZNcMa6VSyZjscbJcXyoVqU6cygYPwm7sojPNNN",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 20",
+          "program_id": "gUAedF544JeE6NYbQakQvribHykUNgaPJqcgf3UQVnY",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "O treasuries. const GOV_PROGRAMS = [ 'GovER5Lthms3bLBqWub97yVrMmEogzX7xNjdXpPPCVZw', 'gUAedF544JeE6NYbQakQvribHykUNgaPJqcgf3UQVnY', 'GqTPL6qRf5aUuqscLh8Rg2HTxPUXfhhAXDptTLhp1t2J', 'DcG2PZTnj8s4Pnmp7xJswniCskckU5E6Xs",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "CSse7Sazu6jCU6fYmd2EdyGWuUvJazvHx8i7Gk2uP3P7",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "BVMnzxZY9W4VKKK4jDU2T7CCGzPfMSHhL4HYPydfKocx",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 21",
+          "program_id": "hgovkRU6Ghe1Qoyb54HdSLdqN7VtxaifBzRmh9jtd3S",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "rVRvxuXSeyR7xE5Z9CAoQApexGrQJbnj6V', 'GMnke6kxYvqoAXgbFGnu84QzvNHoqqTnijWSXYYTFQbB', 'hgovkRU6Ghe1Qoyb54HdSLdqN7VtxaifBzRmh9jtd3S', 'jtogvBNH3WBSWDYD5FJfQP2ZxNTuf82zL8GkEhPeaJx', 'dgov7NC8iaumWw3k8TkmLDybvZBCmd1qwxg",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "8pZhyUUvdxPu1T83aqrLnjPW9BauFg95cNFMVUDQyyQu",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "8KB2vKyKMXToSggnDpm2UVb9V9G8ZxGiujuTBz2AM6kE",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 22",
+          "program_id": "jdaoDN37BrVRvxuXSeyR7xE5Z9CAoQApexGrQJbnj6V",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "nQwAVn8B4znQmGJeUrsJ1WEhYVMtmiBLkEr', 'MGovW65tDhMMcpEmsegpsdgvzb6zUwGsNjhXFxRAnjd', 'jdaoDN37BrVRvxuXSeyR7xE5Z9CAoQApexGrQJbnj6V', 'GMnke6kxYvqoAXgbFGnu84QzvNHoqqTnijWSXYYTFQbB', 'hgovkRU6Ghe1Qoyb54HdSLdqN7VtxaifBz",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "7HH6Z1jaL2NQVyA3HAFzRsZUroYbz2q1tkfn7oXJD1MP",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "FnF5GHBxZ2fRvEB5za2A9iPQf6M8PUS1gL6YXf7B2ghB",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 23",
+          "program_id": "smfjietFKFJ4Sbw1cqESBTpPhF4CwbMwN8kBEC1e5ui",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spl-governance/index.js",
+          "source_path": "index.js",
+          "evidence": "6HU3AAhJuAAyS2fiqbVhkAotb7YprL5tdS', '5sGZEdn32y8nHax7TxEyoHuPS3UXfPWtisgm8kqxat8H', 'smfjietFKFJ4Sbw1cqESBTpPhF4CwbMwN8kBEC1e5ui', 'GovMaiHfpVPw8BAM1mbdzgmSZYDw2tdP32J2fapoQoYs', 'GCockTxUjxuMdojHiABVZ5NKp6At8eTKDi",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "2MS6yNkhXJL2GoC74Khgy53UUvFTgQcSm3F2JW7kHVix",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "EQ2TwQXaX6DmtxTdr8TybRiRfohWVcCWEzEuSDuHQafQ",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "renec_lend",
+      "defillama_slug": "renec-lend",
+      "name": "Renec Lend",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "9L193MV4yakKcgNT2tN4Kvf1ypn9c1sVMvsRn1Amw2Au",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/renec-lend/index.js",
+          "source_path": "index.js",
+          "evidence": "cKey } = require(\"@solana/web3.js\"); const RENEC_LEND_SOLANA_PROGRAM_ID = new PublicKey(\"9L193MV4yakKcgNT2tN4Kvf1ypn9c1sVMvsRn1Amw2Au\"); const RENEC_LEND_RENEC_PROGRAM_ID = new PublicKey(\"AqR1WSUwNeVsz66ayH2J8iTyiGMgouRwPqz",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "22NN4dEeBgGT3qfmvHbtnAVbD1mvvwMfzvM1GB1AGCbi",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "57SNjMAAu7GhNM7iCW3csCaR2SJhX4BwzwerKcsLXHVm",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "ribbon",
+      "defillama_slug": "ribbon",
+      "name": "Ribbon",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "RBN2XNc6JQU6ewFp9TyPq6WznsvNuumzSJkor1nJFcz",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/tree/main/projects/ribbon",
+          "source_path": "solana.js",
+          "evidence": "function tvl(api) { const provider = getProvider() const program = new Program(idl, 'RBN2XNc6JQU6ewFp9TyPq6WznsvNuumzSJkor1nJFcz', provider) const vaults = await program.account.vault.all() const tokenAccounts = va",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "F3z38yLXX5986atpbMG2JzNeTNyqRsXo4HFKUjVhQ27z",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "4xc2X2x1LUfiM1Goqy8itmpPHgpncTwqMJAMjdzakTXe",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "rifts_finance",
+      "defillama_slug": "rifts-finance",
+      "name": "Rifts Finance",
+      "sources": [
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "29JgMGWZ28CSF7JLStKFp8xb4BZyf7QitG5CHcfRBYoR",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/rifts/index.js",
+          "source_path": "index.js",
+          "evidence": "hor\"); const riftIdl = { \"version\": \"0.1.0\", \"name\": \"rifts_protocol\", \"address\": \"29JgMGWZ28CSF7JLStKFp8xb4BZyf7QitG5CHcfRBYoR\", \"instructions\": [], \"accounts\": [ { \"name\": \"Rift\", \"discriminator\"",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "GDa5vuV7hstY8xmGLWcQAKwGMrMakesU7X7EJafC3FTE",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "3TPuLkQCkdKuaBLWXHZKomNhanxgnJbwJsPngE1T69mN",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama dimensions program 2",
+          "program_id": "9qomJJ5jMzaKu9JXgMzbA3KEyQ3kqcW7hN3xq3tMEkww",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/fees/rifts",
+          "source_path": "index.ts",
+          "evidence": "s const V2_PROGRAM = '29JgMGWZ28CSF7JLStKFp8xb4BZyf7QitG5CHcfRBYoR'; const V1_PROGRAM = '9qomJJ5jMzaKu9JXgMzbA3KEyQ3kqcW7hN3xq3tMEkww'; // Rift account offsets: fees_vault (168), withheld_vault (200) const FEES_VAULT_OFFSE",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "5biDS9i87MpFzU6GzmAyCpNZPcrBsECFFX2UdQVbS2qt",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "DvvqNnW9Kf4bxCnEwMx1R3trwm1PX1vGabGSp336XXEx",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "rise.rich",
+      "defillama_slug": "rise.rich",
+      "name": "Rise.rich",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "AVMmmRzwc2kETQNhPiFVnyu62HrgsQXTD6D7SnSfEz7v",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/rise-protocol/index.js",
+          "source_path": "index.js",
+          "evidence": "holding tokens // MarketLinear layout: totalDebt is u64 at offset 56. const MAYFLOWER = 'AVMmmRzwc2kETQNhPiFVnyu62HrgsQXTD6D7SnSfEz7v' // Mayflower hosts other tenants too; pin to Rise's MarketGroup so we never // accident",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "F3Wp3HEY5z8xcaha2hwuPrhRaX8DaTuvgoXsfQHhHvgt",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "7uWvUTgabr7tVGwyDKVugDWrQBMVZHdAhvcQEkiaCj7a",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "rush_sports",
+      "defillama_slug": "rush-sports",
+      "name": "Rush Sports",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "CAzPCZuaji4ycz4KWtmBirvNeXp3ULCqunJgSMFZX5ar",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/rush-sports/index.js",
+          "source_path": "index.js",
+          "evidence": "{ sumTokens2 } = require('../helper/solana'); const BANKROLL_PROGRAM_ID = new PublicKey('CAzPCZuaji4ycz4KWtmBirvNeXp3ULCqunJgSMFZX5ar'); const BANKROLL_STATES = [ 'MVe7JbiTAfa1VinJqHTsSWFXpG6Sap68Zc55ZzVb1ns', ]; functio",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "BVWAECdiePQh8FfihyezvVPTtY1LhBLtdpgbu4vAtJuR",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "GVE4sunpdxMQfowbAognDntq5qeUqUCutyYMMW84SNqF",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "sanctum_infinity",
+      "defillama_slug": "sanctum-infinity",
+      "name": "Sanctum Infinity",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "f1tUoNEKrDp1oeGn4zxr7bh41eN6VcfHjfrL3ZqQday",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/dexs/sanctum-infinity",
+          "source_path": "index.ts",
+          "evidence": "solana.instruction_calls WHERE executing_account = 'f1tUoNEKrDp1oeGn4zxr7bh41eN6VcfHjfrL3ZqQday' AND block_time >= from_unixtime(${options.startTimestamp})",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "7P72PXo3z3D6WqurjCC3XoTwCZGd5AJYM4o9eNdosAev",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "8e5TSyhm5bVp3Lg8wrhiTAvsykzccwNWaHAsDAT21EBB",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama dimensions program 2",
+          "program_id": "s1b6NRXj6ygNu1QMKXh2H9LUR2aPApAAm1UQ2DjdhNV",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/dexs/sanctum-infinity",
+          "source_path": "index.ts",
+          "evidence": "solana.instruction_calls WHERE executing_account = 's1b6NRXj6ygNu1QMKXh2H9LUR2aPApAAm1UQ2DjdhNV' AND block_time >= from_unixtime(${options.startTimestamp})",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "9k5eA2L39sfokh1JGGjvzFP5xMX1iWBHBsqXMQz1V2Lm",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "3N8oiDP1oGwngvPj24NQnWs9H1Qq27sud2Hz5FsYniPH",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "sanctum_reserve",
+      "defillama_slug": "sanctum-reserve",
+      "name": "Sanctum Reserve",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "unpXTU2Ndrc7WWNyEhQWe4udTzSibLPi25SXv2xbCHQ",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/sanctum/index.js",
+          "source_path": "index.js",
+          "evidence": "\" } ] } }, ], instructions: [], }; const PROGRAM_ADDR = \"unpXTU2Ndrc7WWNyEhQWe4udTzSibLPi25SXv2xbCHQ\"; const POOL_ADDR = \"FypPtwbY3FUfzJUtXHSyVRokVKG2jKtH29FmK4ebxRSd\"; const SOL_RESERVES =",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "G8BLwRBEyiBrMBKiHXc6K3yHxzRrfhJ4C6Kn4iVCnm2g",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "CWzgJu9XYGtLZCXRmBDTnNKD7shcijNTDcpD6J7PDwqy",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "sanctum_validator_lsts",
+      "defillama_slug": "sanctum-validator-lsts",
+      "name": "Sanctum Validator LSTs",
+      "sources": [
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "SP12tWFxD9oJsVWNavTTBZvMbA6gkAmxtVgxdqvyvhY",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/sanctum-validator-lsts/index.js",
+          "source_path": "index.js",
+          "evidence": "ngleValidatorStakePoolAccounts = await connection.getParsedProgramAccounts(new PublicKey(\"SP12tWFxD9oJsVWNavTTBZvMbA6gkAmxtVgxdqvyvhY\"), { filters: [ { dataSize: 611, // number of bytes },",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "A9FEkQfw1ybMyfbfynsJKsi3MucuhXfEQdRLMaM8DNSA",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "EftQuT15wyBah8xvLUJ2vjhyKabwveccnqPQ7nvK2wE7",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 2",
+          "program_id": "SPMBzsVUuoHA4Jm6KunbsotaahvVikZs1JyTW6iJvbn",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/sanctum-validator-lsts/index.js",
+          "source_path": "index.js",
+          "evidence": "ipleValidatorStakePoolAccounts = await connection.getParsedProgramAccounts(new PublicKey(\"SPMBzsVUuoHA4Jm6KunbsotaahvVikZs1JyTW6iJvbn\"), { filters: [ { dataSize: 611, // number of bytes },",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "5zXVENMgircCwRYgAh2tcXXov6B9HBGhwFb1RRbjLvYg",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "CxWEX9dMLAkgMrheQQ4xTGy9v7TcWRtCcDNHoC6oW6s2",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "saros_amm",
+      "defillama_slug": "saros-amm",
+      "name": "Saros AMM",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "SSwapUtytfBdBn1b9NUGG6foMVPtcWgpRU32HToDUZr",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/saros/index.js",
+          "source_path": "index.js",
+          "evidence": "nst { exportDexTVL, sumTokensExport, } = require('../helper/solana'); const DEX_ID_V2 = 'SSwapUtytfBdBn1b9NUGG6foMVPtcWgpRU32HToDUZr' module.exports = { timetravel: false, isHeavyProtocol: true, methodology: \"T",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "EgbVRBoEKtyGxRehF8p1dtkMgUCCosLeXQ9De3wkWKES",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "EDjSQQyaF5KJMuEeEeqUxcHPCPVZKwrzcxZJd9aT7Hbr",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "saros_dlmm",
+      "defillama_slug": "saros-dlmm",
+      "name": "Saros DLMM",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "1qbkdrr3z4ryLA7pZykqxvxWPoeifcVKo6ZG9CfkvVE",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/saros-dlmm/index.js",
+          "source_path": "index.js",
+          "evidence": "nst { PublicKey } = require('@solana/web3.js'); const LiquidityBookIdl = { \"address\": \"1qbkdrr3z4ryLA7pZykqxvxWPoeifcVKo6ZG9CfkvVE\", \"metadata\": { \"name\": \"liquidity_book\", \"version\": \"0.1.0\", \"spec\": \"0.1.0\", \"descrip",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "s7V3HUW3itMRKbLSVeWy35UdTmoF2UhxqFP26B5SkK4",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "SjFZvvsXYoFTcrYJY2tzV5kpoGZhKG5EXnCXMY2Kw4S",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "scallop_pool",
+      "defillama_slug": "scallop-pool",
+      "name": "Scallop Pool",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "SCPv1LabixHirZbX6s7Zj3oiBogadWZvGUKRvXD3Zec",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/scallop-pool/index.js",
+          "source_path": "index.js",
+          "evidence": "olana\"); const sdk = require('@defillama/sdk') const SCALLOP_PROGRAM_ID = new PublicKey(\"SCPv1LabixHirZbX6s7Zj3oiBogadWZvGUKRvXD3Zec\"); // seeds const COUPON_SEED = \"coupon_seed\"; const POOL_AUTHORITY = \"pool_authority_se",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "2xAN5DKuME3AxFTWXY42eh9wyeNP6dYL3g8kCYggTv75",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "BZt2DfeHyQTwvGxn4CmZ4M4fqS5G1FQF6FSnMLmUMS8R",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "sendfun_dex",
+      "defillama_slug": "sendfun-dex",
+      "name": "Sendfun DEX",
+      "sources": [
+        "dexs",
+        "fees"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "84qj5FPZZdXkQy8mfowyg6RBZ3XKuTds6XS4ZYT1sfDX",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/fees/send-fun-dex",
+          "source_path": "index.ts",
+          "evidence": "DC, ...) and is sourced from Dune-decoded Anchor `emit_cpi!` events on the // DEX program 84qj5FPZZdXkQy8mfowyg6RBZ3XKuTds6XS4ZYT1sfDX: // TradeEvent -> protocol_fee, creator_fee, lp_fee // TokenCreateEvent -> crea",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "5ZTTK3gEViQfo6rQqmqcnPW4mf5A2z4x1a1s92kpQxV8",
+              "present": true,
+              "owner": "ProgM6JCCvbYkfKqJYHePx4xxSUSqJp7rh8Lyv7nk7S",
+              "executable": false,
+              "lamports": 39859920,
+              "space": 5599
+            },
+            "anchor_legacy": {
+              "address": "3DjSgA9wcHqu85uQg5fDgYRpKtvzr11Lsqdz78fVpZTA",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "sendfun_launchpad",
+      "defillama_slug": "sendfun-launchpad",
+      "name": "sendfun Launchpad",
+      "sources": [
+        "dexs",
+        "fees"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "5R1uFyEE4oxqkm7hJDqHq6gXaLVF9dxeF3LF4yz1sfLP",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/fees/send-fun-launchpad",
+          "source_path": "index.ts",
+          "evidence": ".) and is sourced from Dune-decoded Anchor `emit_cpi!` // events on the launchpad program 5R1uFyEE4oxqkm7hJDqHq6gXaLVF9dxeF3LF4yz1sfLP: // TradeEvent -> protocol_fee, creator_fee (no LP fee on the curve) // TokenC",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "5iNw1sJzXiMjN8o7zFV61nmmS4LbQGfMXN5CaqEye9A2",
+              "present": true,
+              "owner": "ProgM6JCCvbYkfKqJYHePx4xxSUSqJp7rh8Lyv7nk7S",
+              "executable": false,
+              "lamports": 45664560,
+              "space": 6433
+            },
+            "anchor_legacy": {
+              "address": "DXUFak4TPkEqhgqw7HKQWYLWarWSHGTUuEf2CFKdEeSi",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "sentre",
+      "defillama_slug": "sentre",
+      "name": "Sentre",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "D3BBjqUdCYuP18fNvvMbPAZ8DpcRi4io2EsYHQawJDag",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/sentre.js",
+          "source_path": "sentre.js",
+          "evidence": "m/anchor\"); async function tvl() { const provider = getProvider() const programId = 'D3BBjqUdCYuP18fNvvMbPAZ8DpcRi4io2EsYHQawJDag' const program = new Program(idl, programId, provider) const data = await program.acc",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "2T8Bja2kQ9Q2zZEEhetHvptq2wan4hPmK8Rn2SfT1Kk3",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "4EsrxxpWsfdhDMoxSkz3DL1g2taTc5mMFiUYajWCh8G9",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "serum_swap",
+      "defillama_slug": "serum-swap",
+      "name": "Serum Swap",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "SwaPpA9LAaLfeLi3a68M4DjnLqgtticKg6CnyNwgAC8",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/serum-swap/index.js",
+          "source_path": "index.js",
+          "evidence": "orts = { timetravel: false, isHeavyProtocol: true, solana: { tvl: exportDexTVL('SwaPpA9LAaLfeLi3a68M4DjnLqgtticKg6CnyNwgAC8') } }",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "3czexZQt7RqAxvV3qsbobbFsZCSqAXnA7EUsfp5qpcpS",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "5FV6oiWFWu6xbGmRbqBBv5tkZ7s8wxW5rsVm3SwDduNN",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "solfi_v2",
+      "defillama_slug": "solfi-v2",
+      "name": "SolFi V2",
+      "sources": [
+        "dexs"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "SV2EYYJyRz2YhfXwXnhNAevDEui5Q6yrfyo13WtupPF",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/dexs/solfi-v2",
+          "source_path": "index.ts",
+          "evidence": "// Program: SV2EYYJyRz2YhfXwXnhNAevDEui5Q6yrfyo13WtupPF // IDL: https://github.com/bitquery/solana-idl-lib/blob/main/solfi/solfi_v2.json imp",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "7CXhKSfmqGxEicvcc1YgxGBXUT6wVXWwEbYXh5HuhCY7",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "HLJPPuDfi6QvpV3XTPfzYJzR367vJkds6yLTmkCSNGtg",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "spice",
+      "defillama_slug": "spice",
+      "name": "Spice",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "CcoYv1X4RczUmuGCUw3Vg1XWxspaofsh8dtD26cmN7nm",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/spice/index.js",
+          "source_path": "index.js",
+          "evidence": "require('../helper/solana'); async function tvl() { const programId = new PublicKey('CcoYv1X4RczUmuGCUw3Vg1XWxspaofsh8dtD26cmN7nm'); const connection = getConnection(); const SPICE_SEED = Buffer.from(\"SPICE\"); co",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "2foeFNJ46ijHZDU9gUdYSuxaiYM2DiPoAUvN3t2Roz77",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "GTa6P35PGR8RYhCy2f7oMgvaz62s9PEs3Y6qB4cUeH9i",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "stabble_clmm",
+      "defillama_slug": "stabble-clmm",
+      "name": "stabble CLMM",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "6dMXqGZ3ga2dikrYS9ovDXgHGh5RUsb2RTUj6hrQXhk6",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/stabble-clmm/index.js",
+          "source_path": "index.js",
+          "evidence": "ync function tvl() { const provider = getProvider(); const programId = new PublicKey(\"6dMXqGZ3ga2dikrYS9ovDXgHGh5RUsb2RTUj6hrQXhk6\"); const idl = await Program.fetchIdl(programId, provider) const program = new Progra",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "E3cA1d4Wj9FbKN3cu6DYEDMt411Vmh4UL4xFdqdEvWj6",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "JBMd9KhSdRDwNGBaUDPNWUcdq5LgPx36wk3Q6xXK1yke",
+              "present": true,
+              "owner": "6dMXqGZ3ga2dikrYS9ovDXgHGh5RUsb2RTUj6hrQXhk6",
+              "executable": false,
+              "lamports": 141636000,
+              "space": 20222
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "stabble_stableswap",
+      "defillama_slug": "stabble-stableswap",
+      "name": "stabble Stableswap",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "vo1tWgqZMjG61Z2T9qUaMYKqZ75CYzMuaZ2LZP1n7HV",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/stabble/index.js",
+          "source_path": "index.js",
+          "evidence": "ddressSync( [Buffer.from(\"vault_authority\"), vaultKey.toBuffer()], new PublicKey(\"vo1tWgqZMjG61Z2T9qUaMYKqZ75CYzMuaZ2LZP1n7HV\") )[0]; } const WEIGHTED_SWAP_IDL = { version: \"1.0.0\", name: \"weighted_swap\", i",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "Fcjrc4p3JQM2k9o5Ez6ufP8q5zYfJqDvGe3w7b7uLuVH",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "68kcFtyE4qK3ZmBo5wwwPcanH5h8SmF3VkYVqNTCZSR9",
+              "present": true,
+              "owner": "vo1tWgqZMjG61Z2T9qUaMYKqZ75CYzMuaZ2LZP1n7HV",
+              "executable": false,
+              "lamports": 32656320,
+              "space": 4564
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "stakepoint",
+      "defillama_slug": "stakepoint",
+      "name": "StakePoint",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "gLHaGJsZ6G7AXZxoDL9EsSWkRbKAWhFHi73gVfNXuzK",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/stakepoint/index.js",
+          "source_path": "index.js",
+          "evidence": "; const { getConnection, sumTokens2 } = require(\"../helper/solana\"); const PROGRAM_ID = \"gLHaGJsZ6G7AXZxoDL9EsSWkRbKAWhFHi73gVfNXuzK\"; const TOKEN_2022_PROGRAM = \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\"; // SPT token",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "AbU11BfFyVf1Y6ujFhuUFTiYAs4HeUc6awfjDrkSRccT",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "5o251iqQUrxaJLMniwbQeQuKatmjyhNKGWi7jf78s6Vc",
+              "present": true,
+              "owner": "gLHaGJsZ6G7AXZxoDL9EsSWkRbKAWhFHi73gVfNXuzK",
+              "executable": false,
+              "lamports": 46840800,
+              "space": 6602
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "streamflow",
+      "defillama_slug": "streamflow",
+      "name": "Streamflow",
+      "sources": [
+        "dexs",
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "aMERKpFAWoChCi5oZwPvgsSCoGpZKBiU7fi76bdZjt2",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/dexs/streamflow.ts",
+          "source_path": "streamflow.ts",
+          "evidence": "STRM2NKoKxNnkmLWk9sz3k74gKBk9t7bpPrTGxMszH\", // Aligned Unlocks (token-launch vesting) \"aMERKpFAWoChCi5oZwPvgsSCoGpZKBiU7fi76bdZjt2\", // Aligned Distributor (airdrop) \"MErKy6nZVoVAkryxAejJz2juifQ4ArgLgHmaJCQkU7N\", // Di",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "XoBaoMZHz35BNcyMqxPLWoDXXH1PADMorDKTUwmKV1x",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "DjiiFLHJGFAWxCcbDCmBtopynuPwDAscLVuaftXAaQnn",
+              "present": true,
+              "owner": "aMERKpFAWoChCi5oZwPvgsSCoGpZKBiU7fi76bdZjt2",
+              "executable": false,
+              "lamports": 41954880,
+              "space": 5900
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "streamlock",
+      "defillama_slug": "streamlock",
+      "name": "Streamlock",
+      "sources": [
+        "fees",
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "6TviBvKxg8jGhJaKfSKsD8Ph93cxrKFUrkxpi9peTcT5",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/streamlock/index.js",
+          "source_path": "index.js",
+          "evidence": "launchpad. https://www.streamlock.fun/ const TOKEN_FACTORY_PROGRAM_ID = new PublicKey( \"6TviBvKxg8jGhJaKfSKsD8Ph93cxrKFUrkxpi9peTcT5\" ); // Anchor-serialized PoolConfig account: // bytes 0.. 8 anchor discriminator //",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "FfTnp2FkQFZDkPsAq8m3GNLVyhmVFveoAoYfzb8RBofR",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "2c9j8oBKJoDYXMhMEeDuBmYej7TtyXaoRsGBSLc8YHW6",
+              "present": true,
+              "owner": "6TviBvKxg8jGhJaKfSKsD8Ph93cxrKFUrkxpi9peTcT5",
+              "executable": false,
+              "lamports": 119781600,
+              "space": 17082
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "sunny",
+      "defillama_slug": "sunny",
+      "name": "Sunny",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "SSFNHWYFdELMTkWNdaPaZQuVL4d2RY7ykjGmeGkmKXW",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/sunny.js",
+          "source_path": "sunny.js",
+          "evidence": "async function tvl_V1() { const balances = {} const sunnyProgramId = new PublicKey('SSFNHWYFdELMTkWNdaPaZQuVL4d2RY7ykjGmeGkmKXW') const provider = getProvider() const sunnyOldIDL = await Program.fetchIdl(sunnyProg",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "9TLRRTJpe7iTqZ3MPYgxqQpNke5hMwz2mgR6xnTx27ue",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "84TsMjedCLN3jtEz2pic3Jhw1HyhAhCL5wjbSL2itF1x",
+              "present": true,
+              "owner": "SSFNHWYFdELMTkWNdaPaZQuVL4d2RY7ykjGmeGkmKXW",
+              "executable": false,
+              "lamports": 16773600,
+              "space": 2282
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "swap.io_clmm",
+      "defillama_slug": "swap.io-clmm",
+      "name": "Swap.io CLMM",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "SWPammPnp7L9qFgV436u3CSPmcxU6ZQm6ttawzDTRuw",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/Swap-io/index.js",
+          "source_path": "index.js",
+          "evidence": "elper/solana') const { PublicKey } = require('@solana/web3.js') const CLMM_PROGRAM_ID = 'SWPammPnp7L9qFgV436u3CSPmcxU6ZQm6ttawzDTRuw' async function tvl() { const connection = getConnection() const accounts = await co",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "BtmFLuaMLfWL9ayWmMyQgNCnmDoc7UwbFpLsZTkveTZS",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "2kCPdgJN7eieDPkMrbMYbmH2FCHdV7akeBY6rA7sAoju",
+              "present": true,
+              "owner": "SWPammPnp7L9qFgV436u3CSPmcxU6ZQm6ttawzDTRuw",
+              "executable": false,
+              "lamports": 116524320,
+              "space": 16614
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "tessera_v",
+      "defillama_slug": "tessera-v",
+      "name": "Tessera V",
+      "sources": [
+        "dexs"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "TessVdML9pBGgG9yGks7o4HewRaXVAMuoVj4x83GLQH",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/dexs/tessera",
+          "source_path": "index.ts",
+          "evidence": "// Program: TessVdML9pBGgG9yGks7o4HewRaXVAMuoVj4x83GLQH import { Dependencies, FetchOptions, FetchResult, SimpleAdapter } from \"../../adapters/t",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "ksvVj1cb5ZM4CeuAU1Zm5TfCRvcxiYEKBZiEaUMXUjz",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "CXgLSomPsket6LRMx8AvGTNcRQ4ofVmgE8zL1C2AwMjK",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "the_vault_unstake_pool",
+      "defillama_slug": "the-vault-unstake-pool",
+      "name": "The Vault Unstake Pool",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "2rU1oCHtQ7WJUvy15tKtFvxdYNNSc3id7AzUcjeFSddo",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/thevault-unstake-pool/index.js",
+          "source_path": "index.js",
+          "evidence": "ps://docs.thevault.finance/products/unstake-pool // Program: https://solscan.io/account/2rU1oCHtQ7WJUvy15tKtFvxdYNNSc3id7AzUcjeFSddo // Stake account: https://solscan.io/account/9nyw5jxhzuSs88HxKJyDCsWBZMhxj2uNXsFcyHF5KB",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "3p4NrKsnGX62L1n2Jk3nvV6rcqjMdQWE2Bsk7FLdFKiv",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "A1KETdAqgBw9D6ipJbDThS9MWKHYdocBex2nuyXuLfMo",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "token_mill",
+      "defillama_slug": "token-mill",
+      "name": "Token Mill",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "JoeaRXgtME3jAoz5WuFXGEndfv4NPH9nBxsLq44hk9J",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/tokenmill-xyz/index.js",
+          "source_path": "index.js",
+          "evidence": "nst AVAX_FACTORY = \"0x501ee2D4AA611C906F785e10cC868e145183FCE4\"; const SOLANA_FACTORY = \"JoeaRXgtME3jAoz5WuFXGEndfv4NPH9nBxsLq44hk9J\"; async function avaxTvl(api) { const pools = await api.fetchList({ lengthAbi: 'getMar",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "52gcvZvrisdFHjgj5XokDdGTx6u3B6DePCpk8PjjTUa2",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "ia4bkGzvELbFW8wfmHGxTjihZqMNifuJJy2C1NTha8A",
+              "present": true,
+              "owner": "JoeaRXgtME3jAoz5WuFXGEndfv4NPH9nBxsLq44hk9J",
+              "executable": false,
+              "lamports": 41718240,
+              "space": 5866
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "trucore",
+      "defillama_slug": "trucore",
+      "name": "TruCore",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "4EXXZCu2BR4RZ4RCFYUqk6s4SLVpr6umrzw8mqGMwVR4",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/trufin-trucore/index.js",
+          "source_path": "index.js",
+          "evidence": "ublicKey } = require(\"@solana/web3.js\"); const TRUBILL_VAULT_PROGRAM_ID = new PublicKey(\"4EXXZCu2BR4RZ4RCFYUqk6s4SLVpr6umrzw8mqGMwVR4\"); const USDC_MINT = new PublicKey(ADDRESSES.solana.USDC); const ULTRA_MINT = new PublicK",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "8SXQj8Najsq1Pub3ZwDDcqHZD6UPPBJ6SunbfE3ftZjB",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "7FCv57r9mehMYpjUrYnKethmA661TkaiVLLiGNZaMSbe",
+              "present": true,
+              "owner": "4EXXZCu2BR4RZ4RCFYUqk6s4SLVpr6umrzw8mqGMwVR4",
+              "executable": false,
+              "lamports": 128843520,
+              "space": 18384
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 2",
+          "program_id": "GtraRX3S3xsLHU6VpzGFxaqVmKjbEkFxyMmwZoKwQJrS",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/trufin-trucore/index.js",
+          "source_path": "index.js",
+          "evidence": "ud8i6CaSsDsFESs1xyVr8dBCMtjPZji2xiZEa\"); const DELTA_MANAGER_PROGRAM_ID = new PublicKey(\"GtraRX3S3xsLHU6VpzGFxaqVmKjbEkFxyMmwZoKwQJrS\"); const ASSET_CONTROLLER = new PublicKey(\"FQ9X5cF6oWmGcH6XAsdkPwBj2mKWRoTXU2zGS1gCgBaJ\")",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "FYaGNA8PY9T6wfjVtQSt65eTcgXoJqGZrJyaA3t6TLpe",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "5jPgW5aNxJDMgM1TToDWbEoUc5J7c3JM4P5yEqbBDTSf",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "truvault",
+      "defillama_slug": "truvault",
+      "name": "TruVault",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "5CjtbqE3tE6LDnPU1HKyvnzPsNVkyxF4H6tPRUrTQDX3",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/trufin-vaults/index.js",
+          "source_path": "index.js",
+          "evidence": "tickToPrice } = require(\"../helper/utils/tick\"); const VAULT_PROGRAM_ID = new PublicKey(\"5CjtbqE3tE6LDnPU1HKyvnzPsNVkyxF4H6tPRUrTQDX3\"); const RAYDIUM_CLMM_PROGRAM_ID = new PublicKey(\"CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrK",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "EmG9GH5XWzVmhgVfQYJtDUYfwYEZ2QNVuJErNqUD1Vwn",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "CPvH79GdgbwaNoJkwayuw5ZLTVNFzrhPHmsxmMgZWsHS",
+              "present": true,
+              "owner": "5CjtbqE3tE6LDnPU1HKyvnzPsNVkyxF4H6tPRUrTQDX3",
+              "executable": false,
+              "lamports": 103509120,
+              "space": 14744
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "vaultka",
+      "defillama_slug": "vaultka",
+      "name": "Vaultka",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "DMhoXyVNpCFeCEfEjEQfS6gzAEcPUUSXM8Xnd2UXJfiS",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/vaultka/index.js",
+          "source_path": "index.js",
+          "evidence": "M(basket of GMs)\"], ], solana: { tvl: async (api) => { const lendingSol = \"DMhoXyVNpCFeCEfEjEQfS6gzAEcPUUSXM8Xnd2UXJfiS\"; const jupSol = ADDRESSES.solana.JupSOL; const jitoSol = ADDRESSES.solana.Ji",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "Apna9Fi11BPEkPT2RL18CnwSDB8Ke3Rqr3GP2ropcxjM",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "8N4N3JE24GwGSwF1zdCqDsQa1Dep7pYiiKse6eEF41Uj",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama adapter program 2",
+          "program_id": "V1enDN8GY531jkFp3DWEQiRxwYYsnir8SADjHmkt4RG",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/vaultka/index.js",
+          "source_path": "index.js",
+          "evidence": "5FaBxHLzW\" const provider = getProvider() const program = new Program(idl, 'V1enDN8GY531jkFp3DWEQiRxwYYsnir8SADjHmkt4RG', provider) const banks = await program.account.bank.all() const tokenAccount",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "Au4B7UwHQT6coYx2uyjRFUk327RhfXZAjdWd8KqG6K9Y",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "544Rp6k4zJeXr6PKM6Cw1W6GiRAWumfs19n1d8sU1Py7",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "wealthville",
+      "defillama_slug": "wealthville",
+      "name": "WealthVille",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "6dtupVYfD3UP6mEsBxExfHeiBNojC4QNHSysYNewkaGu",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/wealthville/index.js",
+          "source_path": "index.js",
+          "evidence": "oject-serum/anchor/dist/cjs/utils/bytes\"); const WEALTHVILLE_PROGRAM_ID = new PublicKey(\"6dtupVYfD3UP6mEsBxExfHeiBNojC4QNHSysYNewkaGu\"); const VAULT_DISCRIMINATOR = bs58.encode(Buffer.from(\"dae002b6f091b8d7\", \"hex\")); asyn",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "GFGPbubYDBn4ckB4gCvvaQJB8yxmBYh6TPrqCvCF22k6",
+              "present": true,
+              "owner": "ProgM6JCCvbYkfKqJYHePx4xxSUSqJp7rh8Lyv7nk7S",
+              "executable": false,
+              "lamports": 42713520,
+              "space": 5625
+            },
+            "anchor_legacy": {
+              "address": "3QKc1QkB3ZRjCwnJrBkR2D1cj1bBYBfmPMhFzhg2xnch",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "world",
+      "defillama_slug": "world",
+      "name": "world",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "prediCtPZCttYMvm2W3PtxmMxLmT1dtN7riU6Cxh6tM",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/world-xyz/index.js",
+          "source_path": "index.js",
+          "evidence": "ASH collateral // held in the program's per-market vault token accounts. const PROGRAM = 'prediCtPZCttYMvm2W3PtxmMxLmT1dtN7riU6Cxh6tM' // Market accounts are 320 bytes; the CASH vault token account pubkey is stored // at b",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "DtdUsQiLaoFCeN6Hf6BMMzhE6U81DTYxsmRAADfoSrcG",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "ER1es1XzqsevGT4toUx1aMUXGq6Xy7pmAJc1ZVwyWkTZ",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "worm",
+      "defillama_slug": "worm",
+      "name": "Worm",
+      "sources": [
+        "dexs",
+        "fees"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama dimensions program",
+          "program_id": "SormXyTMQ69ux8yhn9CBQ8v7UuqepefMHbM5TcNDtkf",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/fees/worm-wtf",
+          "source_path": "index.ts",
+          "evidence": "st WORM_PROGRAM = \"WrgN8d3Xe7qTzZw59kiXaf3fAagHHWg78Mbhkn2dTPD\"; const CREATOR_PROGRAM = \"SormXyTMQ69ux8yhn9CBQ8v7UuqepefMHbM5TcNDtkf\"; const fetch = async (options: FetchOptions) => { const rows = await queryDuneSql(opt",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "HmFT3HscHcEHyMs9JzjVCrvQi8wMebPD4bmF9uxZqFs",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "6oqrm2ZaRBWuWGAsHGuuC4T49ncgzoRJmfGW4r7gbzLr",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        },
+        {
+          "label": "DefiLlama dimensions program 2",
+          "program_id": "WrgN8d3Xe7qTzZw59kiXaf3fAagHHWg78Mbhkn2dTPD",
+          "source": "dimension_adapters",
+          "source_url": "https://github.com/DefiLlama/dimension-adapters/blob/master/fees/worm-wtf",
+          "source_path": "index.ts",
+          "evidence": "elpers/chains\"; import { queryDuneSql } from \"../../helpers/dune\"; const WORM_PROGRAM = \"WrgN8d3Xe7qTzZw59kiXaf3fAagHHWg78Mbhkn2dTPD\"; const CREATOR_PROGRAM = \"SormXyTMQ69ux8yhn9CBQ8v7UuqepefMHbM5TcNDtkf\"; const fetch = a",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "4HdqboSAxC6bYs9uJnP392ewsvnfvRHxJ3T1Tk3Lu4ma",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "4v3FDCKLaM2B8nJXEUXrLcj6krWtpYyyyBj7sudzX7Qx",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "zodial",
+      "defillama_slug": "zodial",
+      "name": "Zodial",
+      "sources": [
+        "protocols"
+      ],
+      "programs": [
+        {
+          "label": "DefiLlama adapter program",
+          "program_id": "zod11Jzp72T6qBbGVJfR38y1pGY3dBK8nSuouD4mMkZ",
+          "source": "defillama_adapters",
+          "source_url": "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/projects/zodial/index.js",
+          "source_path": "index.js",
+          "evidence": "= require(\"../helper/solana\"); const idl = require(\"./idl\"); const ZODIAL_PROGRAM_ID = \"zod11Jzp72T6qBbGVJfR38y1pGY3dBK8nSuouD4mMkZ\"; const ZODIAL_MAIN_GROUP = \"GVmJcvayCLQcsNB95LM37TmiNwWP5USkSnWnZ5w1Uw1v\"; const BANK_GR",
+          "idl_accounts": {
+            "program_metadata": {
+              "address": "7yseK72KgMCCJDmPRtut1SAurkMG1nyxEpqoTBuD15BG",
+              "present": false,
+              "owner": null,
+              "executable": null,
+              "lamports": null,
+              "space": null
+            },
+            "anchor_legacy": {
+              "address": "2xSBHM9UY5m2SyyavEuY26p71W4xC6PUnRx8nXUZvDHT",
+              "present": true,
+              "owner": "zod11Jzp72T6qBbGVJfR38y1pGY3dBK8nSuouD4mMkZ",
+              "executable": false,
+              "lamports": 418184640,
+              "space": 59956
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

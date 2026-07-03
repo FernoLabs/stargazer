@@ -6,6 +6,7 @@ import type {
 	LiveStatusResponse,
 	TelegramSubscriptionSummaryResponse
 } from '$lib/types';
+import { normalizedProtocolCatalog } from '$lib/catalog';
 import { customPlanPricing, type CustomPlanPricing } from '$lib/server/custom-plan-pricing';
 
 export const DEFAULT_BACKEND_ORIGIN_URL = 'http://127.0.0.1:8080';
@@ -151,7 +152,9 @@ async function loadDefiProtocols(fetch: typeof globalThis.fetch) {
 	if (cached) return cached;
 
 	try {
-		const value = (await backendJson<DefiProtocolsResponse>(fetch, '/api/protocols')).items;
+		const value = normalizedProtocolCatalog(
+			(await backendJson<DefiProtocolsResponse>(fetch, '/api/protocols')).items
+		);
 		protocolsCache = cacheUntil(value, PROTOCOLS_CACHE_MS);
 		return value;
 	} catch (error) {

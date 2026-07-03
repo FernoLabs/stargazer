@@ -1,7 +1,10 @@
 use crate::{
     config::Config,
     context::SharedState,
-    models::{ChainEvent, PendingTelegramDelivery, TelegramEventScope, event_kind, now_ts},
+    models::{
+        ChainEvent, PendingTelegramDailySummary, PendingTelegramDelivery, TelegramDeliveryMode,
+        TelegramEventScope, event_kind, now_ts,
+    },
     name_service, protocols,
 };
 use anyhow::{Result, anyhow};
@@ -65,6 +68,33 @@ pub async fn run_retry_loop(state: SharedState) -> Result<()> {
     }
 }
 
+pub async fn run_daily_summary_loop(state: SharedState) -> Result<()> {
+    loop {
+        let now = now_ts();
+        let latest_summary_day =
+            latest_due_summary_day(now, state.config.telegram_daily_summary_hour_utc);
+        let pending = state
+            .db
+            .pending_telegram_daily_summaries(now, latest_summary_day, 20, 12)
+            .await?;
+        if !pending.is_empty() {
+            debug!(
+                count = pending.len(),
+                latest_summary_day, "sending pending telegram daily summaries"
+            );
+        }
+
+        for summary in pending {
+            attempt_telegram_daily_summary_delivery(state.clone(), summary).await;
+        }
+
+        sleep(Duration::from_secs(
+            state.config.telegram_daily_summary_poll_seconds,
+        ))
+        .await;
+    }
+}
+
 pub async fn enqueue_telegram_deliveries(state: SharedState, event: &ChainEvent) -> Result<()> {
     let mut matching_subscriptions = state.db.matching_telegram_subscriptions(event).await?;
     let auto_enrolled = auto_enroll_paid_wallet_protocol_subscriptions(
@@ -79,12 +109,26 @@ pub async fn enqueue_telegram_deliveries(state: SharedState, event: &ChainEvent)
     let initial_next_retry_at = now_ts() + state.config.delivery_poll_seconds as i64;
 
     for subscription in matching_subscriptions {
-        if let Some(delivery) = state
-            .db
-            .enqueue_telegram_delivery(event, &subscription, initial_next_retry_at)
-            .await?
-        {
-            tokio::spawn(attempt_telegram_delivery(state.clone(), delivery));
+        match subscription.delivery_mode {
+            TelegramDeliveryMode::Live => {
+                if let Some(delivery) = state
+                    .db
+                    .enqueue_telegram_delivery(event, &subscription, initial_next_retry_at)
+                    .await?
+                {
+                    tokio::spawn(attempt_telegram_delivery(state.clone(), delivery));
+                }
+            }
+            TelegramDeliveryMode::DailySummary => {
+                state
+                    .db
+                    .enqueue_telegram_daily_summary_entry(
+                        event,
+                        &subscription,
+                        initial_next_retry_at,
+                    )
+                    .await?;
+            }
         }
     }
 
@@ -154,6 +198,7 @@ async fn auto_enroll_paid_wallet_protocol_subscriptions(
                     TelegramEventScope::DefiWatch,
                     None,
                     &[format!("protocol:{}", protocol.slug)],
+                    TelegramDeliveryMode::Live,
                 )
                 .await?;
 
@@ -205,6 +250,20 @@ pub async fn attempt_telegram_delivery(state: SharedState, delivery: PendingTele
     }
 }
 
+pub async fn attempt_telegram_daily_summary_delivery(
+    state: SharedState,
+    summary: PendingTelegramDailySummary,
+) {
+    if let Err(error) = deliver_telegram_daily_summary(&state, &summary).await {
+        warn!(
+            subscription_id = summary.subscription.id,
+            summary_day = summary.summary_day,
+            error = %error,
+            "failed to complete telegram daily summary delivery attempt",
+        );
+    }
+}
+
 async fn deliver_telegram_event(
     state: &SharedState,
     delivery: &PendingTelegramDelivery,
@@ -229,6 +288,44 @@ async fn deliver_telegram_event(
         }
         Err(error) => {
             record_telegram_failure(state, delivery, error.to_string()).await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn deliver_telegram_daily_summary(
+    state: &SharedState,
+    summary: &PendingTelegramDailySummary,
+) -> Result<()> {
+    let mut hydrated_events = Vec::with_capacity(summary.events.len());
+    for event in &summary.events {
+        hydrated_events.push(name_service::hydrate_event(state, event.clone()).await);
+    }
+
+    let preview_url = firewatch_events_url(&state.config);
+    let message = format_telegram_daily_summary(&state.config, summary, &hydrated_events);
+    match send_telegram_html(
+        state,
+        &summary.subscription.chat_id,
+        summary.subscription.thread_id,
+        &message,
+        &preview_url,
+    )
+    .await
+    {
+        Ok(()) => {
+            state
+                .db
+                .mark_telegram_daily_summary_success(
+                    &summary.subscription.id,
+                    summary.summary_day,
+                    now_ts(),
+                )
+                .await?;
+        }
+        Err(error) => {
+            record_telegram_daily_summary_failure(state, summary, error.to_string()).await?;
         }
     }
 
@@ -342,6 +439,28 @@ async fn record_telegram_failure(
     Ok(())
 }
 
+async fn record_telegram_daily_summary_failure(
+    state: &SharedState,
+    summary: &PendingTelegramDailySummary,
+    message: String,
+) -> Result<()> {
+    let attempts = summary.delivery_attempts + 1;
+    let next_retry_at = now_ts() + retry_delay_seconds(attempts);
+
+    state
+        .db
+        .mark_telegram_daily_summary_failure(
+            &summary.subscription.id,
+            summary.summary_day,
+            attempts,
+            &message,
+            next_retry_at,
+        )
+        .await?;
+
+    Ok(())
+}
+
 fn retry_delay_seconds(attempts: i64) -> i64 {
     match attempts {
         0 | 1 => 5,
@@ -429,6 +548,107 @@ fn format_telegram_message(config: &Config, event: &ChainEvent) -> String {
     ));
 
     lines.join("\n")
+}
+
+fn format_telegram_daily_summary(
+    config: &Config,
+    summary: &PendingTelegramDailySummary,
+    events: &[ChainEvent],
+) -> String {
+    let summary_date = DateTime::<Utc>::from_timestamp(summary.summary_day, 0)
+        .map(|datetime| datetime.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| "unknown day".to_owned());
+    let alert_label = if summary.event_count == 1 {
+        "alert"
+    } else {
+        "alerts"
+    };
+    let mut lines = vec![
+        "<b>FireWatch daily summary</b>".to_owned(),
+        format!("Date: <code>{}</code>", html_escape(&summary_date)),
+        format!("Rule: {}", html_escape(&summary.subscription.label)),
+        format!(
+            "Total: <b>{}</b> {} ({} critical, {} high, {} standard)",
+            summary.event_count,
+            alert_label,
+            summary.critical_count,
+            summary.high_count,
+            summary.standard_count
+        ),
+    ];
+
+    for event in events {
+        lines.push(format_daily_summary_event_line(config, event));
+    }
+
+    let omitted_count = (summary.event_count as usize).saturating_sub(events.len());
+    if omitted_count > 0 {
+        let omitted_label = if omitted_count == 1 {
+            "more alert"
+        } else {
+            "more alerts"
+        };
+        lines.push(format!(
+            "... and {omitted_count} {omitted_label} in FireWatch."
+        ));
+    }
+
+    lines.push(format!(
+        "<a href=\"{}\">Open FireWatch events</a>",
+        html_attr_escape(&firewatch_events_url(config)),
+    ));
+
+    lines.join("\n")
+}
+
+fn format_daily_summary_event_line(config: &Config, event: &ChainEvent) -> String {
+    let severity = event_severity(event);
+    let context = event_context_label(event)
+        .map(|value| {
+            format!(
+                "{}: ",
+                truncate_for_telegram(&compact_long_tokens(&value), 42)
+            )
+        })
+        .unwrap_or_default();
+    let summary = truncate_for_telegram(&compact_long_tokens(&event.summary), 120);
+    let block_time = event
+        .block_time
+        .and_then(|timestamp| DateTime::<Utc>::from_timestamp(timestamp, 0))
+        .map(|datetime| datetime.format("%H:%M").to_string())
+        .unwrap_or_else(|| format!("slot {}", event.slot));
+    let url = firewatch_event_url(config, event);
+
+    format!(
+        "- [{}] {} {}<a href=\"{}\">{}</a>",
+        html_escape(severity),
+        html_escape(&block_time),
+        html_escape(&context),
+        html_attr_escape(&url),
+        html_escape(&summary),
+    )
+}
+
+fn event_context_label(event: &ChainEvent) -> Option<String> {
+    payload_str(event, "protocol_name")
+        .or_else(|| payload_str(event, "domain_name"))
+        .or_else(|| payload_str(event, "program_label"))
+        .or_else(|| payload_str(event, "token_symbol"))
+        .map(str::to_owned)
+        .or_else(|| derived_protocol_name(&event.target_address))
+}
+
+fn event_severity(event: &ChainEvent) -> &'static str {
+    if event.has_tag("severity:critical") || event.has_tag("signal:unknown_instruction") {
+        "critical"
+    } else if event.has_tag("severity:high")
+        || payload_str(event, "severity").is_some_and(|severity| severity == "high")
+        || payload_bool(event, "high_impact").unwrap_or(false)
+    {
+        "high"
+    } else {
+        "standard"
+    }
 }
 
 const DOMAIN_DIGEST_PREFIXES: &[&str] = &[
@@ -1126,6 +1346,33 @@ fn compact_identifier(value: &str, prefix_len: usize, suffix_len: usize) -> Stri
     format!("{prefix}...{suffix}")
 }
 
+fn truncate_for_telegram(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_owned();
+    }
+
+    let mut truncated = value
+        .chars()
+        .take(max_chars.saturating_sub(3))
+        .collect::<String>();
+    truncated.push_str("...");
+    truncated
+}
+
+fn latest_due_summary_day(now: i64, send_hour_utc: i64) -> i64 {
+    let shifted_now = now - send_hour_utc.clamp(0, 23) * 60 * 60;
+    day_start_utc(shifted_now) - 86_400
+}
+
+fn day_start_utc(timestamp: i64) -> i64 {
+    timestamp.div_euclid(86_400) * 86_400
+}
+
+fn firewatch_events_url(config: &Config) -> String {
+    let base_url = config.firewatch_web_base_url.trim().trim_end_matches('/');
+    format!("{base_url}/events")
+}
+
 fn firewatch_event_url(config: &Config, event: &ChainEvent) -> String {
     let base_url = config.firewatch_web_base_url.trim().trim_end_matches('/');
     format!("{base_url}/events/{}", percent_encode(&event.id))
@@ -1224,6 +1471,8 @@ mod tests {
             origin_api_token: None,
             cors_allowed_origin: "http://127.0.0.1:5173".to_owned(),
             delivery_poll_seconds: 5,
+            telegram_daily_summary_poll_seconds: 300,
+            telegram_daily_summary_hour_utc: 9,
             reconnect_delay_seconds: 5,
             sns_bootstrap_label_limit: 96,
             critical_sol_domains: Vec::new(),

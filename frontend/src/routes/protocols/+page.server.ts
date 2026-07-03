@@ -1,4 +1,5 @@
 import { backendRequest, readBackendError } from '$lib/server/backend';
+import { canonicalProtocolSlug, normalizedProtocolCatalog } from '$lib/catalog';
 import type { DefiProtocolsResponse, ProtocolActivitySummary } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
@@ -24,21 +25,24 @@ export const load = (async ({ fetch, parent }) => {
 		if (!response.ok) throw new Error(await readBackendError(response));
 
 		const payload = (await response.json()) as DefiProtocolsResponse;
-		for (const protocol of payload.items) {
+		const defiProtocols = normalizedProtocolCatalog(payload.items);
+		for (const protocol of defiProtocols) {
 			protocolActivitySummaries[protocol.slug] = emptyActivitySummary('Activity unavailable');
 		}
 		for (const item of payload.included?.activity_summaries ?? []) {
-			protocolActivitySummaries[item.slug] = {
-				total: item.total,
-				critical: item.critical,
-				high: item.high,
-				standard: item.standard,
+			const slug = canonicalProtocolSlug(item.slug);
+			const existing = protocolActivitySummaries[slug];
+			protocolActivitySummaries[slug] = {
+				total: (existing?.error ? 0 : existing?.total ?? 0) + item.total,
+				critical: (existing?.error ? 0 : existing?.critical ?? 0) + item.critical,
+				high: (existing?.error ? 0 : existing?.high ?? 0) + item.high,
+				standard: (existing?.error ? 0 : existing?.standard ?? 0) + item.standard,
 				error: null
 			};
 		}
 
 		return {
-			defiProtocols: payload.items,
+			defiProtocols,
 			protocolActivitySummaries
 		};
 	} catch (error) {

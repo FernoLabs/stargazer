@@ -114,6 +114,35 @@ struct RegistryProgram {
     program_id: String,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+struct DefiLlamaSolanaSnapshot {
+    items: Vec<DefiLlamaSolanaProtocol>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct DefiLlamaSolanaProtocol {
+    slug: String,
+    name: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct OnchainPresenceSnapshot {
+    items: Vec<OnchainPresenceProtocol>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct OnchainPresenceProtocol {
+    slug: String,
+    name: String,
+    programs: Vec<OnchainPresenceProgram>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct OnchainPresenceProgram {
+    label: String,
+    program_id: String,
+}
+
 pub const FERNO_PROTOCOL_SLUG: &str = "ferno";
 pub const SQUADS_PROTOCOL_SLUG: &str = "squads";
 pub const SQUADS_V4_PROGRAM_ID: &str = "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf";
@@ -171,6 +200,87 @@ const PUMPFUN_INSTRUCTIONS: &[&str] = &[
     "update_buyback_config",
     "update_global_authority",
 ];
+
+const BAGS_FEE_SHARE_V2_INSTRUCTIONS: &[&str] = &[
+    "claim_damm_v2",
+    "claim_dbc",
+    "claim_partner",
+    "claim_platform_fees",
+    "claim_user",
+    "claim_user_vault",
+    "confirm_admin",
+    "create_fee_config",
+    "create_partner_config",
+    "dummy_1",
+    "dummy_2",
+    "extend_created_fee_config",
+    "force_claim_user",
+    "force_claim_user_to_vault",
+    "force_sol_claim_user",
+    "init_program_config",
+    "manager_transfer_fee_config",
+    "manager_update_fee_config",
+    "manager_waive_fee_config",
+    "update_fee_config",
+    "update_fee_config_manager",
+    "update_fee_config_partner",
+    "update_partner_config",
+    "update_partner_fee_collection",
+    "update_program_config",
+];
+
+const BAGS_FEE_SHARE_V2_ADMIN_INSTRUCTIONS: &[&str] = &[
+    "claim_platform_fees",
+    "confirm_admin",
+    "create_fee_config",
+    "create_partner_config",
+    "extend_created_fee_config",
+    "force_claim_user",
+    "force_claim_user_to_vault",
+    "force_sol_claim_user",
+    "init_program_config",
+    "manager_transfer_fee_config",
+    "manager_update_fee_config",
+    "manager_waive_fee_config",
+    "update_fee_config",
+    "update_fee_config_manager",
+    "update_fee_config_partner",
+    "update_partner_config",
+    "update_partner_fee_collection",
+    "update_program_config",
+];
+
+const BAGS_FEE_SHARE_V2_HIGH_IMPACT_INSTRUCTIONS: &[&str] = &[
+    "confirm_admin",
+    "create_fee_config",
+    "create_partner_config",
+    "extend_created_fee_config",
+    "force_claim_user",
+    "force_claim_user_to_vault",
+    "force_sol_claim_user",
+    "init_program_config",
+    "manager_transfer_fee_config",
+    "manager_update_fee_config",
+    "manager_waive_fee_config",
+    "update_fee_config",
+    "update_fee_config_manager",
+    "update_fee_config_partner",
+    "update_partner_config",
+    "update_partner_fee_collection",
+    "update_program_config",
+];
+
+const BAGS_FEE_SHARE_V1_INSTRUCTIONS: &[&str] = &[
+    "claim_a",
+    "claim_b",
+    "claim_damm_a",
+    "claim_damm_b",
+    "create_fee_vaults",
+    "tweak_fee_vaults",
+];
+
+const BAGS_FEE_SHARE_V1_ADMIN_INSTRUCTIONS: &[&str] = &["create_fee_vaults", "tweak_fee_vaults"];
+const BAGS_FEE_SHARE_V1_HIGH_IMPACT_INSTRUCTIONS: &[&str] = BAGS_FEE_SHARE_V1_ADMIN_INSTRUCTIONS;
 
 impl ProtocolDefinition {
     fn coverage(&self) -> ProtocolCoverage {
@@ -1397,6 +1507,32 @@ const PROTOCOL_SPECS: &[ProtocolSpec] = &[
         unknown_alerts: true,
     },
     ProtocolSpec {
+        slug: "bags",
+        name: "Bags",
+        program_label: "Fee Share V2",
+        program_id: "FEE2tBhCKAt7shrod19QttSVREUYPiyMzoku1mL1gqVK",
+        instruction_name_style: InstructionNameStyle::SnakeCase,
+        instruction_catalog: Some(InstructionCatalogSpec::Standard(
+            BAGS_FEE_SHARE_V2_INSTRUCTIONS,
+        )),
+        admin_instructions: BAGS_FEE_SHARE_V2_ADMIN_INSTRUCTIONS,
+        high_impact_instructions: BAGS_FEE_SHARE_V2_HIGH_IMPACT_INSTRUCTIONS,
+        unknown_alerts: true,
+    },
+    ProtocolSpec {
+        slug: "bags",
+        name: "Bags",
+        program_label: "Fee Share V1 (legacy)",
+        program_id: "FEEhPbKVKnco9EXnaY3i4R5rQVUx91wgVfu8qokixywi",
+        instruction_name_style: InstructionNameStyle::SnakeCase,
+        instruction_catalog: Some(InstructionCatalogSpec::Standard(
+            BAGS_FEE_SHARE_V1_INSTRUCTIONS,
+        )),
+        admin_instructions: BAGS_FEE_SHARE_V1_ADMIN_INSTRUCTIONS,
+        high_impact_instructions: BAGS_FEE_SHARE_V1_HIGH_IMPACT_INSTRUCTIONS,
+        unknown_alerts: true,
+    },
+    ProtocolSpec {
         slug: "orca_whirlpools",
         name: "Orca Whirlpools",
         program_label: "Whirlpools",
@@ -2451,11 +2587,13 @@ pub fn curated_protocol_descriptors() -> Vec<DefiProtocolDescriptor> {
                 high_impact_instruction_filters,
                 amount_triggers: amount_trigger_descriptors(&definition.slug),
                 unknown_alerts: definition.unknown_alerts,
+                related_multisigs: Vec::new(),
             });
         }
     }
 
     descriptors.extend(project_protocol_descriptors());
+    append_defillama_solana_protocol_descriptors(&mut descriptors);
 
     descriptors
 }
@@ -2513,7 +2651,49 @@ fn project_protocol_descriptors() -> Vec<DefiProtocolDescriptor> {
         high_impact_instruction_filters: Vec::new(),
         amount_triggers: amount_trigger_descriptors(FERNO_PROTOCOL_SLUG),
         unknown_alerts: false,
+        related_multisigs: Vec::new(),
     }]
+}
+
+fn append_defillama_solana_protocol_descriptors(descriptors: &mut Vec<DefiProtocolDescriptor>) {
+    let mut seen_slugs = descriptors
+        .iter()
+        .map(|descriptor| descriptor.slug.clone())
+        .collect::<HashSet<_>>();
+
+    for protocol in defillama_solana_protocols() {
+        let slug = normalize_protocol_key(&protocol.slug);
+        if slug.is_empty() || !seen_slugs.insert(slug.clone()) {
+            continue;
+        }
+
+        descriptors.push(DefiProtocolDescriptor {
+            slug,
+            name: protocol.name.clone(),
+            program_id: String::new(),
+            programs: Vec::new(),
+            sol_domains: Vec::new(),
+            coverage: ProtocolCoverage::AddressOnly,
+            catalog_instruction_count: 0,
+            admin_instruction_filters: Vec::new(),
+            high_impact_instruction_filters: Vec::new(),
+            amount_triggers: Vec::new(),
+            unknown_alerts: false,
+            related_multisigs: Vec::new(),
+        });
+    }
+}
+
+fn defillama_solana_protocols() -> &'static [DefiLlamaSolanaProtocol] {
+    static DEFILLAMA_SOLANA_PROTOCOLS: OnceLock<Vec<DefiLlamaSolanaProtocol>> = OnceLock::new();
+    DEFILLAMA_SOLANA_PROTOCOLS.get_or_init(|| {
+        let snapshot: DefiLlamaSolanaSnapshot = serde_json::from_str(include_str!(
+            "../data/defillama_solana_protocols_snapshot.json"
+        ))
+        .expect("valid DefiLlama Solana protocol snapshot");
+
+        snapshot.items
+    })
 }
 
 fn amount_trigger_descriptors(slug: &str) -> Vec<AmountTriggerDescriptor> {
@@ -2800,6 +2980,31 @@ fn definitions() -> &'static [ProtocolDefinition] {
             }
         }
 
+        for protocol in onchain_presence_protocols() {
+            for program in &protocol.programs {
+                let Ok(program_id) = Pubkey::from_str(&program.program_id) else {
+                    continue;
+                };
+
+                if !seen_programs.insert(program_id) {
+                    continue;
+                }
+
+                definitions.push(ProtocolDefinition {
+                    slug: normalize_protocol_key(&protocol.slug),
+                    name: protocol.name.clone(),
+                    program_label: program.label.clone(),
+                    program_id,
+                    instruction_name_style: InstructionNameStyle::SnakeCase,
+                    instruction_catalog: None,
+                    admin_instruction_lookup: HashMap::new(),
+                    admin_instructions: &[],
+                    high_impact_instructions: &[],
+                    unknown_alerts: false,
+                });
+            }
+        }
+
         definitions
     })
 }
@@ -2846,6 +3051,18 @@ fn is_watchable_registry_platform(platform: &RegistryPlatform) -> bool {
             .tags
             .iter()
             .any(|tag| WATCHABLE_TAGS.contains(&tag.as_str()))
+}
+
+fn onchain_presence_protocols() -> &'static [OnchainPresenceProtocol] {
+    static ONCHAIN_PRESENCE_PROTOCOLS: OnceLock<Vec<OnchainPresenceProtocol>> = OnceLock::new();
+    ONCHAIN_PRESENCE_PROTOCOLS.get_or_init(|| {
+        let snapshot: OnchainPresenceSnapshot = serde_json::from_str(include_str!(
+            "../data/solana_onchain_presence_snapshot.json"
+        ))
+        .expect("valid Solana on-chain presence snapshot");
+
+        snapshot.items
+    })
 }
 
 fn build_instruction_lookup(spec: &ProtocolSpec) -> Option<HashMap<Vec<u8>, &'static str>> {
@@ -3367,6 +3584,118 @@ mod tests {
             signal.instruction_name.as_deref(),
             Some("migrate_bonding_curve_creator")
         );
+    }
+
+    #[test]
+    fn includes_bags_fee_share_protocol_descriptor() {
+        let bags = curated_protocol_descriptors()
+            .into_iter()
+            .find(|protocol| protocol.slug == "bags")
+            .expect("bags descriptor");
+
+        assert_eq!(bags.name, "Bags");
+        assert_eq!(bags.coverage, ProtocolCoverage::DeepDecode);
+        assert_eq!(bags.catalog_instruction_count, 31);
+        assert_eq!(bags.programs.len(), 2);
+        assert!(
+            bags.programs
+                .iter()
+                .any(|program| program.program_id == "FEE2tBhCKAt7shrod19QttSVREUYPiyMzoku1mL1gqVK")
+        );
+        assert!(
+            bags.programs
+                .iter()
+                .any(|program| program.program_id == "FEEhPbKVKnco9EXnaY3i4R5rQVUx91wgVfu8qokixywi")
+        );
+        assert!(
+            bags.admin_instruction_filters
+                .iter()
+                .any(|instruction| instruction == "update_program_config")
+        );
+    }
+
+    #[test]
+    fn classifies_bags_fee_share_admin_instructions() {
+        let program_id = Pubkey::from_str("FEE2tBhCKAt7shrod19QttSVREUYPiyMzoku1mL1gqVK").unwrap();
+        let signal = resolve_protocol_instruction(
+            program_id,
+            &discriminator_for_name("update_program_config", InstructionNameStyle::SnakeCase),
+        )
+        .expect("known Bags admin instruction");
+
+        assert_eq!(signal.protocol.slug, "bags");
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("update_program_config")
+        );
+        assert!(signal.high_impact);
+    }
+
+    #[test]
+    fn keeps_bags_fee_claim_as_non_high_impact_admin() {
+        let program_id = Pubkey::from_str("FEE2tBhCKAt7shrod19QttSVREUYPiyMzoku1mL1gqVK").unwrap();
+        let signal = resolve_protocol_instruction(
+            program_id,
+            &discriminator_for_name("claim_platform_fees", InstructionNameStyle::SnakeCase),
+        )
+        .expect("known Bags fee claim instruction");
+
+        assert_eq!(signal.protocol.slug, "bags");
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("claim_platform_fees")
+        );
+        assert!(!signal.high_impact);
+    }
+
+    #[test]
+    fn ignores_bags_user_claim_as_non_admin() {
+        let program_id = Pubkey::from_str("FEE2tBhCKAt7shrod19QttSVREUYPiyMzoku1mL1gqVK").unwrap();
+        let signal = resolve_protocol_instruction(
+            program_id,
+            &discriminator_for_name("claim_dbc", InstructionNameStyle::SnakeCase),
+        )
+        .expect("known Bags user claim instruction");
+
+        assert_eq!(signal.protocol.slug, "bags");
+        assert!(signal.signal_kind.is_none());
+        assert_eq!(signal.instruction_name.as_deref(), Some("claim_dbc"));
+    }
+
+    #[test]
+    fn imports_defillama_solana_protocols() {
+        let collector = curated_protocol_descriptors()
+            .into_iter()
+            .find(|protocol| protocol.slug == "collector_crypt")
+            .expect("collector crypt descriptor from DefiLlama Solana snapshot");
+
+        assert_eq!(collector.name, "Collector Crypt");
+        assert_eq!(collector.coverage, ProtocolCoverage::AddressOnly);
+        assert!(collector.programs.is_empty());
+    }
+
+    #[test]
+    fn imports_discovered_solana_onchain_presence_programs() {
+        let alphaq = curated_protocol_descriptors()
+            .into_iter()
+            .find(|protocol| protocol.slug == "alphaq")
+            .expect("alphaq descriptor from on-chain presence snapshot");
+
+        assert_eq!(alphaq.name, "AlphaQ");
+        assert_eq!(alphaq.coverage, ProtocolCoverage::AddressOnly);
+        assert!(
+            alphaq
+                .programs
+                .iter()
+                .any(|program| program.program_id == "ALPHAQmeA7bjrVuccPsYPiCvsi428SNwte66Srvs4pHA")
+        );
+
+        let program = Pubkey::from_str("ALPHAQmeA7bjrVuccPsYPiCvsi428SNwte66Srvs4pHA").unwrap();
+        let matched = protocol_for_program(program).expect("alphaq program match");
+        assert_eq!(matched.slug, "alphaq");
+        assert_eq!(matched.name, "AlphaQ");
     }
 
     #[test]

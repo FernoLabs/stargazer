@@ -1,6 +1,8 @@
 /target
 /data/*
 !/data/platform_registry_snapshot.json
+!/data/defillama_solana_protocols_snapshot.json
+!/data/solana_onchain_presence_snapshot.json
 *.db
 *.db-shm
 *.db-wal

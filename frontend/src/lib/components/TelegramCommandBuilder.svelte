@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import {
 		joinCommandLines,
 		watchDefiCommand,
@@ -35,7 +36,7 @@
 		defaultMode = 'defi',
 		showPlanPanel = true,
 		heading = 'Telegram command builder',
-		description = 'Copy the free DeFi command, or choose Custom Plan to configure filtered watches.'
+		description = 'Copy the public DeFi command, or choose paid access to configure filtered watches.'
 	}: {
 		protocols: DefiProtocolDescriptor[];
 		botUsername?: string | null;
@@ -114,14 +115,14 @@
 
 	function accessNote() {
 		if (selectedPlan === 'watch') {
-			return 'Free users can copy only /watch defi. Custom protocol, program, wallet, and filtered rules are saved through the Telegram bot after Custom Plan setup.';
+			return 'Free users can copy only /watch defi. Custom protocol, program, wallet, and filtered rules are saved through the Telegram bot after paid setup.';
 		}
 
 		if (selectedPlan === 'paid') {
 			return 'Send the generated command in Telegram. If this Telegram user does not have Custom Plan access yet, the bot saves the monitor as pending and replies with a payment link.';
 		}
 
-		return 'Company response adds dedicated infra and a non-custodial on-chain Smart Wallet flow: withdraw on critical signals, redeploy after alert clearance under approved policy.';
+		return 'Company Pro adds private protocol pages, managed account lists, and company alert routing beyond Telegram.';
 	}
 
 	function canCopyCommand() {
@@ -145,23 +146,19 @@
 	}
 
 	function telegramActionLabel() {
-		if (botHref()) return effectiveMode() === 'defi' ? 'Open bot' : 'Open Telegram';
+		if (botHref()) return effectiveMode() === 'defi' ? 'Add Telegram bot' : 'Open Telegram';
 		return 'Command reference';
 	}
 
-	function telegramActionHref() {
-		return botHref() ?? '/docs#commands';
-	}
-
-	function planReferenceHref() {
+	function planReferenceRoute(): '/#get-started' | '/pricing#custom-plan' | '/pricing#company-pro' {
 		if (selectedPlan === 'paid') return '/pricing#custom-plan';
-		if (selectedPlan === 'pro') return '/pricing#pro-response';
-		return selectedDeploymentPlan().ctaHref;
+		if (selectedPlan === 'pro') return '/pricing#company-pro';
+		return '/#get-started';
 	}
 
 	function planReferenceLabel() {
 		if (selectedPlan === 'paid') return 'Pricing';
-		if (selectedPlan === 'pro') return 'Company response';
+		if (selectedPlan === 'pro') return 'Company Pro';
 		return selectedDeploymentPlan().ctaLabel;
 	}
 
@@ -389,12 +386,12 @@
 			<div class="builder-head">
 				<div>
 					<h2>Choose access</h2>
-					<p>Free users get the unfiltered DeFi feed. Custom Plan access unlocks monitor customization.</p>
+					<p>Public access gets the unfiltered DeFi feed. Paid access unlocks monitor customization.</p>
 				</div>
 			</div>
 
 			<div class="plan-grid" role="radiogroup" aria-label="FireWatch plan">
-				{#each deploymentPlans as plan}
+					{#each deploymentPlans as plan (plan.id)}
 					<button
 						aria-checked={selectedPlan === plan.id}
 						class:active={selectedPlan === plan.id}
@@ -408,14 +405,18 @@
 								<strong>{plan.name}</strong>
 								<span>{plan.description}</span>
 							</span>
-							<span class="plan-price">
-								<strong>{plan.price}</strong>
-								<span>{plan.priceNote}</span>
-							</span>
+							{#if plan.price}
+								<span class="plan-price">
+									<strong>{plan.price}</strong>
+									{#if plan.priceNote}
+										<span>{plan.priceNote}</span>
+									{/if}
+								</span>
+							{/if}
 						</span>
 
 						<span class="plan-details">
-							{#each plan.features as detail}
+								{#each plan.features as detail (detail)}
 								<span>{detail}</span>
 							{/each}
 						</span>
@@ -477,7 +478,7 @@
 			<div class="free-feed">
 				<strong>Unfiltered DeFi alert</strong>
 				<p>
-					Free access subscribes the chat to FireWatch DeFi alerts without protocol, program,
+					Public access subscribes the chat to FireWatch DeFi alerts without protocol, program,
 					wallet, or threshold filters.
 				</p>
 				<code>{watchDefiCommand()}</code>
@@ -489,7 +490,7 @@
 			</label>
 
 			<div class="program-list" role="list" aria-label="Programs">
-				{#each visiblePrograms() as option}
+					{#each visiblePrograms() as option (option.key)}
 					<button
 						class:active={selectedProgramId === option.program.program_id}
 						class="program-option"
@@ -510,7 +511,7 @@
 				<span>Each selected protocol creates one Telegram watch command.</span>
 			</div>
 			<div class="protocol-list" role="list" aria-label="Protocols">
-				{#each protocolOptions() as protocol}
+					{#each protocolOptions() as protocol (protocol.slug)}
 					<button
 						aria-pressed={selectedProtocolSlugs.includes(protocol.slug)}
 						class:active={selectedProtocolSlugs.includes(protocol.slug)}
@@ -596,7 +597,7 @@
 
 			{#if catalogDomains().length > 0}
 				<div class="domain-row" aria-label="Catalog domains">
-					{#each catalogDomains() as domain}
+						{#each catalogDomains() as domain (domain)}
 						<button type="button" onclick={() => (solDomainLabel = domain)}>{domain}</button>
 					{/each}
 				</div>
@@ -620,7 +621,7 @@
 		</div>
 
 		<ol class="telegram-steps">
-			{#each telegramSteps() as step}
+				{#each telegramSteps() as step (step)}
 				<li>{step}</li>
 			{/each}
 		</ol>
@@ -629,12 +630,18 @@
 			<button class="copy-button" type="button" onclick={copyCommand} disabled={!canCopyCommand()}>
 				{effectiveMode() === 'defi' ? 'Copy' : 'Copy draft'}
 			</button>
-			<a class="setup-link" href={telegramActionHref()} rel={botHref() ? 'noreferrer' : undefined} target={botHref() ? '_blank' : undefined}>
-				{telegramActionLabel()}
-			</a>
-			<a class="secondary-link" href={planReferenceHref()}>
-				{planReferenceLabel()}
-			</a>
+				{#if botUsername}
+					<a class="setup-link" href={`https://t.me/${botUsername}`} rel="noreferrer" target="_blank">
+						{telegramActionLabel()}
+					</a>
+				{:else}
+					<a class="setup-link" href={resolve('/docs#commands')}>
+						{telegramActionLabel()}
+					</a>
+				{/if}
+				<a class="secondary-link" href={resolve(planReferenceRoute())}>
+					{planReferenceLabel()}
+				</a>
 			{#if copiedState === 'copied'}
 				<p class="copy-state success">{effectiveMode() === 'defi' ? 'Copied.' : 'Draft copied.'}</p>
 			{:else if copiedState === 'error'}

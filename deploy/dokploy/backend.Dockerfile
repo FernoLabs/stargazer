@@ -8,7 +8,8 @@ RUN cargo install cargo-chef --locked
 FROM chef AS planner
 COPY backend/Cargo.toml backend/Cargo.lock ./
 COPY backend/src ./src
-COPY backend/data/platform_registry_snapshot.json ./data/platform_registry_snapshot.json
+COPY backend/assets ./assets
+COPY backend/data ./data
 COPY frontend/static/brand /app/frontend/static/brand
 
 RUN cargo chef prepare --recipe-path recipe.json
@@ -19,7 +20,8 @@ RUN cargo chef cook --release --locked --recipe-path recipe.json
 
 COPY backend/Cargo.toml backend/Cargo.lock ./
 COPY backend/src ./src
-COPY backend/data/platform_registry_snapshot.json ./data/platform_registry_snapshot.json
+COPY backend/assets ./assets
+COPY backend/data ./data
 COPY frontend/static/brand /app/frontend/static/brand
 
 RUN cargo build --locked --release

@@ -11,8 +11,8 @@ use crate::{
         ProgramIdlVersionsResponse, ProgramSignerStatsResponse, ProgramVersionCatalogSummary,
         ProgramVersionSummariesResponse, ProgramVersionsResponse, PromoCode, PromoCodesResponse,
         SaveTelegramConfigRequest, SaveTelegramConfigResponse, TelegramConfigSessionResponse,
-        TelegramSubscription, TelegramSubscriptionSummaryResponse, TelegramSubscriptionsResponse,
-        UpsertFirewatchUserRequest,
+        TelegramDeliveryMode, TelegramSubscription, TelegramSubscriptionSummaryResponse,
+        TelegramSubscriptionsResponse, UpsertFirewatchUserRequest,
     },
     name_service, protocols, telegram,
 };
@@ -618,12 +618,20 @@ async fn list_protocols(
         .program_risk_summaries(&program_ids)
         .await
         .map_err(internal_error)?;
+    let related_multisigs = state
+        .db
+        .protocol_multisig_links_by_slug()
+        .await
+        .map_err(internal_error)?;
 
     for protocol in &mut items {
         for program in &mut protocol.programs {
             if let Some(summary) = risk_summaries.get(&program.program_id) {
                 program.risk_summary = summary.clone();
             }
+        }
+        if let Some(links) = related_multisigs.get(&protocol.slug) {
+            protocol.related_multisigs = links.clone();
         }
     }
 
@@ -1763,11 +1771,17 @@ async fn get_config_session(
     };
 
     let billing = user_billing_summary(&state, &user.id).await?;
+    let subscriptions = state
+        .db
+        .list_telegram_subscriptions_for_config_session(&user.id, &session.chat_id)
+        .await
+        .map_err(internal_error)?;
 
     Ok(Json(TelegramConfigSessionResponse {
         session,
         user,
         billing,
+        subscriptions,
     }))
 }
 
@@ -1876,8 +1890,25 @@ async fn save_config_session(
         ));
     };
 
+    let current_subscriptions = state
+        .db
+        .list_telegram_subscriptions_for_config_session(&user.id, &session.chat_id)
+        .await
+        .map_err(internal_error)?;
+    let removable_ids = current_subscriptions
+        .iter()
+        .map(|subscription| subscription.id.as_str())
+        .collect::<HashSet<_>>();
+    let unsubscribe_ids = payload
+        .unsubscribe_ids
+        .iter()
+        .map(|id| id.trim())
+        .filter(|id| !id.is_empty() && removable_ids.contains(id))
+        .collect::<HashSet<_>>();
+
     let requested_rules = config_rules_from_request(&payload)?;
-    if requested_rules.is_empty() {
+    let requested_rule_count = requested_rules.len();
+    if requested_rule_count == 0 && unsubscribe_ids.is_empty() {
         return Err(error_response(
             StatusCode::BAD_REQUEST,
             "Select at least one protocol, program, wallet, or .sol domain.",
@@ -1889,6 +1920,12 @@ async fn save_config_session(
         .user_has_active_custom_entitlement(&user.id, crate::models::now_ts())
         .await
         .map_err(internal_error)?;
+    let requested_delivery_mode = payload.delivery_mode.unwrap_or(TelegramDeliveryMode::Live);
+    let delivery_mode = if has_entitlement {
+        requested_delivery_mode
+    } else {
+        TelegramDeliveryMode::DailySummary
+    };
     let status = if has_entitlement {
         "active"
     } else {
@@ -1896,6 +1933,20 @@ async fn save_config_session(
     };
 
     let mut saved_count = 0usize;
+    let mut removed_rule_count = 0usize;
+    for subscription_id in &unsubscribe_ids {
+        if state
+            .db
+            .delete_telegram_subscription(subscription_id)
+            .await
+            .map_err(internal_error)?
+        {
+            saved_count += 1;
+            removed_rule_count += 1;
+        }
+    }
+
+    let mut saved_rule_count = 0usize;
     for rule in requested_rules {
         state
             .db
@@ -1908,15 +1959,17 @@ async fn save_config_session(
                 rule.scope,
                 rule.target_address.as_deref(),
                 &rule.required_tags,
+                delivery_mode,
                 status,
                 None,
             )
             .await
             .map_err(internal_error)?;
         saved_count += 1;
+        saved_rule_count += 1;
     }
 
-    let payment_link = if has_entitlement {
+    let payment_link = if has_entitlement || requested_rule_count == 0 {
         None
     } else {
         let plan_id = if payload.billing.as_deref() == Some("year") {
@@ -1926,6 +1979,20 @@ async fn save_config_session(
         };
         Some(create_solana_payment_link_for_user(&state, &user, plan_id).await?)
     };
+
+    if let Err(error) = telegram::send_setup_saved_notification(
+        &state,
+        &session.chat_id,
+        saved_rule_count,
+        removed_rule_count,
+        delivery_mode,
+        has_entitlement,
+        payment_link.as_ref().map(|link| link.public_url.as_str()),
+    )
+    .await
+    {
+        warn!(error = %error, chat_id = %session.chat_id, "failed to send telegram setup notification");
+    }
 
     Ok(Json(SaveTelegramConfigResponse {
         saved_count,
@@ -1946,6 +2013,12 @@ fn config_rules_from_request(
 ) -> Result<Vec<ConfigRuleDraft>, (StatusCode, Json<serde_json::Value>)> {
     let mut rules = Vec::new();
     let mut seen = HashSet::new();
+    let protocol_levels = payload
+        .protocol_levels
+        .iter()
+        .filter_map(|entry| entry.split_once(':'))
+        .map(|(slug, level)| (slug.trim().to_owned(), level.trim().to_ascii_lowercase()))
+        .collect::<std::collections::HashMap<_, _>>();
 
     for raw_slug in &payload.protocol_slugs {
         let slug = raw_slug.trim();
@@ -1960,11 +2033,17 @@ fn config_rules_from_request(
         };
         let key = format!("protocol:{}", protocol.slug);
         if seen.insert(key.clone()) {
+            let mut required_tags = vec![key];
+            match protocol_levels.get(&protocol.slug).map(String::as_str) {
+                Some("critical") => required_tags.push("severity:critical".to_owned()),
+                Some("high_impact") => required_tags.push("impact:high".to_owned()),
+                _ => {}
+            }
             rules.push(ConfigRuleDraft {
                 label: format!("Config /watch protocol - {}", protocol.name),
                 scope: crate::models::TelegramEventScope::DefiWatch,
                 target_address: None,
-                required_tags: vec![key],
+                required_tags,
             });
         }
     }
@@ -2107,6 +2186,7 @@ async fn create_telegram_subscription(
             payload.scope,
             normalized_target_address.as_deref(),
             &required_tags,
+            payload.delivery_mode.unwrap_or(TelegramDeliveryMode::Live),
             "active",
             None,
         )
