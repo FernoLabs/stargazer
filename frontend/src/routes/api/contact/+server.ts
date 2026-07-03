@@ -1,5 +1,5 @@
-import { env as privateEnv } from '$env/dynamic/private';
 import { json } from '@sveltejs/kit';
+import { contactTelegramConfig, contactTelegramRequest, envValue } from '$lib/server/contact-telegram';
 import type { RequestHandler } from './$types';
 
 type ContactPayload = {
@@ -21,8 +21,6 @@ type ContactRequest = {
 	source: string;
 };
 
-const TELEGRAM_API_BASE = 'https://api.telegram.org';
-const SEND_TIMEOUT_MS = 8_000;
 const MAX_MESSAGE_LENGTH = 2_000;
 const MAX_TEXT_LENGTH = 3_800;
 
@@ -52,15 +50,6 @@ function normalizedTelegram(value: unknown) {
 	const handle = singleLine(value, 80).replace(/^https?:\/\/t\.me\//i, '@');
 	if (!handle) return '';
 	return handle.startsWith('@') ? handle : `@${handle}`;
-}
-
-function envValue(...keys: string[]) {
-	for (const key of keys) {
-		const value = privateEnv[key];
-		if (value?.trim()) return value.trim();
-	}
-
-	return '';
 }
 
 function validatePayload(payload: ContactPayload): ContactRequest | Response {
@@ -103,16 +92,19 @@ function truncateTelegramText(text: string) {
 function formatContactMessage(contact: ContactRequest) {
 	const mention = envValue('CONTACT_TELEGRAM_MENTION', 'TELEGRAM_CONTACT_MENTION') || '@AoCoH';
 	const lines = [
-		`${mention} New FireWatch contact request`,
+		`${mention} FireWatch contact`,
 		'',
+		'Client',
 		`Name: ${contact.name}`,
 		contact.company ? `Company: ${contact.company}` : null,
 		contact.telegram ? `Telegram: ${contact.telegram}` : null,
 		contact.email ? `Email: ${contact.email}` : null,
 		contact.source ? `Source: ${contact.source}` : null,
 		'',
-		'Request:',
-		contact.message
+		'Request',
+		contact.message,
+		'',
+		'Status: Open'
 	].filter((line): line is string => line != null);
 
 	return truncateTelegramText(lines.join('\n'));
@@ -127,49 +119,30 @@ async function parseRequest(request: Request) {
 }
 
 async function sendTelegramMessage(fetcher: typeof fetch, text: string) {
-	const botToken = envValue('CONTACT_TELEGRAM_BOT_TOKEN', 'TELEGRAM_CONTACT_BOT_TOKEN');
-	const chatId = envValue('CONTACT_TELEGRAM_CHAT_ID', 'TELEGRAM_CONTACT_CHAT_ID');
-	const threadId = envValue('CONTACT_TELEGRAM_THREAD_ID', 'TELEGRAM_CONTACT_THREAD_ID');
-	const apiBase = envValue('CONTACT_TELEGRAM_API_BASE', 'TELEGRAM_API_BASE') || TELEGRAM_API_BASE;
+	const config = contactTelegramConfig();
 
-	if (!botToken || !chatId) {
+	if (!config.botToken || !config.chatId) {
 		return json(
 			{ error: 'Contact form is not configured yet.' },
 			{ status: 503, headers: jsonHeaders() }
 		);
 	}
 
-	const body: Record<string, string | number | boolean> = {
-		chat_id: chatId,
+	const body: Record<string, unknown> = {
+		chat_id: config.chatId,
 		text,
-		disable_web_page_preview: true
+		disable_web_page_preview: true,
+		reply_markup: {
+			inline_keyboard: [[{ text: 'Mark handled', callback_data: 'contact:handled' }]]
+		}
 	};
-	const parsedThreadId = Number.parseInt(threadId, 10);
+	const parsedThreadId = Number.parseInt(config.threadId, 10);
 	if (Number.isFinite(parsedThreadId) && parsedThreadId > 0) {
 		body.message_thread_id = parsedThreadId;
 	}
 
-	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
-
 	try {
-		const response = await fetcher(`${apiBase.replace(/\/+$/, '')}/bot${botToken}/sendMessage`, {
-			method: 'POST',
-			headers: {
-				'content-type': 'application/json'
-			},
-			body: JSON.stringify(body),
-			signal: controller.signal
-		});
-
-		if (!response.ok) {
-			console.error('Telegram contact send failed', response.status, await response.text());
-			return json(
-				{ error: 'Could not send the message. Please try again.' },
-				{ status: 502, headers: jsonHeaders() }
-			);
-		}
-
+		await contactTelegramRequest(fetcher, 'sendMessage', body);
 		return json({ ok: true }, { headers: jsonHeaders() });
 	} catch (error) {
 		console.error('Telegram contact send errored', error);
@@ -177,8 +150,6 @@ async function sendTelegramMessage(fetcher: typeof fetch, text: string) {
 			{ error: 'Could not send the message. Please try again.' },
 			{ status: 502, headers: jsonHeaders() }
 		);
-	} finally {
-		clearTimeout(timeout);
 	}
 }
 
