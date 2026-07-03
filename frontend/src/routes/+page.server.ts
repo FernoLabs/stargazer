@@ -1,7 +1,10 @@
 import { backendRequest, readBackendError } from '$lib/server/backend';
 import { nextPageOffset } from '$lib/api-pagination';
+import { canonicalProtocolSlug } from '$lib/catalog';
+import { compactLongTokens } from '$lib/event-preview';
 import type {
 	ChainEvent,
+	DefiProtocolsResponse,
 	EventsResponse,
 	ProgramVersionSummariesResponse
 } from '$lib/types';
@@ -9,13 +12,17 @@ import type { PageServerLoad } from './$types';
 
 const HOME_FETCH_TIMEOUT_MS = 2500;
 const RECENT_DEFI_ALERT_LIMIT = 250;
-const PROTOCOL_ALERT_LIMIT = 6;
+const PROTOCOL_ALERT_LIMIT = 64;
 const DAY_SECONDS = 86_400;
 const FALLBACK_WINDOW_PAGE_SIZE = 500;
 const FALLBACK_WINDOW_MAX_PAGES = 24;
 const FALLBACK_WINDOW_BATCH_SIZE = 4;
 
 type AlertSeverity = 'critical' | 'high' | 'standard';
+type ActivityWindowFilter = {
+	severity?: AlertSeverity;
+	includeRelatedMultisigs?: boolean;
+};
 type ActivityWindowStats = {
 	days: number;
 	current: number;
@@ -32,8 +39,18 @@ type ProtocolAlertAccumulator = {
 	highCount: number;
 	standardCount: number;
 	latestSlot: number;
+	latestTimestamp: number | null;
 	latestSummary: string;
 	latestEventId: string;
+};
+type HomeHeroAlert = {
+	protocolSlug: string;
+	protocolName: string;
+	severity: AlertSeverity;
+	summary: string;
+	eventId: string;
+	slot: number;
+	timestamp: number | null;
 };
 
 async function backendJson<T>(fetch: typeof globalThis.fetch, path: string) {
@@ -58,9 +75,46 @@ function eventTimestamp(event: ChainEvent) {
 	return event.block_time ?? event.indexed_at;
 }
 
+function payloadString(event: ChainEvent, key: string) {
+	const value = event.payload[key];
+	return typeof value === 'string' ? value : null;
+}
+
+function eventSeverity(event: ChainEvent): AlertSeverity {
+	const payloadSeverity = payloadString(event, 'severity');
+	if (
+		payloadSeverity === 'critical' ||
+		event.tags.includes('severity:critical') ||
+		event.tags.includes('signal:unknown_instruction')
+	) {
+		return 'critical';
+	}
+
+	if (
+		payloadSeverity === 'high' ||
+		event.tags.includes('severity:high') ||
+		event.tags.includes('impact:high')
+	) {
+		return 'high';
+	}
+
+	return 'standard';
+}
+
 function percentChange(current: number, previous: number) {
 	if (previous === 0) return current === 0 ? 0 : null;
 	return Math.round(((current - previous) / previous) * 100);
+}
+
+function windowFilterParams(filter: ActivityWindowFilter): Record<string, string> {
+	return {
+		...(filter.severity ? { severity: filter.severity } : {}),
+		...(filter.includeRelatedMultisigs ? { include_related_multisigs: 'true' } : {})
+	};
+}
+
+function eventMatchesWindowFilter(event: ChainEvent, filter: ActivityWindowFilter) {
+	return !filter.severity || eventSeverity(event) === filter.severity;
 }
 
 async function backendSupportsTimeFilters(fetch: typeof globalThis.fetch, nowTs: number) {
@@ -71,14 +125,20 @@ async function backendSupportsTimeFilters(fetch: typeof globalThis.fetch, nowTs:
 async function backendWindowStats(
 	fetch: typeof globalThis.fetch,
 	nowTs: number,
-	days: number
+	days: number,
+	filter: ActivityWindowFilter = {}
 ): Promise<ActivityWindowStats> {
 	const windowSeconds = days * DAY_SECONDS;
 	const currentStart = nowTs - windowSeconds;
 	const previousStart = currentStart - windowSeconds;
+	const filterParams = windowFilterParams(filter);
 	const [current, previous] = await Promise.all([
-		eventTotal(fetch, { from_ts: String(currentStart), before_ts: String(nowTs) }),
-		eventTotal(fetch, { from_ts: String(previousStart), before_ts: String(currentStart) })
+		eventTotal(fetch, { ...filterParams, from_ts: String(currentStart), before_ts: String(nowTs) }),
+		eventTotal(fetch, {
+			...filterParams,
+			from_ts: String(previousStart),
+			before_ts: String(currentStart)
+		})
 	]);
 
 	return {
@@ -93,7 +153,8 @@ async function backendWindowStats(
 async function fallbackWindowStats(
 	fetch: typeof globalThis.fetch,
 	nowTs: number,
-	days: number
+	days: number,
+	filter: ActivityWindowFilter = {}
 ): Promise<ActivityWindowStats> {
 	const windowSeconds = days * DAY_SECONDS;
 	const currentStart = nowTs - windowSeconds;
@@ -111,9 +172,14 @@ async function fallbackWindowStats(
 			Array.from({ length: FALLBACK_WINDOW_BATCH_SIZE }, (_, index) => {
 				const pageIndex = batchStart + index;
 				const offset = pageIndex * FALLBACK_WINDOW_PAGE_SIZE;
+				const search = new URLSearchParams({
+					'page[size]': String(FALLBACK_WINDOW_PAGE_SIZE),
+					'page[offset]': String(offset),
+					...windowFilterParams(filter)
+				});
 				return backendJson<EventsResponse>(
 					fetch,
-					`/api/events?page%5Bsize%5D=${FALLBACK_WINDOW_PAGE_SIZE}&page%5Boffset%5D=${offset}`
+					`/api/events?${search.toString()}`
 				);
 			})
 		);
@@ -128,6 +194,7 @@ async function fallbackWindowStats(
 			}
 
 			for (const event of payload.items) {
+				if (!eventMatchesWindowFilter(event, filter)) continue;
 				const timestamp = eventTimestamp(event);
 				if (timestamp >= currentStart && timestamp < nowTs) {
 					current += 1;
@@ -152,7 +219,10 @@ async function fallbackWindowStats(
 	};
 }
 
-async function activityWindowStats(fetch: typeof globalThis.fetch): Promise<ActivityWindowStats> {
+async function activityWindowStats(
+	fetch: typeof globalThis.fetch,
+	filter: ActivityWindowFilter = {}
+): Promise<ActivityWindowStats> {
 	const nowTs = Math.floor(Date.now() / 1000);
 	let useBackendFilters = false;
 
@@ -163,15 +233,9 @@ async function activityWindowStats(fetch: typeof globalThis.fetch): Promise<Acti
 	}
 
 	const loadWindow = useBackendFilters
-		? (days: number) => backendWindowStats(fetch, nowTs, days)
-		: (days: number) => fallbackWindowStats(fetch, nowTs, days);
-	const sevenDayStats = await loadWindow(7);
-	return sevenDayStats.current === 0 ? loadWindow(30) : sevenDayStats;
-}
-
-function payloadString(event: ChainEvent, key: string) {
-	const value = event.payload[key];
-	return typeof value === 'string' ? value : null;
+		? (days: number) => backendWindowStats(fetch, nowTs, days, filter)
+		: (days: number) => fallbackWindowStats(fetch, nowTs, days, filter);
+	return loadWindow(7);
 }
 
 function linkedProtocolSlugs(event: ChainEvent) {
@@ -191,7 +255,7 @@ function eventProtocolSlugs(event: ChainEvent, knownProtocolSlugs: Set<string>) 
 	const slugs = new Set<string>();
 	for (const tag of event.tags) {
 		if (!tag.startsWith('protocol:')) continue;
-		const slug = tag.slice('protocol:'.length);
+		const slug = canonicalProtocolSlug(tag.slice('protocol:'.length));
 		if (knownProtocolSlugs.has(slug)) slugs.add(slug);
 	}
 
@@ -200,31 +264,21 @@ function eventProtocolSlugs(event: ChainEvent, knownProtocolSlugs: Set<string>) 
 		payloadString(event, 'decoded_protocol'),
 		...linkedProtocolSlugs(event)
 	]) {
-		if (slug && knownProtocolSlugs.has(slug)) slugs.add(slug);
+		const canonicalSlug = slug ? canonicalProtocolSlug(slug) : null;
+		if (canonicalSlug && knownProtocolSlugs.has(canonicalSlug)) slugs.add(canonicalSlug);
 	}
 
 	return [...slugs];
 }
 
-function eventSeverity(event: ChainEvent): AlertSeverity {
-	const payloadSeverity = payloadString(event, 'severity');
-	if (
-		payloadSeverity === 'critical' ||
-		event.tags.includes('severity:critical') ||
-		event.tags.includes('signal:unknown_instruction')
-	) {
-		return 'critical';
-	}
+function eventMultisigAddress(event: ChainEvent) {
+	const multisig = payloadString(event, 'multisig');
+	if (multisig) return multisig;
+	return event.target_type === 'multisig' ? event.target_address : null;
+}
 
-	if (
-		payloadSeverity === 'high' ||
-		event.tags.includes('severity:high') ||
-		event.tags.includes('impact:high')
-	) {
-		return 'high';
-	}
-
-	return 'standard';
+function distinctMultisigCount(events: ChainEvent[]) {
+	return new Set(events.map(eventMultisigAddress).filter((value): value is string => Boolean(value))).size;
 }
 
 function protocolAlertRows(
@@ -247,6 +301,7 @@ function protocolAlertRows(
 					highCount: 0,
 					standardCount: 0,
 					latestSlot: 0,
+					latestTimestamp: null,
 					latestSummary: '',
 					latestEventId: ''
 				} satisfies ProtocolAlertAccumulator);
@@ -257,7 +312,8 @@ function protocolAlertRows(
 			if (severity === 'standard') row.standardCount += 1;
 			if (event.slot > row.latestSlot) {
 				row.latestSlot = event.slot;
-				row.latestSummary = event.summary;
+				row.latestTimestamp = eventTimestamp(event);
+				row.latestSummary = compactLongTokens(event.summary);
 				row.latestEventId = event.id;
 			}
 
@@ -277,22 +333,97 @@ function protocolAlertRows(
 		.slice(0, PROTOCOL_ALERT_LIMIT);
 }
 
+function alertSeverityRank(severity: AlertSeverity) {
+	if (severity === 'critical') return 3;
+	if (severity === 'high') return 2;
+	return 1;
+}
+
+function isBetterHeroAlert(candidate: HomeHeroAlert, current: HomeHeroAlert | null) {
+	if (!current) return true;
+
+	const rankDelta = alertSeverityRank(candidate.severity) - alertSeverityRank(current.severity);
+	if (rankDelta !== 0) return rankDelta > 0;
+
+	const candidateTimestamp = candidate.timestamp ?? 0;
+	const currentTimestamp = current.timestamp ?? 0;
+	return candidateTimestamp !== currentTimestamp
+		? candidateTimestamp > currentTimestamp
+		: candidate.slot > current.slot;
+}
+
+function heroAlertFromEvents(
+	events: ChainEvent[],
+	protocolNames: Map<string, string>,
+	knownProtocolSlugs: Set<string>
+) {
+	let selected: HomeHeroAlert | null = null;
+
+	for (const event of events) {
+		const slugs = eventProtocolSlugs(event, knownProtocolSlugs);
+		if (slugs.length === 0) continue;
+
+		const severity = eventSeverity(event);
+		for (const slug of slugs) {
+			const candidate: HomeHeroAlert = {
+				protocolSlug: slug,
+				protocolName: protocolNames.get(slug) ?? slug.replaceAll('_', ' '),
+				severity,
+				summary: compactLongTokens(event.summary),
+				eventId: event.id,
+				slot: event.slot,
+				timestamp: eventTimestamp(event)
+			};
+
+			if (isBetterHeroAlert(candidate, selected)) selected = candidate;
+		}
+	}
+
+	return selected;
+}
+
 export const load = (async ({ fetch, parent }) => {
 	const app = await parent();
 	const protocolNames = new Map(app.defiProtocols.map((protocol) => [protocol.slug, protocol.name]));
 	const knownProtocolSlugs = new Set(protocolNames.keys());
+	const nowTs = Math.floor(Date.now() / 1000);
+	const sevenDaysAgoTs = nowTs - 7 * DAY_SECONDS;
 
-	const [recentDefiResult, highResult, standardResult, versionResult, activityWindowResult] =
+	const [
+		recentDefiResult,
+		protocolActivityResult,
+		highResult,
+		standardResult,
+		versionResult,
+		activityWindowResult,
+		criticalActivityWindowResult
+	] =
 		await Promise.allSettled([
-			backendJson<EventsResponse>(fetch, `/api/events?page%5Bsize%5D=${RECENT_DEFI_ALERT_LIMIT}&scope=defi`),
+			backendJson<EventsResponse>(
+				fetch,
+				`/api/events?page%5Bsize%5D=${RECENT_DEFI_ALERT_LIMIT}&scope=defi&include_related_multisigs=true&from_ts=${sevenDaysAgoTs}&before_ts=${nowTs}`
+			),
+			backendJson<DefiProtocolsResponse>(fetch, '/api/protocols?include=activitySummary'),
 			eventTotal(fetch, { severity: 'high' }),
 			eventTotal(fetch, { severity: 'standard' }),
 			backendJson<ProgramVersionSummariesResponse>(fetch, '/api/programs/version-summaries'),
-			activityWindowStats(fetch)
+			activityWindowStats(fetch, { includeRelatedMultisigs: true }),
+			activityWindowStats(fetch, { severity: 'critical', includeRelatedMultisigs: true })
 		]);
 
 	const recentDefi = recentDefiResult.status === 'fulfilled' ? recentDefiResult.value : null;
 	const recentDefiEvents = recentDefi?.items ?? [];
+	const protocolActivityPayload =
+		protocolActivityResult.status === 'fulfilled' ? protocolActivityResult.value : null;
+	const homeProtocolTotals = Object.fromEntries(
+		[
+			...(protocolActivityPayload?.included?.activity_summaries ?? []).reduce((totals, summary) => {
+				const slug = canonicalProtocolSlug(summary.slug);
+				totals.set(slug, (totals.get(slug) ?? 0) + summary.total);
+				return totals;
+			}, new Map<string, number>())
+		]
+	);
 	const versionSummaries = versionResult.status === 'fulfilled' ? versionResult.value.items : [];
 
 	return {
@@ -318,6 +449,19 @@ export const load = (async ({ fetch, parent }) => {
 						percentChange: 0,
 						filteredByBackend: false
 					},
+		homeCriticalActivityWindow:
+			criticalActivityWindowResult.status === 'fulfilled'
+				? criticalActivityWindowResult.value
+				: {
+						days: 7,
+						current: 0,
+						previous: 0,
+						percentChange: 0,
+						filteredByBackend: false
+		},
+		homeProtocolTotals,
+		homeRelatedMultisigCount: distinctMultisigCount(recentDefiEvents),
+		homeHeroAlert: heroAlertFromEvents(recentDefiEvents, protocolNames, knownProtocolSlugs),
 		homeProtocolAlertRows: protocolAlertRows(recentDefiEvents, protocolNames, knownProtocolSlugs)
 	};
 }) satisfies PageServerLoad;
