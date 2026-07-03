@@ -65,4 +65,12 @@ For a program upgrade where FireWatch has the new event but no prior version to 
 docker compose run --rm firewatch-indexer backfill-program-history JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4 --limit 2 --lookback-slots 2048 --concurrency 4 --retries 2
 ```
 
+Refresh protocol-linked Squads multisigs from current program upgrade authorities:
+
+```bash
+docker compose run --rm firewatch-indexer sync-program-authorities
+```
+
+Use `--discover-all-squads` only with an RPC provider that can handle a large Squads `getProgramAccounts` response.
+
 Avoid running heavy backfills at the same time as a live indexer on a very small VM unless you have tested CPU and I/O headroom.

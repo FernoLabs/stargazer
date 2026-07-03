@@ -75,6 +75,8 @@ export type TelegramEventScope =
 	| 'defi_watch'
 	| 'wallet_activity';
 
+export type TelegramDeliveryMode = 'live' | 'daily_summary';
+
 export interface TelegramSubscription {
 	id: string;
 	label: string;
@@ -84,6 +86,7 @@ export interface TelegramSubscription {
 	scope: TelegramEventScope;
 	target_address: string | null;
 	required_tags: string[];
+	delivery_mode: TelegramDeliveryMode;
 	status: string;
 	payment_link_id: string | null;
 	created_at: number;
@@ -250,6 +253,7 @@ export interface TelegramConfigSessionResponse {
 	session: TelegramConfigSession;
 	user: FirewatchUser;
 	billing: UserBillingSummary;
+	subscriptions: TelegramSubscription[];
 }
 
 export interface SaveTelegramConfigResponse {
@@ -281,6 +285,17 @@ export interface AmountTriggerDescriptor {
 	description: string;
 }
 
+export interface ProtocolMultisigLink {
+	multisig: string;
+	authority: string;
+	program_id: string;
+	program_label: string;
+	evidence: string;
+	source: string;
+	vault_index: number | null;
+	last_seen_at: number;
+}
+
 export interface DefiProtocolDescriptor {
 	slug: string;
 	name: string;
@@ -293,6 +308,7 @@ export interface DefiProtocolDescriptor {
 	high_impact_instruction_filters: string[];
 	amount_triggers: AmountTriggerDescriptor[];
 	unknown_alerts: boolean;
+	related_multisigs?: ProtocolMultisigLink[];
 }
 
 export interface DefiProtocolsResponse {

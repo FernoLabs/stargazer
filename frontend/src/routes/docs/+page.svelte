@@ -34,7 +34,7 @@
 				<li>Custom Plan access unlocks program, protocol, wallet, and threshold watches.</li>
 				<li>Ferno members get Custom Plan access for free.</li>
 				<li>Superteam members can use a promo code for 12 months of Custom Plan access.</li>
-				<li>Pro Response adds reviewed signal access and an authorized Smart Account flow.</li>
+					<li>Company Pro adds private protocol pages, owned account lists, and integration routing.</li>
 			</ul>
 		</article>
 

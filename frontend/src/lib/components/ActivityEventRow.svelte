@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { explorerAddressUrl, explorerTransactionUrl } from '$lib/explorer';
-	import { eventDetailHref } from '$lib/event-preview';
+	import { compactLongTokens, eventDetailHref } from '$lib/event-preview';
 	import {
 		findProgramMatch,
 		programPageHref,
@@ -186,7 +186,7 @@
 		if (event.kind === 'multisig_proposal_cancelled') return 'Squads proposal cancelled';
 		if (event.kind === 'multisig_vault_executed') return 'Squads vault execution';
 		if (event.kind === 'multisig_config_executed') return 'Squads config execution';
-		return event.summary;
+		return compactLongTokens(event.summary);
 	}
 
 	function detailItems() {

@@ -6,7 +6,7 @@
 	import ProtocolIdentity from '$lib/components/ProtocolIdentity.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import { formatMetricValue, formatTimestamp, readableInstructionName, shortAddress } from '$lib/format';
-	import { eventDetailHref } from '$lib/event-preview';
+	import { compactLongTokens, eventDetailHref } from '$lib/event-preview';
 	import type {
 		ChainEvent,
 		EventsResponse,
@@ -297,7 +297,7 @@
 		if (instruction && metricLabel) {
 			return `${readableInstructionName(instruction)} · ${metricLabel}`;
 		}
-		return event.summary;
+		return compactLongTokens(event.summary);
 	}
 
 	function metricEventValue(event: ChainEvent) {
@@ -642,7 +642,7 @@
 							<a class="instruction-row event-link" href={eventDetailHref(event)}>
 								<div class="instruction-copy">
 									<strong>{metricEventTitle(event)}</strong>
-									<span>{event.summary}</span>
+									<span>{compactLongTokens(event.summary)}</span>
 								</div>
 								<div class="instruction-tags">
 									<span class="flag critical">Observed</span>

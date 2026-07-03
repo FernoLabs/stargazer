@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import BrandLockup from '$lib/components/BrandLockup.svelte';
 </script>
 
@@ -14,15 +15,14 @@
 		</div>
 
 		<nav class="footer-links" aria-label="FireWatch footer">
-			<a href="/about">About</a>
-			<a href="/protocols">Protocols</a>
-			<a href="/events">Activity</a>
-			<a href="/incidents">Incidents</a>
-			<a href="/programs">Programs</a>
+			<a href={resolve('/about')}>About</a>
+			<a href={resolve('/protocols')}>Protocols</a>
+			<a href={resolve('/events')}>Activity</a>
+			<a href={resolve('/programs')}>Programs</a>
 			<a href="https://ferno.ag" rel="noreferrer" target="_blank">Ferno.ag</a>
 			<a href="https://x.com/ferno_ag" rel="noreferrer" target="_blank">Ferno X</a>
 			<a href="https://github.com/FernoLabs" rel="noreferrer" target="_blank">Ferno GitHub</a>
-			<a href="mailto:contact@ferno.ag?subject=FireWatch%20infra">Contact</a>
+			<a href={resolve('/contact')}>Contact</a>
 		</nav>
 	</div>
 </footer>

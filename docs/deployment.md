@@ -165,6 +165,14 @@ To recover program-version context after a newly observed upgrade, backfill the 
 docker compose run --rm firewatch-indexer backfill-program-history JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4 --limit 2 --lookback-slots 2048 --concurrency 4 --retries 2
 ```
 
+To refresh protocol-linked Squads multisigs from current program upgrade authorities, run:
+
+```bash
+docker compose run --rm firewatch-indexer sync-program-authorities
+```
+
+This uses Squads multisigs already seen by the indexer and checks their vault PDAs against every tracked program's current upgrade authority. Use `--discover-all-squads` only with an RPC provider that can handle a large `getProgramAccounts` response.
+
 For a small VM, pause the live indexer or run the backfill during a quiet window if CPU or disk I/O gets tight.
 
 ## Manual Systemd Origin

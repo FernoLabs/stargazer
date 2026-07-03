@@ -27,6 +27,8 @@ pub struct Config {
     pub origin_api_token: Option<String>,
     pub cors_allowed_origin: String,
     pub delivery_poll_seconds: u64,
+    pub telegram_daily_summary_poll_seconds: u64,
+    pub telegram_daily_summary_hour_utc: i64,
     pub reconnect_delay_seconds: u64,
     pub sns_bootstrap_label_limit: i64,
     pub critical_sol_domains: Vec<String>,
@@ -99,6 +101,13 @@ impl Config {
             cors_allowed_origin: env::var("CORS_ALLOWED_ORIGIN")
                 .unwrap_or_else(|_| "http://127.0.0.1:5173".to_owned()),
             delivery_poll_seconds: env_u64("DELIVERY_POLL_SECONDS", 5),
+            telegram_daily_summary_poll_seconds: env_u64(
+                "TELEGRAM_DAILY_SUMMARY_POLL_SECONDS",
+                300,
+            )
+            .max(30),
+            telegram_daily_summary_hour_utc: env_i64("TELEGRAM_DAILY_SUMMARY_HOUR_UTC", 9)
+                .clamp(0, 23),
             reconnect_delay_seconds: env_u64("RECONNECT_DELAY_SECONDS", 5),
             sns_bootstrap_label_limit: env_i64("SNS_BOOTSTRAP_LABEL_LIMIT", 96).max(0),
             critical_sol_domains: env_csv("CRITICAL_SOL_DOMAINS", protocols::FERNO_SOL_DOMAINS),

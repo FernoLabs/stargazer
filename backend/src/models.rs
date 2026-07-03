@@ -72,6 +72,34 @@ impl TelegramEventScope {
     }
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TelegramDeliveryMode {
+    Live,
+    DailySummary,
+}
+
+impl TelegramDeliveryMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Live => "live",
+            Self::DailySummary => "daily_summary",
+        }
+    }
+}
+
+impl FromStr for TelegramDeliveryMode {
+    type Err = &'static str;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "live" => Ok(Self::Live),
+            "daily_summary" => Ok(Self::DailySummary),
+            _ => Err("unsupported telegram delivery mode"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProtocolCoverage {
@@ -195,6 +223,7 @@ pub struct TelegramSubscription {
     pub scope: TelegramEventScope,
     pub target_address: Option<String>,
     pub required_tags: Vec<String>,
+    pub delivery_mode: TelegramDeliveryMode,
     pub status: String,
     pub payment_link_id: Option<String>,
     pub created_at: i64,
@@ -202,7 +231,10 @@ pub struct TelegramSubscription {
 
 impl TelegramSubscription {
     pub fn matches_event(&self, event: &ChainEvent) -> bool {
-        if self.status != "active" {
+        let can_receive_events = self.status == "active"
+            || (self.status == "pending_payment"
+                && self.delivery_mode == TelegramDeliveryMode::DailySummary);
+        if !can_receive_events {
             return false;
         }
 
@@ -399,6 +431,7 @@ pub struct TelegramConfigSessionResponse {
     pub session: TelegramConfigSession,
     pub user: FirewatchUser,
     pub billing: UserBillingSummary,
+    pub subscriptions: Vec<TelegramSubscription>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -406,11 +439,16 @@ pub struct SaveTelegramConfigRequest {
     #[serde(default)]
     pub protocol_slugs: Vec<String>,
     #[serde(default)]
+    pub protocol_levels: Vec<String>,
+    #[serde(default)]
     pub program_ids: Vec<String>,
     #[serde(default)]
     pub wallet_addresses: Vec<String>,
     #[serde(default)]
     pub sol_domains: Vec<String>,
+    #[serde(default)]
+    pub unsubscribe_ids: Vec<String>,
+    pub delivery_mode: Option<TelegramDeliveryMode>,
     pub billing: Option<String>,
 }
 
@@ -429,6 +467,7 @@ pub struct CreateTelegramSubscriptionRequest {
     pub scope: TelegramEventScope,
     pub target_address: Option<String>,
     pub required_tags: Option<Vec<String>>,
+    pub delivery_mode: Option<TelegramDeliveryMode>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -484,6 +523,18 @@ pub struct AmountTriggerDescriptor {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProtocolMultisigLink {
+    pub multisig: String,
+    pub authority: String,
+    pub program_id: String,
+    pub program_label: String,
+    pub evidence: String,
+    pub source: String,
+    pub vault_index: Option<i64>,
+    pub last_seen_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DefiProtocolDescriptor {
     pub slug: String,
     pub name: String,
@@ -496,6 +547,8 @@ pub struct DefiProtocolDescriptor {
     pub high_impact_instruction_filters: Vec<String>,
     pub amount_triggers: Vec<AmountTriggerDescriptor>,
     pub unknown_alerts: bool,
+    #[serde(default)]
+    pub related_multisigs: Vec<ProtocolMultisigLink>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -792,6 +845,18 @@ pub struct PendingTelegramDelivery {
     pub delivery_attempts: i64,
 }
 
+#[derive(Clone, Debug)]
+pub struct PendingTelegramDailySummary {
+    pub subscription: TelegramSubscription,
+    pub summary_day: i64,
+    pub event_count: i64,
+    pub critical_count: i64,
+    pub high_count: i64,
+    pub standard_count: i64,
+    pub events: Vec<ChainEvent>,
+    pub delivery_attempts: i64,
+}
+
 pub fn now_ts() -> i64 {
     Utc::now().timestamp()
 }
@@ -959,6 +1024,7 @@ mod tests {
             scope: TelegramEventScope::MultisigActivity,
             target_address: target_address.map(str::to_owned),
             required_tags: Vec::new(),
+            delivery_mode: TelegramDeliveryMode::Live,
             status: "active".to_owned(),
             payment_link_id: None,
             created_at: 1,

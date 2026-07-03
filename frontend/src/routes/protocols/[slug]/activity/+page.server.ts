@@ -1,13 +1,18 @@
 import { error, redirect } from '@sveltejs/kit';
-import { syntheticSquadsDescriptor } from '$lib/catalog';
+import { canonicalProtocolSlug, syntheticSquadsDescriptor } from '$lib/catalog';
 import type { DefiProtocolDescriptor } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
 const FORWARDED_FILTERS = ['scope', 'search', 'severity', 'coverage', 'tag', 'target'] as const;
 
 export const load = (async ({ params, parent, url }) => {
-	const app = await parent();
 	const slug = params.slug;
+	const canonicalSlug = canonicalProtocolSlug(slug);
+	if (canonicalSlug !== slug) {
+		throw redirect(308, `/protocols/${canonicalSlug}/activity${url.search}`);
+	}
+
+	const app = await parent();
 	const protocol =
 		(app.defiProtocols.find((candidate) => candidate.slug === slug) as
 			| DefiProtocolDescriptor

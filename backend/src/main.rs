@@ -10,6 +10,7 @@ mod link_preview;
 mod liquidity_pools;
 mod models;
 mod name_service;
+mod program_authority;
 mod program_bytes;
 mod program_disassembly;
 mod program_metadata;
@@ -33,6 +34,7 @@ use liquidity_pools::{
     LiquidityPoolDimensionReport, LiquidityPoolSeedOptions, LiquidityPoolSeedReport,
     default_seed_mint_label, dimension_liquidity_pools, seed_liquidity_pools,
 };
+use program_authority::{ProtocolAuthoritySyncReport, sync_protocol_upgrade_authority_multisigs};
 use std::env;
 use token_liquidity::{
     LOMBARD_LBTC_MINT, LOMBARD_LBTC_SYMBOL, PoolBuyPressureReport, PoolLiquidityTransition,
@@ -266,6 +268,19 @@ async fn main() -> Result<()> {
             print_liquidity_pool_seed_report(&report);
             return Ok(());
         }
+        Command::SyncProgramAuthorities {
+            vault_index_count,
+            discover_all_squads,
+        } => {
+            let report = sync_protocol_upgrade_authority_multisigs(
+                state,
+                vault_index_count,
+                discover_all_squads,
+            )
+            .await?;
+            print_protocol_authority_sync_report(&report);
+            return Ok(());
+        }
         Command::ScanTokenLiquidity {
             mint,
             symbol,
@@ -299,6 +314,17 @@ async fn main() -> Result<()> {
         }
     }
 
+    let suppressed_false_positive_deliveries = state
+        .db
+        .mark_raydium_amm_v4_swap_false_positive_deliveries(models::now_ts())
+        .await?;
+    if suppressed_false_positive_deliveries > 0 {
+        warn!(
+            count = suppressed_false_positive_deliveries,
+            "marked Raydium AMM v4 swap false-positive telegram deliveries as delivered"
+        );
+    }
+
     spawn_block_time_repair(state.clone());
     spawn_sns_label_bootstrap(state.clone());
     spawn_liquidity_pool_snapshot_prune(state.clone());
@@ -309,6 +335,7 @@ async fn main() -> Result<()> {
     tokio::try_join!(
         solana::run_indexer(state.clone()),
         delivery::run_retry_loop(state.clone()),
+        delivery::run_daily_summary_loop(state.clone()),
         telegram::run_command_loop(state.clone()),
         async move {
             axum::serve(listener, router)
@@ -368,6 +395,10 @@ enum Command {
     SeedLiquidityPools {
         mint: Option<String>,
         include_all: bool,
+    },
+    SyncProgramAuthorities {
+        vault_index_count: u8,
+        discover_all_squads: bool,
     },
     ScanTokenLiquidity {
         mint: String,
@@ -710,6 +741,37 @@ fn parse_command() -> Result<Command> {
 
             Ok(Command::SeedLiquidityPools { mint, include_all })
         }
+        "sync-program-authorities" | "--sync-program-authorities" => {
+            let mut vault_index_count = 8_u8;
+            let mut discover_all_squads = false;
+            let mut index = 1;
+            while index < args.len() {
+                match args[index].as_str() {
+                    "--discover-all-squads" => {
+                        discover_all_squads = true;
+                        index += 1;
+                    }
+                    "--vault-index-count" => {
+                        let value = args
+                            .get(index + 1)
+                            .context("--vault-index-count requires a value")?;
+                        vault_index_count = value
+                            .parse::<u8>()
+                            .context("--vault-index-count must be between 1 and 255")?;
+                        if vault_index_count == 0 {
+                            bail!("--vault-index-count must be greater than zero");
+                        }
+                        index += 2;
+                    }
+                    unknown => bail!("unknown sync-program-authorities option {unknown:?}"),
+                }
+            }
+
+            Ok(Command::SyncProgramAuthorities {
+                vault_index_count,
+                discover_all_squads,
+            })
+        }
         "scan-token-liquidity" | "--scan-token-liquidity" => {
             let mut mint = LOMBARD_LBTC_MINT.to_owned();
             let mut symbol = LOMBARD_LBTC_SYMBOL.to_owned();
@@ -838,12 +900,15 @@ fn parse_command() -> Result<Command> {
             println!("  firewatch-backend prune-liquidity-snapshots");
             println!("  firewatch-backend seed-liquidity-pools [--mint MINT | --all]");
             println!(
+                "  firewatch-backend sync-program-authorities [--discover-all-squads] [--vault-index-count N]"
+            );
+            println!(
                 "  firewatch-backend scan-token-liquidity [--mint MINT] [--symbol SYMBOL] [--lookback-days N] [--min-token-reserve N] [--min-token-reserve-usd N] [--max-signature-pages N] [--wallet ADDRESS] [--wallet-subscriptions] [--emit] [--deliver]"
             );
             std::process::exit(0);
         }
         unknown => bail!(
-            "unknown command {unknown:?}; use `backfill-block <slot>`, `backfill-blocks <start> <end>`, `backfill-rpc <start> <end>`, `backfill-grpc <start> <end>`, `backfill-program-history <program-id>`, `migrate-blobs`, `repair-block-time <slot>`, `repair-recent-block-times [limit]`, `dimension-liquidity-pools`, `prune-liquidity-snapshots`, `seed-liquidity-pools`, `scan-token-liquidity`, or no command"
+            "unknown command {unknown:?}; use `backfill-block <slot>`, `backfill-blocks <start> <end>`, `backfill-rpc <start> <end>`, `backfill-grpc <start> <end>`, `backfill-program-history <program-id>`, `migrate-blobs`, `repair-block-time <slot>`, `repair-recent-block-times [limit]`, `dimension-liquidity-pools`, `prune-liquidity-snapshots`, `seed-liquidity-pools`, `sync-program-authorities`, `scan-token-liquidity`, or no command"
         ),
     }
 }
@@ -1494,6 +1559,35 @@ fn print_liquidity_pool_seed_report(report: &LiquidityPoolSeedReport) {
             pool.reserve_y.as_deref().unwrap_or("unknown")
         );
     }
+}
+
+fn print_protocol_authority_sync_report(report: &ProtocolAuthoritySyncReport) {
+    println!("Synced protocol upgrade authorities");
+    println!("Tracked programs checked: {}", report.program_count);
+    println!(
+        "Upgradeable programs with authority: {}",
+        report.upgradeable_program_count
+    );
+    println!(
+        "Immutable / skipped programs: {}",
+        report.immutable_program_count
+    );
+    println!(
+        "Squads multisigs loaded: {} ({})",
+        report.squads_multisig_count,
+        if report.discovered_all_squads {
+            "full RPC discovery"
+        } else {
+            "indexed activity"
+        }
+    );
+    println!(
+        "Vault indexes checked per multisig: {}",
+        report.checked_vault_index_count
+    );
+    println!("Linked programs: {}", report.linked_program_count);
+    println!("Protocol multisig links found: {}", report.link_count);
+    println!("Protocol multisig links stored: {}", report.inserted_count);
 }
 
 fn format_bytes(bytes: f64) -> String {

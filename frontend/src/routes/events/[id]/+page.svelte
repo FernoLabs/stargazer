@@ -1,12 +1,12 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { explorerAddressUrl, explorerTransactionUrl } from '$lib/explorer';
 	import ActivityEventRow from '$lib/components/ActivityEventRow.svelte';
 	import {
 		eventAlertLevel,
 		eventKindLabel,
-		eventPrimaryAction,
-		eventProtocolHref,
 		eventProtocolLabel,
+		eventProtocolSlug,
 		eventTargetDisplayName,
 		eventTitle,
 		payloadString
@@ -20,14 +20,11 @@
 		value: string;
 		href?: string;
 		external?: boolean;
+		programAddress?: string;
 	};
 
 	function level() {
 		return eventAlertLevel(data.event);
-	}
-
-	function primaryAction() {
-		return eventPrimaryAction(data.event);
 	}
 
 	function relatedActivityHref() {
@@ -35,20 +32,31 @@
 		if (data.event.target_type === 'program') search.set('scope', 'programs');
 		if (data.event.target_type === 'multisig') search.set('scope', 'multisig');
 		if (data.event.kind.startsWith('program_idl_')) search.set('scope', 'idl');
-		return `/events?${search.toString()}`;
+		return search.toString();
 	}
 
-	function targetHref() {
-		if (data.event.target_type === 'program') return `/programs/${data.event.target_address}`;
-		return explorerAddressUrl(data.event.target_address, data.explorerCluster);
+	function goBack(event: MouseEvent) {
+		if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+		if (!document.referrer || window.history.length <= 1) return;
+
+		const referrer = new URL(document.referrer);
+		if (referrer.origin !== window.location.origin) return;
+		if (referrer.pathname !== resolve('/events')) return;
+
+		event.preventDefault();
+		window.history.back();
 	}
 
-	function targetRel() {
-		return data.event.target_type === 'program' ? undefined : 'noreferrer';
+	function openExternal(url: string) {
+		window.open(url, '_blank', 'noopener,noreferrer');
 	}
 
-	function targetTarget() {
-		return data.event.target_type === 'program' ? undefined : '_blank';
+	function primaryProgramAddress() {
+		return payloadString(data.event, 'program') ?? data.event.target_address;
+	}
+
+	function primaryVersionId() {
+		return payloadString(data.event, 'program_version_id');
 	}
 
 	function facts() {
@@ -58,7 +66,18 @@
 			{ label: 'Alert level', value: data.preview.alertLabel },
 			{ label: 'Event type', value: eventKindLabel(data.event) },
 			protocol ? { label: 'Protocol', value: protocol } : null,
-			{ label: 'Target', value: shortAddress(data.event.target_address), href: targetHref() },
+			data.event.target_type === 'program'
+				? {
+						label: 'Target',
+						value: shortAddress(data.event.target_address),
+						programAddress: data.event.target_address
+					}
+				: {
+						label: 'Target',
+						value: shortAddress(data.event.target_address),
+						href: explorerAddressUrl(data.event.target_address, data.explorerCluster),
+						external: true
+					},
 			actor
 				? {
 						label: 'Actor',
@@ -100,14 +119,23 @@
 </svelte:head>
 
 <div class="page-shell">
+	<nav class="back-nav" aria-label="Event navigation">
+		<a href={resolve('/events')} onclick={goBack}>
+			<svg viewBox="0 0 20 20" aria-hidden="true">
+				<path d="M8.53 4.47a.75.75 0 0 1 0 1.06L4.81 9.25H17a.75.75 0 0 1 0 1.5H4.81l3.72 3.72a.75.75 0 1 1-1.06 1.06l-5-5a.75.75 0 0 1 0-1.06l5-5a.75.75 0 0 1 1.06 0z"></path>
+			</svg>
+			<span>Back to feed</span>
+		</a>
+	</nav>
+
 	<section class:critical={level() === 'critical'} class:high={level() === 'high'} class="panel event-header">
 		<div class="title-group">
 			<div class="label-row">
 				<span class="alert-label">{data.preview.alertLabel}</span>
 				<span>{eventKindLabel(data.event)}</span>
 				{#if eventProtocolLabel(data.event, data.defiProtocols)}
-					{#if eventProtocolHref(data.event)}
-						<a href={eventProtocolHref(data.event) ?? undefined}>
+					{#if eventProtocolSlug(data.event)}
+						<a href={resolve('/protocols/[slug]', { slug: eventProtocolSlug(data.event) ?? '' })}>
 							{eventProtocolLabel(data.event, data.defiProtocols)}
 						</a>
 					{:else}
@@ -120,13 +148,27 @@
 		</div>
 
 		<div class="action-row">
-			{#if primaryAction()}
-				<a class="primary-link" href={primaryAction()?.href}>{primaryAction()?.label}</a>
+			{#if data.event.target_type === 'program'}
+				{#if primaryVersionId()}
+					<a
+						class="primary-link"
+						href={resolve('/programs/[address]/versions/[version_id]/compare', {
+							address: primaryProgramAddress(),
+							version_id: primaryVersionId() ?? ''
+						})}
+					>
+						Code diff
+					</a>
+				{:else}
+					<a class="primary-link" href={resolve('/programs/[address]', { address: primaryProgramAddress() })}>
+						Program page
+					</a>
+				{/if}
 			{/if}
-			<a class="secondary-link" href={explorerTransactionUrl(data.event.signature, data.explorerCluster)} rel="noreferrer" target="_blank">
+			<button class="secondary-link" type="button" onclick={() => openExternal(explorerTransactionUrl(data.event.signature, data.explorerCluster))}>
 				Open tx
-			</a>
-			<a class="secondary-link" href={relatedActivityHref()}>Related activity</a>
+			</button>
+			<a class="secondary-link" href={resolve(`/events?${relatedActivityHref()}`)}>Related activity</a>
 		</div>
 	</section>
 
@@ -144,11 +186,17 @@
 		</div>
 
 		<div class="fact-grid">
-			{#each facts() as fact}
+			{#each facts() as fact (fact.label)}
 				<div class="fact-item">
 					<span>{fact.label}</span>
-					{#if fact.href}
-						<a href={fact.href} rel={fact.external ? 'noreferrer' : targetRel()} target={fact.external ? '_blank' : targetTarget()}>{fact.value}</a>
+					{#if fact.programAddress}
+						<a href={resolve('/programs/[address]', { address: fact.programAddress })}>{fact.value}</a>
+					{:else if fact.href}
+						{#if fact.external}
+							<button class="fact-link" type="button" onclick={() => openExternal(fact.href ?? '')}>{fact.value}</button>
+						{:else}
+							<strong>{fact.value}</strong>
+						{/if}
 					{:else}
 						<strong>{fact.value}</strong>
 					{/if}
@@ -175,8 +223,8 @@
 		</div>
 
 		<div class="tag-list">
-			{#each data.event.tags as tag}
-				<a href={`/events?tag=${encodeURIComponent(tag)}`}>{tag}</a>
+			{#each data.event.tags as tag (tag)}
+				<a href={resolve(`/events?tag=${encodeURIComponent(tag)}`)}>{tag}</a>
 			{/each}
 		</div>
 
@@ -191,6 +239,38 @@
 		padding: 1rem 0 2.4rem;
 		display: grid;
 		gap: 0.86rem;
+	}
+
+	.back-nav {
+		display: flex;
+		align-items: center;
+		min-width: 0;
+	}
+
+	.back-nav a {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.34rem;
+		width: max-content;
+		max-width: 100%;
+		min-height: 1.9rem;
+		color: #4b5865;
+		font-size: 0.86rem;
+		font-weight: 720;
+		text-decoration: none;
+	}
+
+	.back-nav a:hover {
+		color: #17202a;
+		text-decoration: underline;
+		text-underline-offset: 0.14em;
+	}
+
+	.back-nav svg {
+		width: 0.92rem;
+		height: 0.92rem;
+		flex: 0 0 auto;
+		fill: currentColor;
 	}
 
 	.panel {
@@ -298,6 +378,24 @@
 		background: #fff;
 	}
 
+	button.secondary-link,
+	.fact-link {
+		font: inherit;
+		cursor: pointer;
+	}
+
+	.fact-link {
+		width: max-content;
+		max-width: 100%;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: #17202a;
+		text-align: left;
+		text-decoration: underline;
+		text-underline-offset: 0.12em;
+	}
+
 	.detail-panel,
 	.payload-panel {
 		display: grid;
@@ -335,6 +433,7 @@
 
 	.fact-item strong,
 	.fact-item a,
+	.fact-link,
 	code {
 		min-width: 0;
 		overflow-wrap: anywhere;

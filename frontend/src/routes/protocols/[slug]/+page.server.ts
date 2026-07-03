@@ -1,13 +1,18 @@
-import { error } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import { nextPageOffset } from '$lib/api-pagination';
 import type { EventsResponse, DefiProtocolDescriptor } from '$lib/types';
-import { syntheticSquadsDescriptor } from '$lib/catalog';
+import { canonicalProtocolSlug, syntheticSquadsDescriptor } from '$lib/catalog';
 import { backendRequest, readBackendError } from '$lib/server/backend';
 import type { PageServerLoad } from './$types';
 
 export const load = (async ({ fetch, params, parent }) => {
-	const app = await parent();
 	const slug = params.slug;
+	const canonicalSlug = canonicalProtocolSlug(slug);
+	if (canonicalSlug !== slug) {
+		throw redirect(308, `/protocols/${canonicalSlug}`);
+	}
+
+	const app = await parent();
 	const protocol =
 		(app.defiProtocols.find((candidate) => candidate.slug === slug) as
 			| DefiProtocolDescriptor

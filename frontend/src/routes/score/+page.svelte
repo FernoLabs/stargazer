@@ -1,3 +1,7 @@
+<script lang="ts">
+	import { resolve } from '$app/paths';
+</script>
+
 <svelte:head>
 	<title>FireWatch Score</title>
 </svelte:head>
@@ -82,7 +86,7 @@
 		<div class="actions">
 			<a href="/#protocols">Browse protocols</a>
 			<a href="/events?scope=critical">Critical activity</a>
-			<a href="mailto:contact@ferno.ag?subject=FireWatch%20score%20review">Contact us</a>
+			<a href={resolve('/contact?intent=score-review')}>Contact us</a>
 		</div>
 	</section>
 </div>

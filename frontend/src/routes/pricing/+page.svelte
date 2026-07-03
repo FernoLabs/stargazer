@@ -1,16 +1,22 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import { firewatchPlans, type FireWatchPlan } from '$lib/monetization';
 
 	function planAnchor(plan: FireWatchPlan) {
 		if (plan.id === 'paid') return 'custom-plan';
-		if (plan.id === 'pro') return 'pro-response';
+		if (plan.id === 'pro') return 'company-pro';
 		return 'shared-watch';
 	}
 
 	function setupCommand(plan: FireWatchPlan) {
 		return plan.id === 'paid' ? '/config' : '/watch defi';
 	}
+
+	function usesTelegramSetup(plan: FireWatchPlan) {
+		return plan.id === 'watch' || plan.id === 'paid';
+	}
+
 </script>
 
 <svelte:head>
@@ -21,23 +27,27 @@
 	<section class="panel intro-panel">
 		<SectionHeader
 			title="Pricing"
-			description="Free is the default DeFi watcher. Paid is the custom auto-tracked watcher. On-demand is emergency on-chain Smart Wallet action on dedicated Ferno infra."
+			description="Public coverage is Ferno-maintained. Custom watcher adds paid Telegram rules. Company Pro adds private protocol pages, owned account lists, and integration routing."
 			level="1"
 		/>
 	</section>
 
 	<section class="plans-grid" aria-label="FireWatch pricing tiers">
 		{#each firewatchPlans as plan (plan.id)}
-			<article class:featured={plan.id === 'paid'} class="plan-panel" id={planAnchor(plan)}>
+			<article class:featured={plan.id === 'pro'} class="plan-panel" id={planAnchor(plan)}>
 				<div class="plan-head">
 					<div>
 						<h2>{plan.name}</h2>
 						<p class="plan-description">{plan.description}</p>
 					</div>
-					<div class="price-block">
-						<strong>{plan.price}</strong>
-						<span>{plan.priceNote}</span>
-					</div>
+					{#if plan.price}
+						<div class="price-block">
+							<strong>{plan.price}</strong>
+							{#if plan.priceNote}
+								<span>{plan.priceNote}</span>
+							{/if}
+						</div>
+					{/if}
 				</div>
 
 				<ul class="feature-list">
@@ -46,13 +56,13 @@
 					{/each}
 				</ul>
 
-				{#if plan.id === 'pro'}
-					<a class="plan-action" href={plan.ctaHref}>{plan.ctaLabel}</a>
-				{:else}
+				{#if usesTelegramSetup(plan)}
 					<p class="setup-hint">
 						Add <a href="https://t.me/fernowatch_bot" rel="noreferrer" target="_blank">@fernowatch_bot</a>
 						then send <code>{setupCommand(plan)}</code>.
 					</p>
+				{:else}
+					<a class="plan-action" href={resolve('/contact?plan=company-pro')}>{plan.ctaLabel}</a>
 				{/if}
 			</article>
 		{/each}
@@ -95,7 +105,8 @@
 		scroll-margin-top: 7.5rem;
 	}
 
-	.plan-panel.featured {
+	.plan-panel.featured,
+	.plan-panel:target {
 		border-color: rgba(189, 74, 23, 0.34);
 		background: #fffdfb;
 	}

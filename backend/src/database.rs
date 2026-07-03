@@ -15,11 +15,12 @@ use crate::{
     },
     models::{
         ChainEvent, EventScopeCounts, EventsSummary, FirewatchUser, MetricAlertPreset,
-        MetricAlertRule, PaymentLink, PendingTelegramDelivery, ProgramDataWrite,
-        ProgramDisassemblyRecord, ProgramIdlDataWrite, ProgramIdlVersionRecord, ProgramRiskSummary,
-        ProgramSignerStat, ProgramVersionCatalogSummary, ProgramVersionLatestSummary,
-        ProgramVersionRecord, ProgramVersionSummary, PromoCode, ProtocolActivitySummary,
-        ProtocolMetricObservation, TelegramConfigSession, TelegramEventScope, TelegramSubscription,
+        MetricAlertRule, PaymentLink, PendingTelegramDailySummary, PendingTelegramDelivery,
+        ProgramDataWrite, ProgramDisassemblyRecord, ProgramIdlDataWrite, ProgramIdlVersionRecord,
+        ProgramRiskSummary, ProgramSignerStat, ProgramVersionCatalogSummary,
+        ProgramVersionLatestSummary, ProgramVersionRecord, ProgramVersionSummary, PromoCode,
+        ProtocolActivitySummary, ProtocolMetricObservation, ProtocolMultisigLink,
+        TelegramConfigSession, TelegramDeliveryMode, TelegramEventScope, TelegramSubscription,
         UserEntitlement, event_kind, now_ts,
     },
 };
@@ -28,7 +29,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use flate2::read::{GzDecoder, ZlibDecoder};
 use sqlx::{
     QueryBuilder, Row, Sqlite, SqlitePool,
-    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow},
 };
 use std::{collections::HashMap, io::Read, str::FromStr, time::Duration};
 
@@ -76,6 +77,18 @@ pub struct AddressLabelRecord {
 pub struct AddressProtocolLink {
     pub protocol_slug: String,
     pub evidence: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct ProtocolMultisigLinkWrite {
+    pub protocol_slug: String,
+    pub multisig: String,
+    pub authority: String,
+    pub program_id: String,
+    pub program_label: String,
+    pub evidence: String,
+    pub source: String,
+    pub vault_index: Option<i64>,
 }
 
 #[allow(dead_code)]
@@ -261,6 +274,35 @@ impl Database {
             r#"
             CREATE INDEX IF NOT EXISTS idx_events_target_slot
             ON events (target_address, slot DESC, indexed_at DESC, id DESC);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS protocol_multisig_links (
+                protocol_slug TEXT NOT NULL,
+                multisig TEXT NOT NULL,
+                authority TEXT NOT NULL,
+                program_id TEXT NOT NULL,
+                program_label TEXT NOT NULL,
+                evidence TEXT NOT NULL,
+                source TEXT NOT NULL,
+                vault_index INTEGER,
+                first_seen_at INTEGER NOT NULL,
+                last_seen_at INTEGER NOT NULL,
+                PRIMARY KEY (protocol_slug, program_id, multisig, authority, source)
+            );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_protocol_multisig_links_protocol
+            ON protocol_multisig_links (protocol_slug, multisig);
             "#,
         )
         .execute(&self.pool)
@@ -544,6 +586,7 @@ impl Database {
                 scope TEXT NOT NULL,
                 target_address TEXT,
                 required_tags_json TEXT NOT NULL DEFAULT '[]',
+                delivery_mode TEXT NOT NULL DEFAULT 'live',
                 status TEXT NOT NULL DEFAULT 'active',
                 payment_link_id TEXT,
                 created_at INTEGER NOT NULL
@@ -558,6 +601,22 @@ impl Database {
             "required_tags_json",
             "TEXT NOT NULL DEFAULT '[]'",
         )
+        .await?;
+        self.ensure_column(
+            "telegram_subscriptions",
+            "delivery_mode",
+            "TEXT NOT NULL DEFAULT 'live'",
+        )
+        .await?;
+        sqlx::query(
+            r#"
+            UPDATE telegram_subscriptions
+            SET delivery_mode = 'daily_summary'
+            WHERE status = 'pending_payment'
+              AND delivery_mode = 'live';
+            "#,
+        )
+        .execute(&self.pool)
         .await?;
         self.ensure_column("telegram_subscriptions", "user_id", "TEXT")
             .await?;
@@ -610,6 +669,34 @@ impl Database {
             r#"
             CREATE INDEX IF NOT EXISTS idx_telegram_deliveries_pending
             ON telegram_deliveries (delivered_at, next_retry_at);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS telegram_daily_summary_entries (
+                id TEXT PRIMARY KEY,
+                event_id TEXT NOT NULL,
+                subscription_id TEXT NOT NULL,
+                summary_day INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                delivery_attempts INTEGER NOT NULL DEFAULT 0,
+                delivered_at INTEGER,
+                last_error TEXT,
+                next_retry_at INTEGER NOT NULL,
+                UNIQUE(event_id, subscription_id)
+            );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_telegram_daily_summary_entries_pending
+            ON telegram_daily_summary_entries (delivered_at, next_retry_at, summary_day, subscription_id);
             "#,
         )
         .execute(&self.pool)
@@ -4111,7 +4198,12 @@ impl Database {
     pub async fn protocol_related_multisigs(&self, protocol_slug: &str) -> Result<Vec<String>> {
         let rows = sqlx::query(
             r#"
-            SELECT DISTINCT json_extract(payload_json, '$.multisig') AS multisig
+            SELECT multisig
+            FROM protocol_multisig_links
+            WHERE protocol_slug = ?
+              AND multisig <> ''
+            UNION
+            SELECT json_extract(payload_json, '$.multisig') AS multisig
             FROM events
             WHERE tags_json LIKE ?
               AND json_extract(payload_json, '$.multisig') IS NOT NULL
@@ -4119,6 +4211,7 @@ impl Database {
             ORDER BY multisig ASC;
             "#,
         )
+        .bind(protocol_slug)
         .bind(format!("%\"protocol:{protocol_slug}\"%"))
         .fetch_all(&self.pool)
         .await?;
@@ -4127,6 +4220,119 @@ impl Database {
             .into_iter()
             .filter_map(|row| row.try_get::<Option<String>, _>("multisig").ok().flatten())
             .collect())
+    }
+
+    pub async fn known_multisig_addresses(&self) -> Result<Vec<String>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT target_address AS multisig
+            FROM events
+            WHERE target_type = 'multisig'
+              AND target_address <> ''
+            UNION
+            SELECT json_extract(payload_json, '$.multisig') AS multisig
+            FROM events
+            WHERE json_extract(payload_json, '$.multisig') IS NOT NULL
+              AND json_extract(payload_json, '$.multisig') <> ''
+            ORDER BY multisig ASC;
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| row.try_get::<Option<String>, _>("multisig").ok().flatten())
+            .collect())
+    }
+
+    pub async fn protocol_multisig_links_by_slug(
+        &self,
+    ) -> Result<HashMap<String, Vec<ProtocolMultisigLink>>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                protocol_slug,
+                multisig,
+                authority,
+                program_id,
+                program_label,
+                evidence,
+                source,
+                vault_index,
+                last_seen_at
+            FROM protocol_multisig_links
+            ORDER BY protocol_slug ASC, program_label ASC, multisig ASC;
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut links = HashMap::<String, Vec<ProtocolMultisigLink>>::new();
+        for row in rows {
+            let protocol_slug = row.try_get::<String, _>("protocol_slug")?;
+            links
+                .entry(protocol_slug)
+                .or_default()
+                .push(protocol_multisig_link_from_row(&row)?);
+        }
+
+        Ok(links)
+    }
+
+    pub async fn replace_protocol_multisig_links(
+        &self,
+        source: &str,
+        links: &[ProtocolMultisigLinkWrite],
+    ) -> Result<usize> {
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("DELETE FROM protocol_multisig_links WHERE source = ?")
+            .bind(source)
+            .execute(&mut *transaction)
+            .await?;
+
+        let now = now_ts();
+        let mut inserted = 0;
+        for link in links {
+            sqlx::query(
+                r#"
+                INSERT INTO protocol_multisig_links (
+                    protocol_slug,
+                    multisig,
+                    authority,
+                    program_id,
+                    program_label,
+                    evidence,
+                    source,
+                    vault_index,
+                    first_seen_at,
+                    last_seen_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(protocol_slug, program_id, multisig, authority, source)
+                DO UPDATE SET
+                    program_label = excluded.program_label,
+                    evidence = excluded.evidence,
+                    vault_index = excluded.vault_index,
+                    last_seen_at = excluded.last_seen_at;
+                "#,
+            )
+            .bind(&link.protocol_slug)
+            .bind(&link.multisig)
+            .bind(&link.authority)
+            .bind(&link.program_id)
+            .bind(&link.program_label)
+            .bind(&link.evidence)
+            .bind(&link.source)
+            .bind(link.vault_index)
+            .bind(now)
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
+            inserted += 1;
+        }
+
+        transaction.commit().await?;
+        Ok(inserted)
     }
 
     pub async fn prior_program_multisig_member_actions(
@@ -5137,7 +5343,8 @@ impl Database {
         let result = sqlx::query(
             r#"
             UPDATE telegram_subscriptions
-            SET status = 'active'
+            SET status = 'active',
+                delivery_mode = 'live'
             WHERE user_id = ? AND status = 'pending_payment';
             "#,
         )
@@ -5632,6 +5839,7 @@ impl Database {
                 scope,
                 target_address,
                 required_tags_json,
+                delivery_mode,
                 status,
                 payment_link_id,
                 created_at
@@ -5639,6 +5847,41 @@ impl Database {
             ORDER BY created_at DESC;
             "#,
         )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(row_to_telegram_subscription).collect()
+    }
+
+    pub async fn list_telegram_subscriptions_for_config_session(
+        &self,
+        user_id: &str,
+        chat_id: &str,
+    ) -> Result<Vec<TelegramSubscription>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                id,
+                label,
+                user_id,
+                chat_id,
+                thread_id,
+                scope,
+                target_address,
+                required_tags_json,
+                delivery_mode,
+                status,
+                payment_link_id,
+                created_at
+            FROM telegram_subscriptions
+            WHERE chat_id = ?
+              AND (user_id = ? OR user_id IS NULL)
+              AND status IN ('active', 'pending_payment')
+            ORDER BY created_at DESC;
+            "#,
+        )
+        .bind(chat_id)
+        .bind(user_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -5668,6 +5911,7 @@ impl Database {
         scope: TelegramEventScope,
         target_address: Option<&str>,
         required_tags: &[String],
+        delivery_mode: TelegramDeliveryMode,
         status: &str,
         payment_link_id: Option<&str>,
     ) -> Result<TelegramSubscription> {
@@ -5683,11 +5927,12 @@ impl Database {
                 scope,
                 target_address,
                 required_tags_json,
+                delivery_mode,
                 status,
                 payment_link_id,
                 created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING
                 id,
                 label,
@@ -5697,6 +5942,7 @@ impl Database {
                 scope,
                 target_address,
                 required_tags_json,
+                delivery_mode,
                 status,
                 payment_link_id,
                 created_at;
@@ -5710,6 +5956,7 @@ impl Database {
         .bind(scope.as_str())
         .bind(target_address)
         .bind(serde_json::to_string(required_tags)?)
+        .bind(delivery_mode.as_str())
         .bind(status)
         .bind(payment_link_id)
         .bind(created_at)
@@ -5728,6 +5975,7 @@ impl Database {
         scope: TelegramEventScope,
         target_address: Option<&str>,
         required_tags: &[String],
+        delivery_mode: TelegramDeliveryMode,
     ) -> Result<(TelegramSubscription, bool)> {
         let required_tags_json = serde_json::to_string(required_tags)?;
         let existing = sqlx::query(
@@ -5741,6 +5989,7 @@ impl Database {
                 scope,
                 target_address,
                 required_tags_json,
+                delivery_mode,
                 status,
                 payment_link_id,
                 created_at
@@ -5750,6 +5999,7 @@ impl Database {
               AND scope = ?
               AND ((target_address IS NULL AND ? IS NULL) OR target_address = ?)
               AND required_tags_json = ?
+              AND delivery_mode = ?
               AND status = 'active'
             LIMIT 1;
             "#,
@@ -5761,6 +6011,7 @@ impl Database {
         .bind(target_address)
         .bind(target_address)
         .bind(required_tags_json)
+        .bind(delivery_mode.as_str())
         .fetch_optional(&self.pool)
         .await?;
 
@@ -5778,6 +6029,7 @@ impl Database {
                 scope,
                 target_address,
                 required_tags,
+                delivery_mode,
                 "active",
                 None,
             )
@@ -5790,6 +6042,16 @@ impl Database {
         sqlx::query(
             r#"
             DELETE FROM telegram_deliveries
+            WHERE subscription_id = ?;
+            "#,
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM telegram_daily_summary_entries
             WHERE subscription_id = ?;
             "#,
         )
@@ -5865,6 +6127,44 @@ impl Database {
         }))
     }
 
+    pub async fn enqueue_telegram_daily_summary_entry(
+        &self,
+        event: &ChainEvent,
+        subscription: &TelegramSubscription,
+        initial_next_retry_at: i64,
+    ) -> Result<bool> {
+        let entry_id = format!("daily-summary:{}:{}", event.id, subscription.id);
+        let summary_day = summary_day_for_event(event);
+        let created_at = now_ts();
+        let result = sqlx::query(
+            r#"
+            INSERT INTO telegram_daily_summary_entries (
+                id,
+                event_id,
+                subscription_id,
+                summary_day,
+                created_at,
+                delivery_attempts,
+                delivered_at,
+                last_error,
+                next_retry_at
+            )
+            VALUES (?, ?, ?, ?, ?, 0, NULL, NULL, ?)
+            ON CONFLICT(id) DO NOTHING;
+            "#,
+        )
+        .bind(&entry_id)
+        .bind(&event.id)
+        .bind(&subscription.id)
+        .bind(summary_day)
+        .bind(created_at)
+        .bind(initial_next_retry_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() == 1)
+    }
+
     pub async fn pending_telegram_deliveries(
         &self,
         now: i64,
@@ -5883,6 +6183,7 @@ impl Database {
                 s.scope AS subscription_scope,
                 s.target_address AS subscription_target_address,
                 s.required_tags_json AS subscription_required_tags_json,
+                s.delivery_mode AS subscription_delivery_mode,
                 s.status AS subscription_status,
                 s.payment_link_id AS subscription_payment_link_id,
                 s.created_at AS subscription_created_at,
@@ -5921,6 +6222,136 @@ impl Database {
             .collect()
     }
 
+    pub async fn pending_telegram_daily_summaries(
+        &self,
+        now: i64,
+        latest_summary_day: i64,
+        group_limit: i64,
+        event_limit: i64,
+    ) -> Result<Vec<PendingTelegramDailySummary>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                d.summary_day,
+                COUNT(*) AS event_count,
+                COALESCE(SUM(CASE
+                    WHEN e.tags_json LIKE '%"severity:critical"%'
+                      OR e.tags_json LIKE '%"signal:unknown_instruction"%'
+                    THEN 1 ELSE 0 END), 0) AS critical_count,
+                COALESCE(SUM(CASE
+                    WHEN NOT (
+                        e.tags_json LIKE '%"severity:critical"%'
+                        OR e.tags_json LIKE '%"signal:unknown_instruction"%'
+                    )
+                    AND (
+                        e.tags_json LIKE '%"severity:high"%'
+                        OR json_extract(e.payload_json, '$.severity') = 'high'
+                        OR json_extract(e.payload_json, '$.high_impact') = true
+                    )
+                    THEN 1 ELSE 0 END), 0) AS high_count,
+                MAX(d.delivery_attempts) AS delivery_attempts,
+                s.id AS subscription_id,
+                s.label AS subscription_label,
+                s.user_id AS subscription_user_id,
+                s.chat_id AS subscription_chat_id,
+                s.thread_id AS subscription_thread_id,
+                s.scope AS subscription_scope,
+                s.target_address AS subscription_target_address,
+                s.required_tags_json AS subscription_required_tags_json,
+                s.delivery_mode AS subscription_delivery_mode,
+                s.status AS subscription_status,
+                s.payment_link_id AS subscription_payment_link_id,
+                s.created_at AS subscription_created_at
+            FROM telegram_daily_summary_entries d
+            JOIN telegram_subscriptions s ON s.id = d.subscription_id
+            JOIN events e ON e.id = d.event_id
+            WHERE d.delivered_at IS NULL
+              AND d.next_retry_at <= ?
+              AND d.summary_day <= ?
+              AND s.status IN ('active', 'pending_payment')
+              AND s.delivery_mode = 'daily_summary'
+            GROUP BY d.subscription_id, d.summary_day
+            ORDER BY d.summary_day ASC, MIN(d.created_at) ASC
+            LIMIT ?;
+            "#,
+        )
+        .bind(now)
+        .bind(latest_summary_day)
+        .bind(group_limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut summaries = Vec::with_capacity(rows.len());
+        for row in rows {
+            let subscription = row_to_telegram_subscription_prefixed(&row, "subscription_")?;
+            let summary_day = row.try_get::<i64, _>("summary_day")?;
+            let event_count = row.try_get::<i64, _>("event_count")?;
+            let critical_count = row.try_get::<i64, _>("critical_count")?;
+            let high_count = row.try_get::<i64, _>("high_count")?;
+            let delivery_attempts = row.try_get::<i64, _>("delivery_attempts")?;
+            let event_rows = sqlx::query(
+                r#"
+                SELECT
+                    e.id,
+                    e.signature,
+                    e.instruction_path,
+                    e.kind,
+                    e.target_type,
+                    e.target_address,
+                    e.actor,
+                    e.slot,
+                    e.block_time,
+                    e.indexed_at,
+                    e.summary,
+                    e.tags_json,
+                    e.payload_json,
+                    e.delivery_attempts,
+                    e.delivered_at,
+                    e.last_error,
+                    e.next_retry_at
+                FROM telegram_daily_summary_entries d
+                JOIN events e ON e.id = d.event_id
+                WHERE d.subscription_id = ?
+                  AND d.summary_day = ?
+                  AND d.delivered_at IS NULL
+                ORDER BY
+                    CASE
+                        WHEN e.tags_json LIKE '%"severity:critical"%'
+                          OR e.tags_json LIKE '%"signal:unknown_instruction"%'
+                        THEN 0
+                        WHEN e.tags_json LIKE '%"severity:high"%'
+                        THEN 1
+                        ELSE 2
+                    END,
+                    e.slot DESC,
+                    e.indexed_at DESC
+                LIMIT ?;
+                "#,
+            )
+            .bind(&subscription.id)
+            .bind(summary_day)
+            .bind(event_limit)
+            .fetch_all(&self.pool)
+            .await?;
+
+            summaries.push(PendingTelegramDailySummary {
+                subscription,
+                summary_day,
+                event_count,
+                critical_count,
+                high_count,
+                standard_count: event_count.saturating_sub(critical_count + high_count),
+                events: event_rows
+                    .into_iter()
+                    .map(row_to_event)
+                    .collect::<Result<Vec<_>>>()?,
+                delivery_attempts,
+            });
+        }
+
+        Ok(summaries)
+    }
+
     pub async fn mark_telegram_delivery_success(
         &self,
         delivery_id: &str,
@@ -5942,6 +6373,66 @@ impl Database {
         Ok(())
     }
 
+    pub async fn mark_telegram_daily_summary_success(
+        &self,
+        subscription_id: &str,
+        summary_day: i64,
+        delivered_at: i64,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE telegram_daily_summary_entries
+            SET delivered_at = ?, last_error = NULL, next_retry_at = ?
+            WHERE subscription_id = ?
+              AND summary_day = ?
+              AND delivered_at IS NULL;
+            "#,
+        )
+        .bind(delivered_at)
+        .bind(delivered_at)
+        .bind(subscription_id)
+        .bind(summary_day)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn mark_raydium_amm_v4_swap_false_positive_deliveries(
+        &self,
+        delivered_at: i64,
+    ) -> Result<u64> {
+        let result = sqlx::query(
+            r#"
+            UPDATE telegram_deliveries
+            SET delivered_at = ?,
+                last_error = NULL,
+                next_retry_at = ?
+            WHERE delivered_at IS NULL
+              AND event_id IN (
+                SELECT id
+                FROM events
+                WHERE kind = 'program_unknown_instruction'
+                  AND target_address = '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8'
+                  AND json_extract(payload_json, '$.protocol') = 'raydium'
+                  AND json_extract(payload_json, '$.program_label') = 'Legacy AMM v4'
+                  AND (
+                    json_extract(payload_json, '$.discriminator') LIKE '09%'
+                    OR json_extract(payload_json, '$.discriminator') LIKE '0b%'
+                    OR json_extract(payload_json, '$.discriminator') LIKE '10%'
+                    OR json_extract(payload_json, '$.discriminator') LIKE '11%'
+                  )
+              );
+            "#,
+        )
+        .bind(delivered_at)
+        .bind(delivered_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
     pub async fn mark_telegram_delivery_failure(
         &self,
         delivery_id: &str,
@@ -5960,6 +6451,34 @@ impl Database {
         .bind(last_error)
         .bind(next_retry_at)
         .bind(delivery_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn mark_telegram_daily_summary_failure(
+        &self,
+        subscription_id: &str,
+        summary_day: i64,
+        delivery_attempts: i64,
+        last_error: &str,
+        next_retry_at: i64,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE telegram_daily_summary_entries
+            SET delivery_attempts = ?, last_error = ?, next_retry_at = ?
+            WHERE subscription_id = ?
+              AND summary_day = ?
+              AND delivered_at IS NULL;
+            "#,
+        )
+        .bind(delivery_attempts)
+        .bind(last_error)
+        .bind(next_retry_at)
+        .bind(subscription_id)
+        .bind(summary_day)
         .execute(&self.pool)
         .await?;
 
@@ -7218,23 +7737,35 @@ fn row_to_event(row: sqlx::sqlite::SqliteRow) -> Result<ChainEvent> {
 }
 
 fn row_to_telegram_subscription(row: sqlx::sqlite::SqliteRow) -> Result<TelegramSubscription> {
+    row_to_telegram_subscription_prefixed(&row, "")
+}
+
+fn row_to_telegram_subscription_prefixed(
+    row: &sqlx::sqlite::SqliteRow,
+    prefix: &str,
+) -> Result<TelegramSubscription> {
+    let column = |name: &str| format!("{prefix}{name}");
     Ok(TelegramSubscription {
-        id: row.try_get("id")?,
-        label: row.try_get("label")?,
-        user_id: row.try_get("user_id")?,
-        chat_id: row.try_get("chat_id")?,
-        thread_id: row.try_get("thread_id")?,
+        id: row.try_get(column("id").as_str())?,
+        label: row.try_get(column("label").as_str())?,
+        user_id: row.try_get(column("user_id").as_str())?,
+        chat_id: row.try_get(column("chat_id").as_str())?,
+        thread_id: row.try_get(column("thread_id").as_str())?,
         scope: row
-            .try_get::<String, _>("scope")?
+            .try_get::<String, _>(column("scope").as_str())?
             .parse::<TelegramEventScope>()
             .map_err(anyhow::Error::msg)?,
-        target_address: row.try_get("target_address")?,
+        target_address: row.try_get(column("target_address").as_str())?,
         required_tags: serde_json::from_str::<Vec<String>>(
-            &row.try_get::<String, _>("required_tags_json")?,
+            &row.try_get::<String, _>(column("required_tags_json").as_str())?,
         )?,
-        status: row.try_get("status")?,
-        payment_link_id: row.try_get("payment_link_id")?,
-        created_at: row.try_get("created_at")?,
+        delivery_mode: row
+            .try_get::<String, _>(column("delivery_mode").as_str())?
+            .parse::<TelegramDeliveryMode>()
+            .map_err(anyhow::Error::msg)?,
+        status: row.try_get(column("status").as_str())?,
+        payment_link_id: row.try_get(column("payment_link_id").as_str())?,
+        created_at: row.try_get(column("created_at").as_str())?,
     })
 }
 
@@ -7244,26 +7775,14 @@ fn row_to_pending_telegram_delivery(
     Ok(PendingTelegramDelivery {
         id: row.try_get("telegram_delivery_id")?,
         delivery_attempts: row.try_get("telegram_delivery_attempts")?,
-        subscription: TelegramSubscription {
-            id: row.try_get("subscription_id")?,
-            label: row.try_get("subscription_label")?,
-            user_id: row.try_get("subscription_user_id")?,
-            chat_id: row.try_get("subscription_chat_id")?,
-            thread_id: row.try_get("subscription_thread_id")?,
-            scope: row
-                .try_get::<String, _>("subscription_scope")?
-                .parse::<TelegramEventScope>()
-                .map_err(anyhow::Error::msg)?,
-            target_address: row.try_get("subscription_target_address")?,
-            required_tags: serde_json::from_str::<Vec<String>>(
-                &row.try_get::<String, _>("subscription_required_tags_json")?,
-            )?,
-            status: row.try_get("subscription_status")?,
-            payment_link_id: row.try_get("subscription_payment_link_id")?,
-            created_at: row.try_get("subscription_created_at")?,
-        },
+        subscription: row_to_telegram_subscription_prefixed(&row, "subscription_")?,
         event: row_to_event(row)?,
     })
+}
+
+fn summary_day_for_event(event: &ChainEvent) -> i64 {
+    let timestamp = event.block_time.unwrap_or(event.indexed_at);
+    timestamp.div_euclid(86_400) * 86_400
 }
 
 fn row_to_program_activity_state(row: sqlx::sqlite::SqliteRow) -> Result<ProgramActivityState> {
@@ -7982,6 +8501,19 @@ fn row_to_metric_alert_rule(row: sqlx::sqlite::SqliteRow) -> Result<MetricAlertR
         min_value: row.try_get("min_value")?,
         max_value: row.try_get("max_value")?,
         created_at: row.try_get("created_at")?,
+    })
+}
+
+fn protocol_multisig_link_from_row(row: &SqliteRow) -> Result<ProtocolMultisigLink> {
+    Ok(ProtocolMultisigLink {
+        multisig: row.try_get("multisig")?,
+        authority: row.try_get("authority")?,
+        program_id: row.try_get("program_id")?,
+        program_label: row.try_get("program_label")?,
+        evidence: row.try_get("evidence")?,
+        source: row.try_get("source")?,
+        vault_index: row.try_get("vault_index")?,
+        last_seen_at: row.try_get("last_seen_at")?,
     })
 }
 

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
+
 	type GradeRow = {
 		grade: string;
 		range: string;
@@ -193,7 +195,7 @@
 					<a href="https://github.com/FernoLabs/firewatch/issues/new/choose" rel="noreferrer" target="_blank">
 						Feature request
 					</a>
-					<a href="mailto:contact@ferno.ag?subject=FireWatch%20feature%20request">Contact us</a>
+					<a href={resolve('/contact?intent=feature-request')}>Contact us</a>
 				</div>
 			</section>
 		</main>

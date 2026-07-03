@@ -1,10 +1,11 @@
 use crate::{
     context::SharedState,
     delivery,
-    models::{FirewatchUser, TelegramBotProfile, TelegramEventScope},
+    models::{FirewatchUser, TelegramBotProfile, TelegramDeliveryMode, TelegramEventScope},
     protocols,
 };
 use anyhow::{Result, anyhow};
+use reqwest::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use solana_sdk::pubkey::Pubkey;
@@ -15,37 +16,35 @@ use tracing::{info, warn};
 
 const TELEGRAM_LONG_POLL_TIMEOUT_SECONDS: i64 = 20;
 const TELEGRAM_API_TIMEOUT: Duration = Duration::from_secs(8);
+const TELEGRAM_PROFILE_PHOTO_JPEG: &[u8] = include_bytes!("../assets/telegram-profile.jpg");
 
 const HELP_MESSAGE: &str = concat!(
-    "FireWatch commands:\n",
-    "/help - show this message\n",
-    "/info - show FireWatch live status for the indexer\n",
-    "/config - open setup in DM, or DM a group admin link from a group\n",
-    "/list - list FireWatch rules in this chat\n",
-    "/watch - open quick watch actions\n",
-    "/watch defi - subscribe this chat to the free unfiltered DeFi alert stream\n",
-    "/watch protocol <slug> - save a custom protocol monitor\n",
-    "/watch program <address> - save a custom program monitor\n",
-    "/watch multisig <address> - save a custom multisig monitor\n",
-    "/watch wallet <address> - save a custom wallet monitor\n",
-    "/unwatch - open quick remove actions\n",
-    "/unwatch all - remove all FireWatch rules from this chat\n",
-    "/unwatch defi - remove only the DeFi rule from this chat\n",
-    "/unwatch protocol <slug> - remove one custom protocol rule from this chat\n",
-    "/unwatch program <address> - remove one custom program rule from this chat\n",
-    "/unwatch multisig <address> - remove one custom multisig rule from this chat\n",
-    "/unwatch wallet <address> - remove one custom wallet rule from this chat\n",
-    "/cancel - close the current action\n\n",
-    "Custom program, protocol, wallet, threshold, and bot setup require Custom Plan access. ",
-    "Ferno members are included, and approved Superteam promo codes cover 12 months.\n\n",
-    "Alerts only apply to new matching events after the command is accepted."
+    "Welcome to FireWatch.\n\n",
+    "Get high-signal Solana DeFi alerts without tuning a feed.\n\n",
+    "Quick start:\n",
+    "/watch - choose daily summary or live DeFi alerts\n",
+    "/config - private setup for protocol, program, wallet, and .sol watches\n",
+    "/list - see what this chat receives\n",
+    "/unwatch - remove alerts\n\n",
+    "Best default: Daily summary. It sends one update a day when matching activity appears."
+);
+const BOT_DESCRIPTION: &str = concat!(
+    "FireWatch watches high-signal Solana DeFi changes: program upgrades, unknown instructions, ",
+    "metric anomalies, multisig activity, and admin changes.\n\n",
+    "Use /watch for the simple menu, /config for private setup, and /list to see active rules."
+);
+const BOT_SHORT_DESCRIPTION: &str =
+    "High-signal Solana DeFi alerts. Start with a daily summary or turn on live watches.";
+const SETUP_COPY: &str = concat!(
+    "Custom protocol, program, wallet, and .sol watches are configured from private setup. ",
+    "Ferno members are included. Without Custom Plan access, saved watches send daily summaries."
 );
 const CUSTOM_WATCH_REQUIRED_MESSAGE: &str = concat!(
     "Custom watch rules require the Custom Plan. ",
-    "Free users can use /watch defi for the unfiltered DeFi alert feed. ",
-    "Ferno members and approved Superteam promo users can configure program, protocol, wallet, and threshold watches from FireWatch setup."
+    "Free users can start with a daily DeFi summary from /watch. ",
+    "Ferno members and approved Superteam promo users can configure custom watches from FireWatch setup."
 );
-const WATCH_MENU_MESSAGE: &str = "Choose a free watch action in this chat:";
+const WATCH_MENU_MESSAGE: &str = "Choose how this chat should receive FireWatch:";
 const UNWATCH_MENU_MESSAGE: &str = "Choose what to remove from this chat:";
 
 #[derive(Deserialize)]
@@ -113,11 +112,22 @@ struct TelegramGetChatMemberRequest<'a> {
     user_id: i64,
 }
 
+#[derive(Serialize)]
+struct TelegramGetUserProfilePhotosRequest {
+    user_id: i64,
+    limit: i64,
+}
+
 #[derive(Deserialize)]
 struct TelegramBotUser {
     id: i64,
     first_name: String,
     username: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TelegramUserProfilePhotos {
+    total_count: i64,
 }
 
 #[derive(Serialize)]
@@ -130,6 +140,16 @@ struct TelegramGetUpdatesRequest {
 #[derive(Serialize)]
 struct TelegramSetMyCommandsRequest {
     commands: Vec<TelegramBotCommand>,
+}
+
+#[derive(Serialize)]
+struct TelegramSetMyDescriptionRequest {
+    description: &'static str,
+}
+
+#[derive(Serialize)]
+struct TelegramSetMyShortDescriptionRequest {
+    short_description: &'static str,
 }
 
 #[derive(Serialize)]
@@ -182,6 +202,8 @@ pub async fn run_command_loop(state: SharedState) -> Result<()> {
             sleep(Duration::from_secs(3600)).await;
         }
     }
+
+    sync_bot_profile(state.clone()).await;
 
     loop {
         if let Err(error) = register_bot_commands(&state).await {
@@ -419,6 +441,9 @@ async fn handle_message(state: &SharedState, message: &TelegramMessage) -> Resul
         "watch" if args.eq_ignore_ascii_case("defi") => {
             handle_watch_defi(state, message).await?;
         }
+        "watch" if args.eq_ignore_ascii_case("summary") => {
+            handle_watch_summary(state, message).await?;
+        }
         "watch" if args.to_ascii_lowercase().starts_with("protocol ") => {
             handle_watch_protocol(state, message, args["protocol ".len()..].trim()).await?;
         }
@@ -436,6 +461,9 @@ async fn handle_message(state: &SharedState, message: &TelegramMessage) -> Resul
         }
         "watch_defi" => {
             handle_watch_defi(state, message).await?;
+        }
+        "watch_summary" => {
+            handle_watch_summary(state, message).await?;
         }
         "unwatch" if args.is_empty() => {
             send_unwatch_menu(
@@ -530,6 +558,22 @@ async fn handle_callback_query(
             )
             .await?;
             let reply = ensure_watch_defi(state, message).await?;
+            close_menu_message(
+                state,
+                &message.chat.id.to_string(),
+                message.message_id,
+                &reply,
+            )
+            .await?;
+        }
+        "watch:summary" => {
+            answer_callback_query(
+                state,
+                &callback_query.id,
+                Some("Subscribing this chat to the daily DeFi summary..."),
+            )
+            .await?;
+            let reply = ensure_watch_summary(state, message).await?;
             close_menu_message(
                 state,
                 &message.chat.id.to_string(),
@@ -745,6 +789,19 @@ async fn handle_watch_defi(state: &SharedState, message: &TelegramMessage) -> Re
     Ok(())
 }
 
+async fn handle_watch_summary(state: &SharedState, message: &TelegramMessage) -> Result<()> {
+    let reply = ensure_watch_summary(state, message).await?;
+    delivery::send_telegram_text(
+        state,
+        &message.chat.id.to_string(),
+        message.message_thread_id,
+        &reply,
+    )
+    .await?;
+
+    Ok(())
+}
+
 async fn handle_watch_protocol(
     state: &SharedState,
     message: &TelegramMessage,
@@ -896,6 +953,11 @@ async fn ensure_custom_watch_with_payment(
         .db
         .user_has_active_custom_entitlement(&user.id, crate::models::now_ts())
         .await?;
+    let delivery_mode = if has_entitlement {
+        TelegramDeliveryMode::Live
+    } else {
+        TelegramDeliveryMode::DailySummary
+    };
     let status = if has_entitlement {
         "active"
     } else {
@@ -913,6 +975,7 @@ async fn ensure_custom_watch_with_payment(
             scope,
             target_address,
             required_tags,
+            delivery_mode,
             status,
             None,
         )
@@ -927,7 +990,7 @@ async fn ensure_custom_watch_with_payment(
 
     let payment_note = build_custom_watch_required_reply(state, message, Some(&user)).await?;
     Ok(format!(
-        "Saved this custom watch rule as pending payment: {}.\n\n{payment_note}\n\nAlerts will stay paused until this Telegram user has active Custom Plan access.",
+        "Saved this custom watch rule as a daily summary: {}.\n\n{payment_note}\n\nLive per-event alerts activate after this Telegram user has Custom Plan access.",
         subscription.label
     ))
 }
@@ -1101,16 +1164,24 @@ async fn ensure_watch_defi(state: &SharedState, message: &TelegramMessage) -> Re
             TelegramEventScope::DefiWatch,
             None,
             &Vec::new(),
+            TelegramDeliveryMode::Live,
         )
         .await?;
+    let removed_summary =
+        delete_free_defi_subscription_mode(state, message, TelegramDeliveryMode::DailySummary)
+            .await?;
 
     let custom_rule_count = count_non_defi_subscriptions_for_chat(state, message).await?;
     let mut reply = if created {
-        "This chat is now subscribed to high-signal DeFi alerts: program upgrades, unknown instructions, metric anomalies, and high-impact admin changes."
+        "Live DeFi alerts are on for this chat."
     } else {
-        "This chat was already subscribed to the free DeFi alert stream."
+        "Live DeFi alerts were already on for this chat."
     }
     .to_owned();
+
+    if removed_summary > 0 {
+        reply.push_str(" I turned off the daily DeFi summary to keep this chat tidy.");
+    }
 
     if custom_rule_count > 0 {
         reply.push_str(&format!(
@@ -1119,6 +1190,47 @@ async fn ensure_watch_defi(state: &SharedState, message: &TelegramMessage) -> Re
         ));
     }
 
+    Ok(reply)
+}
+
+async fn ensure_watch_summary(state: &SharedState, message: &TelegramMessage) -> Result<String> {
+    let chat_id = message.chat.id.to_string();
+    let thread_id = message.message_thread_id;
+    let label_prefix = message
+        .chat
+        .title
+        .as_deref()
+        .unwrap_or("telegram chat")
+        .to_owned();
+
+    let (_, created) = state
+        .db
+        .ensure_telegram_subscription(
+            &format!("{label_prefix} /watch summary"),
+            None,
+            &chat_id,
+            thread_id,
+            TelegramEventScope::DefiWatch,
+            None,
+            &Vec::new(),
+            TelegramDeliveryMode::DailySummary,
+        )
+        .await?;
+    let removed_live =
+        delete_free_defi_subscription_mode(state, message, TelegramDeliveryMode::Live).await?;
+
+    let mut reply = if created {
+        "Daily summary is on. This chat will get one FireWatch update a day when matching DeFi activity appears."
+    } else {
+        "Daily summary was already on for this chat."
+    }
+    .to_owned();
+
+    if removed_live > 0 {
+        reply.push_str(" I turned off live DeFi alerts to keep the feed quiet.");
+    }
+
+    reply.push_str("\n\nUse /list anytime to check active rules.");
     Ok(reply)
 }
 
@@ -1300,7 +1412,10 @@ async fn build_list_message(state: &SharedState, message: &TelegramMessage) -> R
         .collect::<Vec<_>>();
 
     if subscriptions.is_empty() {
-        return Ok("This chat has no active FireWatch rules right now.".to_owned());
+        return Ok(
+            "No FireWatch alerts are active in this chat. Send /watch to start with a daily summary."
+                .to_owned(),
+        );
     }
 
     subscriptions.sort_by_key(|subscription| subscription.created_at);
@@ -1313,10 +1428,7 @@ async fn build_list_message(state: &SharedState, message: &TelegramMessage) -> R
             describe_subscription(subscription)
         ));
     }
-    lines.push(
-        "Use /unwatch to remove rules, or send a specific /unwatch command for one custom target."
-            .to_owned(),
-    );
+    lines.push("Use /unwatch to remove rules.".to_owned());
 
     Ok(lines.join("\n"))
 }
@@ -1343,36 +1455,24 @@ async fn register_bot_commands(state: &SharedState) -> Result<()> {
     let body = TelegramSetMyCommandsRequest {
         commands: vec![
             TelegramBotCommand {
-                command: "help",
-                description: "Show FireWatch commands",
-            },
-            TelegramBotCommand {
                 command: "watch",
-                description: "Open quick watch actions",
+                description: "Choose daily summary or live alerts",
             },
             TelegramBotCommand {
                 command: "config",
-                description: "DM a private setup link to a group admin",
+                description: "Open private setup",
             },
             TelegramBotCommand {
                 command: "list",
-                description: "List FireWatch rules in this chat",
-            },
-            TelegramBotCommand {
-                command: "info",
-                description: "Show FireWatch live status",
-            },
-            TelegramBotCommand {
-                command: "watch_defi",
-                description: "Subscribe this chat to the free DeFi feed",
+                description: "Show active alerts in this chat",
             },
             TelegramBotCommand {
                 command: "unwatch",
-                description: "Open quick remove actions",
+                description: "Remove alerts",
             },
             TelegramBotCommand {
-                command: "cancel",
-                description: "Close the current quick action",
+                command: "help",
+                description: "Show quick start",
             },
         ],
     };
@@ -1383,12 +1483,117 @@ async fn register_bot_commands(state: &SharedState) -> Result<()> {
         .timeout(TELEGRAM_API_TIMEOUT)
         .send()
         .await?;
+    parse_telegram_bool_response("setMyCommands", response).await
+}
+
+async fn sync_bot_profile(state: SharedState) {
+    if let Err(error) = set_bot_short_description(&state).await {
+        warn!(error = %error, "failed to set telegram bot short description");
+    }
+    if let Err(error) = set_bot_description(&state).await {
+        warn!(error = %error, "failed to set telegram bot description");
+    }
+    if let Err(error) = set_bot_profile_photo_if_missing(&state).await {
+        warn!(error = %error, "failed to set telegram bot profile photo");
+    }
+}
+
+async fn set_bot_description(state: &SharedState) -> Result<()> {
+    let response = state
+        .http_client
+        .post(telegram_method_url(state, "setMyDescription")?)
+        .json(&TelegramSetMyDescriptionRequest {
+            description: BOT_DESCRIPTION,
+        })
+        .timeout(TELEGRAM_API_TIMEOUT)
+        .send()
+        .await?;
+
+    parse_telegram_bool_response("setMyDescription", response).await
+}
+
+async fn set_bot_short_description(state: &SharedState) -> Result<()> {
+    let response = state
+        .http_client
+        .post(telegram_method_url(state, "setMyShortDescription")?)
+        .json(&TelegramSetMyShortDescriptionRequest {
+            short_description: BOT_SHORT_DESCRIPTION,
+        })
+        .timeout(TELEGRAM_API_TIMEOUT)
+        .send()
+        .await?;
+
+    parse_telegram_bool_response("setMyShortDescription", response).await
+}
+
+async fn set_bot_profile_photo_if_missing(state: &SharedState) -> Result<()> {
+    let Some(profile) = bot_profile(state).await? else {
+        return Ok(());
+    };
+    if bot_has_profile_photo(state, profile.id).await? {
+        return Ok(());
+    }
+
+    let photo = serde_json::json!({
+        "type": "static",
+        "photo": "attach://firewatch_profile_photo"
+    })
+    .to_string();
+    let profile_photo = Part::bytes(TELEGRAM_PROFILE_PHOTO_JPEG.to_vec())
+        .file_name("firewatch-telegram-profile.jpg")
+        .mime_str("image/jpeg")?;
+    let form = Form::new()
+        .text("photo", photo)
+        .part("firewatch_profile_photo", profile_photo);
+    let response = state
+        .http_client
+        .post(telegram_method_url(state, "setMyProfilePhoto")?)
+        .multipart(form)
+        .timeout(TELEGRAM_API_TIMEOUT)
+        .send()
+        .await?;
+
+    parse_telegram_bool_response("setMyProfilePhoto", response).await
+}
+
+async fn bot_has_profile_photo(state: &SharedState, user_id: i64) -> Result<bool> {
+    let response = state
+        .http_client
+        .post(telegram_method_url(state, "getUserProfilePhotos")?)
+        .json(&TelegramGetUserProfilePhotosRequest { user_id, limit: 1 })
+        .timeout(TELEGRAM_API_TIMEOUT)
+        .send()
+        .await?;
     let status = response.status();
     let text = response.text().await?;
 
     if !status.is_success() {
         return Err(anyhow!(
-            "telegram setMyCommands returned {status}: {}",
+            "telegram getUserProfilePhotos returned {status}: {}",
+            text.trim()
+        ));
+    }
+
+    let parsed = serde_json::from_str::<TelegramApiEnvelope<TelegramUserProfilePhotos>>(&text)?;
+    if parsed.ok {
+        Ok(parsed.result.total_count > 0)
+    } else {
+        Err(anyhow!(
+            "{}",
+            parsed
+                .description
+                .unwrap_or_else(|| "telegram getUserProfilePhotos failed".to_owned())
+        ))
+    }
+}
+
+async fn parse_telegram_bool_response(method: &str, response: reqwest::Response) -> Result<()> {
+    let status = response.status();
+    let text = response.text().await?;
+
+    if !status.is_success() {
+        return Err(anyhow!(
+            "telegram {method} returned {status}: {}",
             text.trim()
         ));
     }
@@ -1401,7 +1606,7 @@ async fn register_bot_commands(state: &SharedState) -> Result<()> {
             "{}",
             parsed
                 .description
-                .unwrap_or_else(|| "telegram setMyCommands failed".to_owned())
+                .unwrap_or_else(|| format!("telegram {method} failed"))
         ))
     }
 }
@@ -1520,7 +1725,7 @@ async fn send_watch_menu(state: &SharedState, chat_id: &str, thread_id: Option<i
         state,
         chat_id,
         thread_id,
-        "Free users can use /watch defi. Custom filters require Custom Plan setup.",
+        "Best default: Daily summary. Custom filters use /config.",
     )
     .await
 }
@@ -1530,9 +1735,7 @@ async fn send_unwatch_menu(
     chat_id: &str,
     thread_id: Option<i64>,
 ) -> Result<()> {
-    let text = format!(
-        "{UNWATCH_MENU_MESSAGE}\n\nUse this when you want to remove active rules before switching to the free DeFi stream."
-    );
+    let text = format!("{UNWATCH_MENU_MESSAGE}\n\nThis only changes alerts for the current chat.");
     send_message(
         state,
         chat_id,
@@ -1549,7 +1752,7 @@ async fn send_watch_menu_with_note(
     thread_id: Option<i64>,
     note: &str,
 ) -> Result<()> {
-    let text = format!("{WATCH_MENU_MESSAGE}\n\n{note}");
+    let text = format!("{WATCH_MENU_MESSAGE}\n\n{note}\n\n{SETUP_COPY}");
     send_message(state, chat_id, thread_id, &text, Some(watch_menu_markup())).await
 }
 
@@ -1679,7 +1882,11 @@ fn watch_menu_markup() -> TelegramInlineKeyboardMarkup {
     TelegramInlineKeyboardMarkup {
         inline_keyboard: vec![
             vec![TelegramInlineKeyboardButton {
-                text: "Watch free DeFi",
+                text: "Daily summary",
+                callback_data: "watch:summary",
+            }],
+            vec![TelegramInlineKeyboardButton {
+                text: "Live DeFi alerts",
                 callback_data: "watch:defi",
             }],
             vec![TelegramInlineKeyboardButton {
@@ -1692,6 +1899,67 @@ fn watch_menu_markup() -> TelegramInlineKeyboardMarkup {
             }],
         ],
     }
+}
+
+pub async fn send_setup_saved_notification(
+    state: &SharedState,
+    chat_id: &str,
+    saved_rule_count: usize,
+    removed_rule_count: usize,
+    delivery_mode: TelegramDeliveryMode,
+    has_entitlement: bool,
+    payment_url: Option<&str>,
+) -> Result<()> {
+    let message = build_setup_saved_notification(
+        saved_rule_count,
+        removed_rule_count,
+        delivery_mode,
+        has_entitlement,
+        payment_url,
+    );
+    delivery::send_telegram_text(state, chat_id, None, &message).await
+}
+
+fn build_setup_saved_notification(
+    saved_rule_count: usize,
+    removed_rule_count: usize,
+    delivery_mode: TelegramDeliveryMode,
+    has_entitlement: bool,
+    payment_url: Option<&str>,
+) -> String {
+    if saved_rule_count == 0 {
+        let removed = pluralize_rule(removed_rule_count);
+        return format!("Setup saved. Removed {removed}.\n\nUse /list to check what remains.");
+    }
+
+    let saved = pluralize_rule(saved_rule_count);
+    let removed_line = if removed_rule_count > 0 {
+        format!("\nRemoved {}.", pluralize_rule(removed_rule_count))
+    } else {
+        String::new()
+    };
+
+    match delivery_mode {
+        TelegramDeliveryMode::DailySummary => {
+            let payment_line = if has_entitlement {
+                String::new()
+            } else if let Some(url) = payment_url {
+                format!("\n\nLive per-event alerts unlock after Custom Plan checkout:\n{url}")
+            } else {
+                "\n\nLive per-event alerts unlock after Custom Plan checkout.".to_owned()
+            };
+            format!(
+                "Setup saved. This chat will get one daily FireWatch update when matching activity appears.\nSaved {saved}.{removed_line}\n\nUse /list anytime to check active rules.{payment_line}"
+            )
+        }
+        TelegramDeliveryMode::Live => format!(
+            "Setup saved. Live FireWatch alerts are on for {saved}.{removed_line}\n\nPrefer fewer messages? Send /watch summary for one daily DeFi update. Use /list anytime."
+        ),
+    }
+}
+
+fn pluralize_rule(count: usize) -> String {
+    format!("{count} rule{}", if count == 1 { "" } else { "s" })
 }
 
 fn unwatch_menu_markup() -> TelegramInlineKeyboardMarkup {
@@ -1750,6 +2018,21 @@ where
     Ok(deleted)
 }
 
+async fn delete_free_defi_subscription_mode(
+    state: &SharedState,
+    message: &TelegramMessage,
+    delivery_mode: TelegramDeliveryMode,
+) -> Result<usize> {
+    delete_chat_subscriptions(state, message, |subscription| {
+        subscription.status == "active"
+            && subscription.scope == TelegramEventScope::DefiWatch
+            && subscription.target_address.is_none()
+            && subscription.required_tags.is_empty()
+            && subscription.delivery_mode == delivery_mode
+    })
+    .await
+}
+
 async fn list_chat_scope_labels(
     state: &SharedState,
     message: &TelegramMessage,
@@ -1800,7 +2083,11 @@ fn scope_label(scope: TelegramEventScope) -> &'static str {
 }
 
 fn describe_subscription(subscription: &crate::models::TelegramSubscription) -> String {
-    match subscription.scope {
+    let mode_suffix = match subscription.delivery_mode {
+        TelegramDeliveryMode::Live => "live",
+        TelegramDeliveryMode::DailySummary => "daily summary",
+    };
+    let base = match subscription.scope {
         TelegramEventScope::DefiWatch => {
             if let Some(protocol_slug) = subscription
                 .required_tags
@@ -1808,34 +2095,39 @@ fn describe_subscription(subscription: &crate::models::TelegramSubscription) -> 
                 .find_map(|tag| tag.strip_prefix("protocol:"))
             {
                 if let Some(protocol) = protocols::curated_protocol_descriptor(protocol_slug) {
-                    return format!("Protocol watch: {}", protocol.name);
+                    format!("Protocol watch: {}", protocol.name)
+                } else {
+                    format!("Protocol watch: {protocol_slug}")
                 }
-
-                return format!("Protocol watch: {protocol_slug}");
+            } else {
+                match subscription.delivery_mode {
+                    TelegramDeliveryMode::Live => "Live DeFi alerts".to_owned(),
+                    TelegramDeliveryMode::DailySummary => "Daily DeFi summary".to_owned(),
+                }
             }
-
-            "Focused DeFi watch".to_owned()
         }
         TelegramEventScope::ProgramUpdates => {
             if let Some(address) = subscription.target_address.as_deref() {
-                return format!("Program watch: {address}");
+                format!("Program watch: {address}")
+            } else {
+                "All program updates".to_owned()
             }
-
-            "All program updates".to_owned()
         }
         TelegramEventScope::MultisigActivity => {
             if let Some(address) = subscription.target_address.as_deref() {
-                return format!("Multisig watch: {address}");
+                format!("Multisig watch: {address}")
+            } else {
+                "All multisig activity".to_owned()
             }
-
-            "All multisig activity".to_owned()
         }
         TelegramEventScope::WalletActivity => {
             if let Some(address) = subscription.target_address.as_deref() {
-                return format!("Wallet watch: {address}");
+                format!("Wallet watch: {address}")
+            } else {
+                "Wallet activity".to_owned()
             }
-
-            "Wallet activity".to_owned()
         }
-    }
+    };
+
+    format!("{base} ({mode_suffix})")
 }
