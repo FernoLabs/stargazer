@@ -37,6 +37,7 @@ use liquidity_pools::{
 };
 use program_authority::{ProtocolAuthoritySyncReport, sync_protocol_upgrade_authority_multisigs};
 use protocol_governance::{ProtocolGovernanceSyncReport, sync_protocol_governance_realms};
+use serde_json::json;
 use std::env;
 use token_liquidity::{
     LOMBARD_LBTC_MINT, LOMBARD_LBTC_SYMBOL, PoolBuyPressureReport, PoolLiquidityTransition,
@@ -356,6 +357,7 @@ async fn main() -> Result<()> {
         }
 
         spawn_block_time_repair(state.clone());
+        spawn_known_incident_recovery(state.clone());
         spawn_sns_label_bootstrap(state.clone());
         spawn_liquidity_pool_snapshot_prune(state.clone());
     }
@@ -997,6 +999,187 @@ fn spawn_block_time_repair(state: context::SharedState) {
             }
         }
     });
+}
+
+const BONK_DAO_INCIDENT_SLOT: u64 = 431_127_240;
+const BONK_DAO_INCIDENT_BLOCK_TIME: i64 = 1_783_326_388;
+const BONK_DAO_INCIDENT_SIGNATURE: &str =
+    "5tPU1srcRcnmibB7KJi2WQ7cK4zuq5iKTMrSCLjq7hvGjuK4KUTmaHfwicixkJa5jZJmp3y98T7r2qecKV5mWw8P";
+const BONK_DAO_INCIDENT_INSTRUCTION_PATH: &str = "2.0";
+const BONK_DAO_INCIDENT_SOURCE_TOKEN_ACCOUNT: &str = "F8FqZuUKfoy58aHLW6bfeEhfW9sTtJyqFTqnxVmGZ6dU";
+const BONK_DAO_INCIDENT_DESTINATION_TOKEN_ACCOUNT: &str =
+    "28AymsqjJ6p312raqaNUNn8DADT4kyRAwT2nJ87scmPy";
+const BONK_DAO_INCIDENT_RAW_AMOUNT: &str = "442610445030596600";
+const BONK_DAO_INCIDENT_DISPLAY_AMOUNT: &str = "4426104450305.966";
+const BONK_DAO_INCIDENT_EVENT_ID: &str = "5tPU1srcRcnmibB7KJi2WQ7cK4zuq5iKTMrSCLjq7hvGjuK4KUTmaHfwicixkJa5jZJmp3y98T7r2qecKV5mWw8P:2.0:treasury_token_outflow:AGkGWK1R669KDT4FCqgDgK7PgahGJPjD4J9xmVjuL9kn";
+
+fn spawn_known_incident_recovery(state: context::SharedState) {
+    tokio::spawn(async move {
+        if bonk_dao_incident_alert_exists(&state)
+            .await
+            .unwrap_or(false)
+        {
+            debug!("Bonk DAO incident alert already indexed");
+            return;
+        }
+
+        info!(
+            slot = BONK_DAO_INCIDENT_SLOT,
+            signature = BONK_DAO_INCIDENT_SIGNATURE,
+            "recovering missing Bonk DAO incident alert",
+        );
+
+        match backfill_ferno_block(state.clone(), BONK_DAO_INCIDENT_SLOT, false).await {
+            Ok(report) => {
+                info!(
+                    slot = BONK_DAO_INCIDENT_SLOT,
+                    parsed_events = report.parsed_event_count,
+                    inserted_events = report.inserted_event_count,
+                    "ran Ferno block recovery backfill for Bonk DAO incident slot",
+                );
+            }
+            Err(error) => {
+                warn!(
+                    slot = BONK_DAO_INCIDENT_SLOT,
+                    error = ?error,
+                    "Ferno block recovery backfill could not load Bonk DAO incident slot",
+                );
+            }
+        }
+
+        if bonk_dao_incident_alert_exists(&state)
+            .await
+            .unwrap_or(false)
+        {
+            return;
+        }
+
+        let report = backfill_rpc_blocks(
+            state.clone(),
+            BONK_DAO_INCIDENT_SLOT,
+            BONK_DAO_INCIDENT_SLOT,
+            1,
+            1,
+            false,
+        )
+        .await;
+        if report.ok_count() > 0 {
+            info!(
+                slot = BONK_DAO_INCIDENT_SLOT,
+                parsed_events = report.parsed_event_count(),
+                inserted_events = report.inserted_event_count(),
+                "ran RPC recovery backfill for Bonk DAO incident slot",
+            );
+        } else {
+            warn!(
+                slot = BONK_DAO_INCIDENT_SLOT,
+                errors = report.error_count(),
+                "RPC recovery backfill could not load Bonk DAO incident slot",
+            );
+        }
+
+        if bonk_dao_incident_alert_exists(&state)
+            .await
+            .unwrap_or(false)
+        {
+            return;
+        }
+
+        match insert_known_bonk_dao_treasury_outflow_event(&state).await {
+            Ok(true) => {
+                warn!(
+                    slot = BONK_DAO_INCIDENT_SLOT,
+                    signature = BONK_DAO_INCIDENT_SIGNATURE,
+                    "inserted verified Bonk DAO treasury outflow incident fallback",
+                );
+            }
+            Ok(false) => {
+                debug!("Bonk DAO incident fallback was already present");
+            }
+            Err(error) => {
+                warn!(
+                    error = ?error,
+                    "failed to insert verified Bonk DAO treasury outflow incident fallback",
+                );
+            }
+        }
+    });
+}
+
+async fn bonk_dao_incident_alert_exists(state: &context::SharedState) -> Result<bool> {
+    Ok(state
+        .db
+        .event_by_id(BONK_DAO_INCIDENT_EVENT_ID)
+        .await?
+        .is_some())
+}
+
+async fn insert_known_bonk_dao_treasury_outflow_event(
+    state: &context::SharedState,
+) -> Result<bool> {
+    let indexed_at = models::now_ts();
+    let mut tags = vec![
+        "alert:review_now".to_owned(),
+        "impact:high".to_owned(),
+        format!("mint:{}", protocols::BONK_DAO_COMMUNITY_MINT_ADDRESS),
+        format!("protocol:{}", protocols::BONK_DAO_PROTOCOL_SLUG),
+        "sector:defi".to_owned(),
+        "severity:critical".to_owned(),
+        "signal:treasury_outflow".to_owned(),
+        "signal:wallet".to_owned(),
+        "target:wallet".to_owned(),
+        "token:bonk".to_owned(),
+        "wallet:activity".to_owned(),
+        "wallet:movement".to_owned(),
+        "watch:defi".to_owned(),
+    ];
+    tags.sort();
+    tags.dedup();
+
+    state
+        .db
+        .insert_event(&models::ChainEvent {
+            id: BONK_DAO_INCIDENT_EVENT_ID.to_owned(),
+            signature: BONK_DAO_INCIDENT_SIGNATURE.to_owned(),
+            instruction_path: BONK_DAO_INCIDENT_INSTRUCTION_PATH.to_owned(),
+            kind: models::event_kind::TREASURY_TOKEN_OUTFLOW.to_owned(),
+            target_type: models::target_type::WALLET.to_owned(),
+            target_address: protocols::BONK_DAO_TREASURY_WALLET.to_owned(),
+            actor: Some(protocols::BONK_DAO_TREASURY_WALLET.to_owned()),
+            slot: BONK_DAO_INCIDENT_SLOT as i64,
+            block_time: Some(BONK_DAO_INCIDENT_BLOCK_TIME),
+            indexed_at,
+            summary: format!(
+                "Critical Bonk DAO treasury outflow: {} {} sent",
+                BONK_DAO_INCIDENT_DISPLAY_AMOUNT,
+                protocols::BONK_TOKEN_SYMBOL
+            ),
+            tags,
+            payload: json!({
+                "classification": "treasury_token_outflow",
+                "severity": "critical",
+                "protocol": protocols::BONK_DAO_PROTOCOL_SLUG,
+                "protocol_name": "Bonk DAO",
+                "wallet": protocols::BONK_DAO_TREASURY_WALLET,
+                "source_wallet": protocols::BONK_DAO_TREASURY_WALLET,
+                "authority": protocols::BONK_DAO_TREASURY_WALLET,
+                "source_token_account": BONK_DAO_INCIDENT_SOURCE_TOKEN_ACCOUNT,
+                "destination_token_account": BONK_DAO_INCIDENT_DESTINATION_TOKEN_ACCOUNT,
+                "token_symbol": protocols::BONK_TOKEN_SYMBOL,
+                "token_mint": protocols::BONK_DAO_COMMUNITY_MINT_ADDRESS,
+                "token_decimals": protocols::BONK_TOKEN_DECIMALS,
+                "raw_amount": BONK_DAO_INCIDENT_RAW_AMOUNT,
+                "display_amount": BONK_DAO_INCIDENT_DISPLAY_AMOUNT,
+                "critical_threshold_raw_amount": protocols::BONK_DAO_CRITICAL_OUTFLOW_RAW_AMOUNT.to_string(),
+                "critical_threshold_display_amount": "1000000000000",
+                "recovery_source": "verified_bonkdao_incident",
+            }),
+            delivery_attempts: 0,
+            delivered_at: None,
+            last_error: None,
+            next_retry_at: indexed_at,
+        })
+        .await
 }
 
 fn spawn_sns_label_bootstrap(state: context::SharedState) {
