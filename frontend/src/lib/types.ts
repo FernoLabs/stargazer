@@ -256,6 +256,11 @@ export interface TelegramConfigSessionResponse {
 	subscriptions: TelegramSubscription[];
 }
 
+export interface RememberTelegramConfigSessionResponse {
+	token: string;
+	session: TelegramConfigSession;
+}
+
 export interface SaveTelegramConfigResponse {
 	saved_count: number;
 	status: string;
@@ -296,6 +301,18 @@ export interface ProtocolMultisigLink {
 	last_seen_at: number;
 }
 
+export interface ProtocolGovernanceLink {
+	governance_program_id: string;
+	realm: string;
+	realm_name: string;
+	governance: string;
+	governed_account: string;
+	governance_kind: string;
+	evidence: string;
+	source: string;
+	last_seen_at: number;
+}
+
 export interface DefiProtocolDescriptor {
 	slug: string;
 	name: string;
@@ -309,6 +326,7 @@ export interface DefiProtocolDescriptor {
 	amount_triggers: AmountTriggerDescriptor[];
 	unknown_alerts: boolean;
 	related_multisigs?: ProtocolMultisigLink[];
+	related_governances?: ProtocolGovernanceLink[];
 }
 
 export interface DefiProtocolsResponse {

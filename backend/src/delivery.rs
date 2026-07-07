@@ -223,17 +223,54 @@ async fn auto_enroll_paid_wallet_protocol_subscriptions(
 fn supported_protocol_slugs(event: &ChainEvent) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut slugs = Vec::new();
+    let mut has_squads = false;
 
-    for tag in &event.tags {
-        let Some(slug) = tag.strip_prefix("protocol:") else {
-            continue;
-        };
-        if slug.is_empty() || !seen.insert(slug) {
-            continue;
+    let mut collect = |slug: &str| {
+        let slug = slug.trim();
+        if slug.is_empty() {
+            return;
         }
-        if protocols::curated_protocol_descriptor(slug).is_some() {
+        if slug == protocols::SQUADS_PROTOCOL_SLUG {
+            has_squads = true;
+            return;
+        }
+        if seen.insert(slug.to_owned()) && protocols::curated_protocol_descriptor(slug).is_some() {
             slugs.push(slug.to_owned());
         }
+    };
+
+    if let Some(linked_protocols) = event
+        .payload
+        .get("linked_protocols")
+        .and_then(|value| value.as_array())
+    {
+        for linked_protocol in linked_protocols {
+            if let Some(slug) = linked_protocol
+                .get("protocol")
+                .and_then(|value| value.as_str())
+            {
+                collect(slug);
+            }
+        }
+    }
+
+    for key in ["decoded_protocol", "protocol_slug", "protocol"] {
+        if let Some(slug) = payload_str(event, key) {
+            collect(slug);
+        }
+    }
+
+    for tag in &event.tags {
+        if let Some(slug) = tag.strip_prefix("protocol:") {
+            collect(slug);
+        }
+    }
+
+    if slugs.is_empty()
+        && has_squads
+        && protocols::curated_protocol_descriptor(protocols::SQUADS_PROTOCOL_SLUG).is_some()
+    {
+        slugs.push(protocols::SQUADS_PROTOCOL_SLUG.to_owned());
     }
 
     slugs
@@ -501,6 +538,10 @@ fn format_telegram_message(config: &Config, event: &ChainEvent) -> String {
             protocol_digest_lines(config, event),
             PROTOCOL_DIGEST_PREFIXES,
         ),
+        event_kind::TREASURY_TOKEN_OUTFLOW => (
+            treasury_outflow_digest_lines(event),
+            TREASURY_OUTFLOW_DIGEST_PREFIXES,
+        ),
         event_kind::TOKEN_LIQUIDITY_LOW => (
             token_liquidity_digest_lines(event),
             TOKEN_LIQUIDITY_DIGEST_PREFIXES,
@@ -715,6 +756,15 @@ const TOKEN_LIQUIDITY_DIGEST_PREFIXES: &[&str] = &[
     "Wallet balance:",
 ];
 
+const TREASURY_OUTFLOW_DIGEST_PREFIXES: &[&str] = &[
+    "Protocol:",
+    "Token:",
+    "Amount:",
+    "Wallet:",
+    "Destination:",
+    "Threshold:",
+];
+
 const MULTISIG_DIGEST_PREFIXES: &[&str] = &[
     "Decoded protocol:",
     "Decoded action:",
@@ -748,6 +798,7 @@ fn event_title(event: &ChainEvent) -> &'static str {
         event_kind::PROGRAM_METRIC_ALERT => "Protocol metric anomaly",
         event_kind::PROGRAM_UNKNOWN_INSTRUCTION => "Critical unknown protocol instruction",
         event_kind::TOKEN_LIQUIDITY_LOW => "Token liquidity low",
+        event_kind::TREASURY_TOKEN_OUTFLOW => "Treasury token outflow",
         event_kind::MULTISIG_PROPOSAL_ACTIVATED => "Multisig proposal activated",
         event_kind::MULTISIG_PROPOSAL_APPROVED => "Multisig approval",
         event_kind::MULTISIG_PROPOSAL_REJECTED => "Multisig rejection",
@@ -1145,6 +1196,38 @@ fn protocol_digest_lines(config: &Config, event: &ChainEvent) -> Vec<String> {
         if let Some(discriminator) = payload_str(event, "discriminator") {
             lines.push(format!("Discriminator: {discriminator}"));
         }
+    }
+
+    lines
+}
+
+fn treasury_outflow_digest_lines(event: &ChainEvent) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    if let Some(protocol) = payload_str(event, "protocol_name") {
+        lines.push(format!("Protocol: {protocol}"));
+    }
+
+    if let Some(symbol) = payload_str(event, "token_symbol") {
+        lines.push(format!("Token: {symbol}"));
+    }
+
+    if let Some(amount) = payload_str(event, "display_amount") {
+        let symbol = payload_str(event, "token_symbol").unwrap_or("token");
+        lines.push(format!("Amount: {amount} {symbol}"));
+    }
+
+    if let Some(wallet) = payload_str(event, "wallet") {
+        lines.push(format!("Wallet: {wallet}"));
+    }
+
+    if let Some(destination) = payload_str(event, "destination_token_account") {
+        lines.push(format!("Destination: {destination}"));
+    }
+
+    if let Some(threshold) = payload_str(event, "critical_threshold_display_amount") {
+        let symbol = payload_str(event, "token_symbol").unwrap_or("token");
+        lines.push(format!("Threshold: {threshold} {symbol}"));
     }
 
     lines
@@ -1561,5 +1644,29 @@ mod tests {
         ];
 
         assert_eq!(supported_protocol_slugs(&event), vec!["squads".to_owned()]);
+    }
+
+    #[test]
+    fn supported_protocol_slugs_prefers_linked_protocols_over_squads() {
+        let mut event = sample_program_event();
+        event.tags = vec![
+            "watch:defi".to_owned(),
+            "source:squads".to_owned(),
+            "protocol:squads".to_owned(),
+            "protocol:pumpfun".to_owned(),
+        ];
+        event.payload = json!({
+            "protocol": "squads",
+            "decoded_protocol": "pumpfun",
+            "linked_protocols": [
+                {
+                    "protocol": "pumpfun",
+                    "protocol_name": "Pump.fun",
+                    "evidence": "decoded_execution"
+                }
+            ],
+        });
+
+        assert_eq!(supported_protocol_slugs(&event), vec!["pumpfun".to_owned()]);
     }
 }

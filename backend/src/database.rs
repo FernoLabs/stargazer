@@ -19,9 +19,9 @@ use crate::{
         ProgramDataWrite, ProgramDisassemblyRecord, ProgramIdlDataWrite, ProgramIdlVersionRecord,
         ProgramRiskSummary, ProgramSignerStat, ProgramVersionCatalogSummary,
         ProgramVersionLatestSummary, ProgramVersionRecord, ProgramVersionSummary, PromoCode,
-        ProtocolActivitySummary, ProtocolMetricObservation, ProtocolMultisigLink,
-        TelegramConfigSession, TelegramDeliveryMode, TelegramEventScope, TelegramSubscription,
-        UserEntitlement, event_kind, now_ts,
+        ProtocolActivitySummary, ProtocolGovernanceLink, ProtocolMetricObservation,
+        ProtocolMultisigLink, TelegramConfigSession, TelegramDeliveryMode, TelegramEventScope,
+        TelegramSubscription, UserEntitlement, event_kind, now_ts,
     },
 };
 use anyhow::{Context, Result, bail};
@@ -31,7 +31,12 @@ use sqlx::{
     QueryBuilder, Row, Sqlite, SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow},
 };
-use std::{collections::HashMap, io::Read, str::FromStr, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    io::Read,
+    str::FromStr,
+    time::Duration,
+};
 
 #[derive(Clone)]
 pub struct Database {
@@ -56,6 +61,7 @@ pub struct ProgramActivityState {
 pub struct EventListFilters<'a> {
     pub protocol_slug: Option<&'a str>,
     pub related_multisigs: &'a [String],
+    pub related_governances: &'a [String],
     pub target_address: Option<&'a str>,
     pub scope: Option<&'a str>,
     pub search: Option<&'a str>,
@@ -89,6 +95,19 @@ pub struct ProtocolMultisigLinkWrite {
     pub evidence: String,
     pub source: String,
     pub vault_index: Option<i64>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ProtocolGovernanceLinkWrite {
+    pub protocol_slug: String,
+    pub governance_program_id: String,
+    pub realm: String,
+    pub realm_name: String,
+    pub governance: String,
+    pub governed_account: String,
+    pub governance_kind: String,
+    pub evidence: String,
+    pub source: String,
 }
 
 #[allow(dead_code)]
@@ -303,6 +322,52 @@ impl Database {
             r#"
             CREATE INDEX IF NOT EXISTS idx_protocol_multisig_links_protocol
             ON protocol_multisig_links (protocol_slug, multisig);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS protocol_governance_links (
+                protocol_slug TEXT NOT NULL,
+                governance_program_id TEXT NOT NULL,
+                realm TEXT NOT NULL,
+                realm_name TEXT NOT NULL,
+                governance TEXT NOT NULL,
+                governed_account TEXT NOT NULL,
+                governance_kind TEXT NOT NULL,
+                evidence TEXT NOT NULL,
+                source TEXT NOT NULL,
+                first_seen_at INTEGER NOT NULL,
+                last_seen_at INTEGER NOT NULL,
+                PRIMARY KEY (
+                    protocol_slug,
+                    governance_program_id,
+                    realm,
+                    governance,
+                    governed_account,
+                    source
+                )
+            );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_protocol_governance_links_protocol
+            ON protocol_governance_links (protocol_slug, realm, governance);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_protocol_governance_links_accounts
+            ON protocol_governance_links (governance, realm, governed_account);
             "#,
         )
         .execute(&self.pool)
@@ -607,16 +672,6 @@ impl Database {
             "delivery_mode",
             "TEXT NOT NULL DEFAULT 'live'",
         )
-        .await?;
-        sqlx::query(
-            r#"
-            UPDATE telegram_subscriptions
-            SET delivery_mode = 'daily_summary'
-            WHERE status = 'pending_payment'
-              AND delivery_mode = 'live';
-            "#,
-        )
-        .execute(&self.pool)
         .await?;
         self.ensure_column("telegram_subscriptions", "user_id", "TEXT")
             .await?;
@@ -4195,6 +4250,92 @@ impl Database {
         Ok(summaries)
     }
 
+    pub async fn observed_program_idl_accounts(
+        &self,
+        program_ids: &[String],
+    ) -> Result<HashMap<String, HashSet<String>>> {
+        if program_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            r#"
+            SELECT program_address, metadata_account AS account
+            FROM program_idl_versions
+            WHERE program_address IN (
+            "#,
+        );
+
+        let mut separated = builder.separated(", ");
+        for program_id in program_ids {
+            separated.push_bind(program_id);
+        }
+        separated.push_unseparated(
+            r#"
+                )
+              AND metadata_account <> ''
+            UNION
+            SELECT program_address, source_account AS account
+            FROM program_idl_versions
+            WHERE program_address IN (
+            "#,
+        );
+
+        let mut separated = builder.separated(", ");
+        for program_id in program_ids {
+            separated.push_bind(program_id);
+        }
+        separated.push_unseparated(
+            r#"
+                )
+              AND source_account <> ''
+            UNION
+            SELECT program_address, metadata_account AS account
+            FROM program_idl_writes
+            WHERE program_address IN (
+            "#,
+        );
+
+        let mut separated = builder.separated(", ");
+        for program_id in program_ids {
+            separated.push_bind(program_id);
+        }
+        separated.push_unseparated(
+            r#"
+                )
+              AND metadata_account <> ''
+            UNION
+            SELECT program_address, source_account AS account
+            FROM program_idl_writes
+            WHERE program_address IN (
+            "#,
+        );
+
+        let mut separated = builder.separated(", ");
+        for program_id in program_ids {
+            separated.push_bind(program_id);
+        }
+        separated.push_unseparated(
+            r#"
+                )
+              AND source_account <> ''
+            "#,
+        );
+
+        let rows = builder.build().fetch_all(&self.pool).await?;
+        let mut accounts_by_program = HashMap::<String, HashSet<String>>::new();
+        for row in rows {
+            let program_address = row.try_get::<String, _>("program_address")?;
+            let account = row.try_get::<String, _>("account")?;
+            accounts_by_program
+                .entry(program_address)
+                .or_default()
+                .insert(account);
+        }
+
+        Ok(accounts_by_program)
+    }
+
     pub async fn protocol_related_multisigs(&self, protocol_slug: &str) -> Result<Vec<String>> {
         let rows = sqlx::query(
             r#"
@@ -4220,6 +4361,102 @@ impl Database {
             .into_iter()
             .filter_map(|row| row.try_get::<Option<String>, _>("multisig").ok().flatten())
             .collect())
+    }
+
+    pub async fn protocol_related_governance_accounts(
+        &self,
+        protocol_slug: &str,
+    ) -> Result<Vec<String>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT realm AS address
+            FROM protocol_governance_links
+            WHERE protocol_slug = ?
+              AND realm <> ''
+            UNION
+            SELECT governance AS address
+            FROM protocol_governance_links
+            WHERE protocol_slug = ?
+              AND governance <> ''
+            UNION
+            SELECT governed_account AS address
+            FROM protocol_governance_links
+            WHERE protocol_slug = ?
+              AND governed_account <> ''
+            ORDER BY address ASC;
+            "#,
+        )
+        .bind(protocol_slug)
+        .bind(protocol_slug)
+        .bind(protocol_slug)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| row.try_get::<Option<String>, _>("address").ok().flatten())
+            .collect())
+    }
+
+    pub async fn governance_protocol_links_for_accounts(
+        &self,
+        addresses: &[String],
+    ) -> Result<Vec<(String, ProtocolGovernanceLink)>> {
+        if addresses.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            r#"
+            SELECT
+                protocol_slug,
+                governance_program_id,
+                realm,
+                realm_name,
+                governance,
+                governed_account,
+                governance_kind,
+                evidence,
+                source,
+                last_seen_at
+            FROM protocol_governance_links
+            WHERE
+            "#,
+        );
+
+        builder.push("(");
+        builder.push("realm IN (");
+        {
+            let mut separated = builder.separated(", ");
+            for address in addresses {
+                separated.push_bind(address.to_owned());
+            }
+        }
+        builder.push(") OR governance IN (");
+        {
+            let mut separated = builder.separated(", ");
+            for address in addresses {
+                separated.push_bind(address.to_owned());
+            }
+        }
+        builder.push(") OR governed_account IN (");
+        {
+            let mut separated = builder.separated(", ");
+            for address in addresses {
+                separated.push_bind(address.to_owned());
+            }
+        }
+        builder.push("))");
+        builder.push(" ORDER BY protocol_slug ASC, realm_name ASC, governance_kind ASC;");
+
+        let rows = builder.build().fetch_all(&self.pool).await?;
+        rows.into_iter()
+            .map(|row| {
+                let protocol_slug = row.try_get::<String, _>("protocol_slug")?;
+                let link = protocol_governance_link_from_row(&row)?;
+                Ok((protocol_slug, link))
+            })
+            .collect()
     }
 
     pub async fn known_multisig_addresses(&self) -> Result<Vec<String>> {
@@ -4280,6 +4517,41 @@ impl Database {
         Ok(links)
     }
 
+    pub async fn protocol_governance_links_by_slug(
+        &self,
+    ) -> Result<HashMap<String, Vec<ProtocolGovernanceLink>>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                protocol_slug,
+                governance_program_id,
+                realm,
+                realm_name,
+                governance,
+                governed_account,
+                governance_kind,
+                evidence,
+                source,
+                last_seen_at
+            FROM protocol_governance_links
+            ORDER BY protocol_slug ASC, realm_name ASC, governance_kind ASC, governance ASC;
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut links = HashMap::<String, Vec<ProtocolGovernanceLink>>::new();
+        for row in rows {
+            let protocol_slug = row.try_get::<String, _>("protocol_slug")?;
+            links
+                .entry(protocol_slug)
+                .or_default()
+                .push(protocol_governance_link_from_row(&row)?);
+        }
+
+        Ok(links)
+    }
+
     pub async fn replace_protocol_multisig_links(
         &self,
         source: &str,
@@ -4324,6 +4596,70 @@ impl Database {
             .bind(&link.evidence)
             .bind(&link.source)
             .bind(link.vault_index)
+            .bind(now)
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
+            inserted += 1;
+        }
+
+        transaction.commit().await?;
+        Ok(inserted)
+    }
+
+    pub async fn replace_protocol_governance_links(
+        &self,
+        source: &str,
+        links: &[ProtocolGovernanceLinkWrite],
+    ) -> Result<usize> {
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("DELETE FROM protocol_governance_links WHERE source = ?")
+            .bind(source)
+            .execute(&mut *transaction)
+            .await?;
+
+        let now = now_ts();
+        let mut inserted = 0;
+        for link in links {
+            sqlx::query(
+                r#"
+                INSERT INTO protocol_governance_links (
+                    protocol_slug,
+                    governance_program_id,
+                    realm,
+                    realm_name,
+                    governance,
+                    governed_account,
+                    governance_kind,
+                    evidence,
+                    source,
+                    first_seen_at,
+                    last_seen_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(
+                    protocol_slug,
+                    governance_program_id,
+                    realm,
+                    governance,
+                    governed_account,
+                    source
+                )
+                DO UPDATE SET
+                    realm_name = excluded.realm_name,
+                    governance_kind = excluded.governance_kind,
+                    evidence = excluded.evidence,
+                    last_seen_at = excluded.last_seen_at;
+                "#,
+            )
+            .bind(&link.protocol_slug)
+            .bind(&link.governance_program_id)
+            .bind(&link.realm)
+            .bind(&link.realm_name)
+            .bind(&link.governance)
+            .bind(&link.governed_account)
+            .bind(&link.governance_kind)
+            .bind(&link.evidence)
+            .bind(&link.source)
             .bind(now)
             .bind(now)
             .execute(&mut *transaction)
@@ -5343,8 +5679,7 @@ impl Database {
         let result = sqlx::query(
             r#"
             UPDATE telegram_subscriptions
-            SET status = 'active',
-                delivery_mode = 'live'
+            SET status = 'active'
             WHERE user_id = ? AND status = 'pending_payment';
             "#,
         )
@@ -8629,6 +8964,20 @@ fn protocol_multisig_link_from_row(row: &SqliteRow) -> Result<ProtocolMultisigLi
     })
 }
 
+fn protocol_governance_link_from_row(row: &SqliteRow) -> Result<ProtocolGovernanceLink> {
+    Ok(ProtocolGovernanceLink {
+        governance_program_id: row.try_get("governance_program_id")?,
+        realm: row.try_get("realm")?,
+        realm_name: row.try_get("realm_name")?,
+        governance: row.try_get("governance")?,
+        governed_account: row.try_get("governed_account")?,
+        governance_kind: row.try_get("governance_kind")?,
+        evidence: row.try_get("evidence")?,
+        source: row.try_get("source")?,
+        last_seen_at: row.try_get("last_seen_at")?,
+    })
+}
+
 fn row_to_promo_code(row: sqlx::sqlite::SqliteRow) -> Result<PromoCode> {
     Ok(PromoCode {
         id: row.try_get("id")?,
@@ -8663,17 +9012,34 @@ fn push_event_filters(
     if let Some(protocol_slug) = filters.protocol_slug {
         let protocol_tag = format!("%\"protocol:{protocol_slug}\"%");
         push_where_prefix(builder, has_where);
-        if filters.related_multisigs.is_empty() {
+        if filters.related_multisigs.is_empty() && filters.related_governances.is_empty() {
             builder.push("tags_json LIKE ").push_bind(protocol_tag);
         } else {
             builder.push("(");
             builder.push("tags_json LIKE ").push_bind(protocol_tag);
-            builder.push(" OR (target_type = 'multisig' AND target_address IN (");
-            let mut separated = builder.separated(", ");
-            for multisig in filters.related_multisigs {
-                separated.push_bind(multisig.to_owned());
+            if !filters.related_multisigs.is_empty() {
+                builder.push(" OR (target_type = 'multisig' AND target_address IN (");
+                let mut separated = builder.separated(", ");
+                for multisig in filters.related_multisigs {
+                    separated.push_bind(multisig.to_owned());
+                }
+                separated.push_unseparated("))");
             }
-            separated.push_unseparated(")))");
+            if !filters.related_governances.is_empty() {
+                builder.push(" OR ");
+                push_json_address_in_condition(
+                    builder,
+                    &[
+                        "$.governance",
+                        "$.realm",
+                        "$.governed_account",
+                        "$.governing_token_mint",
+                        "$.council_token_mint",
+                    ],
+                    filters.related_governances,
+                );
+            }
+            builder.push(")");
         }
     }
 
@@ -8905,6 +9271,28 @@ fn push_like_expression(builder: &mut QueryBuilder<'_, Sqlite>, expression: &str
     builder.push(", '')) LIKE ");
     builder.push_bind(pattern.to_owned());
     builder.push(" ESCAPE '\\'");
+}
+
+fn push_json_address_in_condition(
+    builder: &mut QueryBuilder<'_, Sqlite>,
+    json_paths: &[&str],
+    addresses: &[String],
+) {
+    builder.push("(");
+    for (index, path) in json_paths.iter().enumerate() {
+        if index > 0 {
+            builder.push(" OR ");
+        }
+        builder.push("json_extract(payload_json, ");
+        builder.push_bind((*path).to_owned());
+        builder.push(") IN (");
+        let mut separated = builder.separated(", ");
+        for address in addresses {
+            separated.push_bind(address.to_owned());
+        }
+        separated.push_unseparated(")");
+    }
+    builder.push(")");
 }
 
 fn like_pattern(value: &str) -> String {

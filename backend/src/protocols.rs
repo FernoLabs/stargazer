@@ -35,6 +35,17 @@ pub struct DomainProtocolMatch {
     pub name: String,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct TreasuryTokenWatch {
+    pub protocol_slug: &'static str,
+    pub protocol_name: &'static str,
+    pub treasury_wallet: &'static str,
+    pub token_mint: &'static str,
+    pub token_symbol: &'static str,
+    pub token_decimals: u8,
+    pub critical_outflow_raw_amount: u64,
+}
+
 #[derive(Clone, Debug)]
 pub struct ProtocolInstructionSignal {
     pub protocol: DefiProtocolMatch,
@@ -144,8 +155,19 @@ struct OnchainPresenceProgram {
 }
 
 pub const FERNO_PROTOCOL_SLUG: &str = "ferno";
+pub const BONK_DAO_PROTOCOL_SLUG: &str = "bonk_dao";
+pub const REALMS_PROTOCOL_SLUG: &str = "realms";
 pub const SQUADS_PROTOCOL_SLUG: &str = "squads";
 pub const SQUADS_V4_PROGRAM_ID: &str = "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf";
+pub const BONK_DAO_GOVERNANCE_PROGRAM_ID: &str = "GovER5Lthms3bLBqWub97yVrMmEogzX7xNjdXpPPCVZw";
+pub const BONK_DAO_REALM_ADDRESS: &str = "84pGFuy1Y27ApK67ApethaPvexeDWA66zNV8gm38TVeQ";
+pub const BONK_DAO_GOVERNANCE_ADDRESS: &str = "Uq5BRkVfdBpMknZJHw6huS3dunEgJpUDv3M2DG3BfQg";
+pub const BONK_DAO_COMMUNITY_MINT_ADDRESS: &str = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263";
+pub const BONK_DAO_COUNCIL_MINT_ADDRESS: &str = "G3EzHHXPd434o31FKxd32eYQ673eDjyYiWWNZpMk9ppt";
+pub const BONK_DAO_TREASURY_WALLET: &str = "AGkGWK1R669KDT4FCqgDgK7PgahGJPjD4J9xmVjuL9kn";
+pub const BONK_TOKEN_SYMBOL: &str = "BONK";
+pub const BONK_TOKEN_DECIMALS: u8 = 5;
+pub const BONK_DAO_CRITICAL_OUTFLOW_RAW_AMOUNT: u64 = 100_000_000_000_000_000;
 pub const FERNO_SOL_DOMAINS: &[&str] = &[
     "ach-wallet.sol",
     "chibrator.sol",
@@ -157,6 +179,16 @@ pub const FERNO_SOL_DOMAINS: &[&str] = &[
 
 const SQUADS_ADMIN_INSTRUCTIONS: &[&str] = &["config_transaction_execute"];
 const SQUADS_HIGH_IMPACT_INSTRUCTIONS: &[&str] = SQUADS_ADMIN_INSTRUCTIONS;
+const BONK_DAO_GOVERNANCE_INSTRUCTION_FILTERS: &[&str] = &[
+    "create_proposal",
+    "insert_transaction",
+    "cast_vote",
+    "finalize_vote",
+    "execute_transaction",
+    "set_governance_config",
+    "set_realm_authority",
+    "set_realm_config",
+];
 
 const PUMPFUN_INSTRUCTIONS: &[&str] = &[
     "add_quote_mint",
@@ -281,6 +313,57 @@ const BAGS_FEE_SHARE_V1_INSTRUCTIONS: &[&str] = &[
 
 const BAGS_FEE_SHARE_V1_ADMIN_INSTRUCTIONS: &[&str] = &["create_fee_vaults", "tweak_fee_vaults"];
 const BAGS_FEE_SHARE_V1_HIGH_IMPACT_INSTRUCTIONS: &[&str] = BAGS_FEE_SHARE_V1_ADMIN_INSTRUCTIONS;
+
+const SPL_GOVERNANCE_SIGNAL_INSTRUCTIONS: &[InstructionSpec] = &[
+    InstructionSpec {
+        name: "create_proposal",
+        discriminator: &[6],
+    },
+    InstructionSpec {
+        name: "insert_transaction",
+        discriminator: &[9],
+    },
+    InstructionSpec {
+        name: "cancel_proposal",
+        discriminator: &[11],
+    },
+    InstructionSpec {
+        name: "sign_off_proposal",
+        discriminator: &[12],
+    },
+    InstructionSpec {
+        name: "cast_vote",
+        discriminator: &[13],
+    },
+    InstructionSpec {
+        name: "finalize_vote",
+        discriminator: &[14],
+    },
+    InstructionSpec {
+        name: "execute_transaction",
+        discriminator: &[16],
+    },
+    InstructionSpec {
+        name: "set_governance_config",
+        discriminator: &[19],
+    },
+    InstructionSpec {
+        name: "set_realm_authority",
+        discriminator: &[21],
+    },
+    InstructionSpec {
+        name: "set_realm_config",
+        discriminator: &[22],
+    },
+    InstructionSpec {
+        name: "create_token_owner_record",
+        discriminator: &[23],
+    },
+    InstructionSpec {
+        name: "complete_proposal",
+        discriminator: &[28],
+    },
+];
 
 impl ProtocolDefinition {
     fn coverage(&self) -> ProtocolCoverage {
@@ -2588,6 +2671,7 @@ pub fn curated_protocol_descriptors() -> Vec<DefiProtocolDescriptor> {
                 amount_triggers: amount_trigger_descriptors(&definition.slug),
                 unknown_alerts: definition.unknown_alerts,
                 related_multisigs: Vec::new(),
+                related_governances: Vec::new(),
             });
         }
     }
@@ -2620,6 +2704,114 @@ pub fn protocol_for_program(program_id: Pubkey) -> Option<DefiProtocolMatch> {
         })
 }
 
+pub fn bonk_dao_protocol_match() -> DefiProtocolMatch {
+    DefiProtocolMatch {
+        slug: BONK_DAO_PROTOCOL_SLUG.to_owned(),
+        name: "Bonk DAO".to_owned(),
+        program_id: Pubkey::from_str(BONK_DAO_GOVERNANCE_PROGRAM_ID)
+            .expect("valid Bonk DAO governance program id"),
+        program_label: "SPL Governance".to_owned(),
+    }
+}
+
+pub fn protocol_for_realms_governance_account(address: &str) -> Option<DefiProtocolMatch> {
+    let address = address.trim();
+    if [
+        BONK_DAO_REALM_ADDRESS,
+        BONK_DAO_GOVERNANCE_ADDRESS,
+        BONK_DAO_COMMUNITY_MINT_ADDRESS,
+        BONK_DAO_COUNCIL_MINT_ADDRESS,
+    ]
+    .contains(&address)
+    {
+        return Some(bonk_dao_protocol_match());
+    }
+
+    None
+}
+
+pub fn treasury_token_watches() -> &'static [TreasuryTokenWatch] {
+    &[TreasuryTokenWatch {
+        protocol_slug: BONK_DAO_PROTOCOL_SLUG,
+        protocol_name: "Bonk DAO",
+        treasury_wallet: BONK_DAO_TREASURY_WALLET,
+        token_mint: BONK_DAO_COMMUNITY_MINT_ADDRESS,
+        token_symbol: BONK_TOKEN_SYMBOL,
+        token_decimals: BONK_TOKEN_DECIMALS,
+        critical_outflow_raw_amount: BONK_DAO_CRITICAL_OUTFLOW_RAW_AMOUNT,
+    }]
+}
+
+pub fn watched_treasury_addresses() -> Vec<&'static str> {
+    treasury_token_watches()
+        .iter()
+        .map(|watch| watch.treasury_wallet)
+        .collect()
+}
+
+pub fn treasury_token_watch_for_transfer(
+    authority: &str,
+    mint: &str,
+    raw_amount: u64,
+) -> Option<&'static TreasuryTokenWatch> {
+    treasury_token_watches().iter().find(|watch| {
+        watch.treasury_wallet == authority
+            && watch.token_mint == mint
+            && raw_amount >= watch.critical_outflow_raw_amount
+    })
+}
+
+pub fn realms_governance_program_ids() -> Vec<Pubkey> {
+    definitions()
+        .iter()
+        .filter(|definition| definition.slug == REALMS_PROTOCOL_SLUG)
+        .map(|definition| definition.program_id)
+        .collect()
+}
+
+pub fn protocol_slug_for_realm_name(name: &str) -> Option<String> {
+    let normalized = normalize_protocol_key(name);
+    if normalized.is_empty() {
+        return None;
+    }
+
+    let alias = match normalized.as_str() {
+        "bonk" | "bonkdao" | "bonk_dao" => Some(BONK_DAO_PROTOCOL_SLUG.to_owned()),
+        _ => None,
+    };
+    if alias.is_some() {
+        return alias;
+    }
+
+    let normalized_without_dao = normalized
+        .strip_suffix("_dao")
+        .unwrap_or(&normalized)
+        .to_owned();
+
+    curated_protocol_descriptors()
+        .into_iter()
+        .filter(|descriptor| {
+            descriptor.slug != REALMS_PROTOCOL_SLUG && descriptor.slug != SQUADS_PROTOCOL_SLUG
+        })
+        .find_map(|descriptor| {
+            let descriptor_name = normalize_protocol_key(&descriptor.name);
+            let descriptor_name_without_dao = descriptor_name
+                .strip_suffix("_dao")
+                .unwrap_or(&descriptor_name)
+                .to_owned();
+
+            if descriptor.slug == normalized
+                || descriptor_name == normalized
+                || descriptor.slug == normalized_without_dao
+                || descriptor_name_without_dao == normalized_without_dao
+            {
+                Some(descriptor.slug)
+            } else {
+                None
+            }
+        })
+}
+
 pub fn protocol_for_sol_domain(domain: &str) -> Option<DomainProtocolMatch> {
     let normalized = domain.trim().to_ascii_lowercase();
     if FERNO_SOL_DOMAINS
@@ -2636,23 +2828,62 @@ pub fn protocol_for_sol_domain(domain: &str) -> Option<DomainProtocolMatch> {
 }
 
 fn project_protocol_descriptors() -> Vec<DefiProtocolDescriptor> {
-    vec![DefiProtocolDescriptor {
-        slug: FERNO_PROTOCOL_SLUG.to_owned(),
-        name: "Ferno".to_owned(),
-        program_id: String::new(),
-        programs: Vec::new(),
-        sol_domains: FERNO_SOL_DOMAINS
+    vec![
+        bonk_dao_protocol_descriptor(),
+        DefiProtocolDescriptor {
+            slug: FERNO_PROTOCOL_SLUG.to_owned(),
+            name: "Ferno".to_owned(),
+            program_id: String::new(),
+            programs: Vec::new(),
+            sol_domains: FERNO_SOL_DOMAINS
+                .iter()
+                .map(|domain| (*domain).to_owned())
+                .collect(),
+            coverage: ProtocolCoverage::AddressOnly,
+            catalog_instruction_count: 0,
+            admin_instruction_filters: Vec::new(),
+            high_impact_instruction_filters: Vec::new(),
+            amount_triggers: amount_trigger_descriptors(FERNO_PROTOCOL_SLUG),
+            unknown_alerts: false,
+            related_multisigs: Vec::new(),
+            related_governances: Vec::new(),
+        },
+    ]
+}
+
+fn bonk_dao_protocol_descriptor() -> DefiProtocolDescriptor {
+    let program_id = Pubkey::from_str(BONK_DAO_GOVERNANCE_PROGRAM_ID)
+        .expect("valid Bonk DAO governance program id");
+
+    DefiProtocolDescriptor {
+        slug: BONK_DAO_PROTOCOL_SLUG.to_owned(),
+        name: "Bonk DAO".to_owned(),
+        program_id: BONK_DAO_GOVERNANCE_PROGRAM_ID.to_owned(),
+        programs: vec![DefiProtocolProgramDescriptor {
+            label: "SPL Governance".to_owned(),
+            program_id: BONK_DAO_GOVERNANCE_PROGRAM_ID.to_owned(),
+            idl_metadata_address: program_metadata::canonical_idl_metadata_address(program_id)
+                .to_string(),
+            anchor_legacy_idl_address: anchor_idl::legacy_idl_address(program_id)
+                .map(|address| address.to_string()),
+            risk_summary: Default::default(),
+        }],
+        sol_domains: Vec::new(),
+        coverage: ProtocolCoverage::AdminSignals,
+        catalog_instruction_count: SPL_GOVERNANCE_SIGNAL_INSTRUCTIONS.len(),
+        admin_instruction_filters: BONK_DAO_GOVERNANCE_INSTRUCTION_FILTERS
             .iter()
-            .map(|domain| (*domain).to_owned())
+            .map(|instruction| (*instruction).to_owned())
             .collect(),
-        coverage: ProtocolCoverage::AddressOnly,
-        catalog_instruction_count: 0,
-        admin_instruction_filters: Vec::new(),
-        high_impact_instruction_filters: Vec::new(),
-        amount_triggers: amount_trigger_descriptors(FERNO_PROTOCOL_SLUG),
+        high_impact_instruction_filters: BONK_DAO_GOVERNANCE_INSTRUCTION_FILTERS
+            .iter()
+            .map(|instruction| (*instruction).to_owned())
+            .collect(),
+        amount_triggers: amount_trigger_descriptors(BONK_DAO_PROTOCOL_SLUG),
         unknown_alerts: false,
         related_multisigs: Vec::new(),
-    }]
+        related_governances: Vec::new(),
+    }
 }
 
 fn append_defillama_solana_protocol_descriptors(descriptors: &mut Vec<DefiProtocolDescriptor>) {
@@ -2680,6 +2911,7 @@ fn append_defillama_solana_protocol_descriptors(descriptors: &mut Vec<DefiProtoc
             amount_triggers: Vec::new(),
             unknown_alerts: false,
             related_multisigs: Vec::new(),
+            related_governances: Vec::new(),
         });
     }
 }
@@ -2715,6 +2947,12 @@ fn amount_trigger_descriptors(slug: &str) -> Vec<AmountTriggerDescriptor> {
         FERNO_PROTOCOL_SLUG => vec![AmountTriggerDescriptor {
             label: "Drain move".to_owned(),
             description: "Proposed: alert when a watched Ferno-controlled wallet sends at least 70% of tracked SOL or token value, or at least 25k USD equivalent, within 10 minutes to new recipients across 3 or more outbound transfers.".to_owned(),
+        }],
+        BONK_DAO_PROTOCOL_SLUG => vec![AmountTriggerDescriptor {
+            label: "Treasury outflow".to_owned(),
+            description:
+                "Critical alert when the Bonk DAO treasury sends at least 1T BONK in one transfer."
+                    .to_owned(),
         }],
         _ => Vec::new(),
     }
@@ -2761,6 +2999,20 @@ pub fn resolve_protocol_instruction(
     let definition = definitions()
         .iter()
         .find(|definition| definition.program_id == program_id)?;
+
+    if definition.slug == REALMS_PROTOCOL_SLUG {
+        if let Some((raw_name, discriminator)) = parse_spl_governance_instruction(data) {
+            return Some(build_signal_with_high_impact(
+                definition,
+                Some(raw_name),
+                Some(ProtocolSignalKind::Admin),
+                discriminator,
+                true,
+            ));
+        }
+
+        return None;
+    }
 
     if is_raydium_amm_v4_definition(definition) {
         if let Some((raw_name, discriminator)) = parse_raydium_amm_v4_instruction(data) {
@@ -2824,6 +3076,14 @@ pub fn resolve_protocol_instruction(
     }
 
     None
+}
+
+fn parse_spl_governance_instruction(data: &[u8]) -> Option<(&'static str, &'static [u8])> {
+    let tag = data.first()?;
+    SPL_GOVERNANCE_SIGNAL_INSTRUCTIONS
+        .iter()
+        .find(|instruction| instruction.discriminator == [*tag])
+        .map(|instruction| (instruction.name, instruction.discriminator))
 }
 
 fn is_raydium_amm_v4_definition(definition: &ProtocolDefinition) -> bool {
@@ -2910,11 +3170,28 @@ fn build_signal(
     signal_kind: Option<ProtocolSignalKind>,
     discriminator: &[u8],
 ) -> ProtocolInstructionSignal {
-    let instruction_name = raw_instruction_name
-        .map(|name| canonical_instruction_name(name, definition.instruction_name_style));
     let high_impact = raw_instruction_name
         .map(|name| definition.high_impact_instructions.contains(&name))
         .unwrap_or(true);
+
+    build_signal_with_high_impact(
+        definition,
+        raw_instruction_name,
+        signal_kind,
+        discriminator,
+        high_impact,
+    )
+}
+
+fn build_signal_with_high_impact(
+    definition: &ProtocolDefinition,
+    raw_instruction_name: Option<&'static str>,
+    signal_kind: Option<ProtocolSignalKind>,
+    discriminator: &[u8],
+    high_impact: bool,
+) -> ProtocolInstructionSignal {
+    let instruction_name = raw_instruction_name
+        .map(|name| canonical_instruction_name(name, definition.instruction_name_style));
 
     ProtocolInstructionSignal {
         protocol: DefiProtocolMatch {
@@ -3827,6 +4104,28 @@ mod tests {
     }
 
     #[test]
+    fn includes_bonk_dao_protocol_descriptor() {
+        let bonk_dao = curated_protocol_descriptors()
+            .into_iter()
+            .find(|protocol| protocol.slug == BONK_DAO_PROTOCOL_SLUG)
+            .expect("Bonk DAO protocol descriptor");
+
+        assert_eq!(bonk_dao.name, "Bonk DAO");
+        assert_eq!(bonk_dao.coverage, ProtocolCoverage::AdminSignals);
+        assert_eq!(bonk_dao.programs.len(), 1);
+        assert_eq!(
+            bonk_dao.programs[0].program_id,
+            BONK_DAO_GOVERNANCE_PROGRAM_ID
+        );
+        assert!(
+            bonk_dao
+                .admin_instruction_filters
+                .iter()
+                .any(|instruction| instruction == "execute_transaction")
+        );
+    }
+
+    #[test]
     fn classifies_squads_config_execution_as_admin() {
         let program_id = Pubkey::from_str(SQUADS_V4_PROGRAM_ID).unwrap();
         let signal = resolve_protocol_instruction(
@@ -3845,6 +4144,22 @@ mod tests {
             Some("config_transaction_execute")
         );
         assert!(signal.high_impact);
+    }
+
+    #[test]
+    fn decodes_realms_execute_transaction_signal() {
+        let program_id = Pubkey::from_str("GovER5Lthms3bLBqWub97yVrMmEogzX7xNjdXpPPCVZw").unwrap();
+        let signal = resolve_protocol_instruction(program_id, &[16])
+            .expect("realms execute transaction signal");
+
+        assert_eq!(signal.protocol.slug, REALMS_PROTOCOL_SLUG);
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("execute_transaction")
+        );
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+        assert!(signal.high_impact);
+        assert_eq!(signal.discriminator_hex, "10");
     }
 
     #[test]

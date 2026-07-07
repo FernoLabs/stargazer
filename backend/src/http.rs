@@ -4,12 +4,13 @@ use crate::{
     link_preview,
     models::{
         AdminUsersResponse, ChainEvent, CreateMetricAlertRuleRequest, CreatePaymentLinkRequest,
-        CreatePromoCodeRequest, CreateTelegramSubscriptionRequest, DefiProtocolsIncluded,
-        DefiProtocolsResponse, EventScopeCounts, EventsResponse, EventsSummary, FirewatchUser,
-        GrantUserEntitlementRequest, LiveStatusResponse, MetricAlertRule, MetricAlertsResponse,
-        PaymentLink, PaymentLinkCheckoutResponse, ProgramDisassemblyResponse,
-        ProgramIdlVersionsResponse, ProgramSignerStatsResponse, ProgramVersionCatalogSummary,
-        ProgramVersionSummariesResponse, ProgramVersionsResponse, PromoCode, PromoCodesResponse,
+        CreatePromoCodeRequest, CreateTelegramSubscriptionRequest, DefiProtocolDescriptor,
+        DefiProtocolsIncluded, DefiProtocolsResponse, EventScopeCounts, EventsResponse,
+        EventsSummary, FirewatchUser, GrantUserEntitlementRequest, LiveStatusResponse,
+        MetricAlertRule, MetricAlertsResponse, PaymentLink, PaymentLinkCheckoutResponse,
+        ProgramDisassemblyResponse, ProgramIdlVersionsResponse, ProgramSignerStatsResponse,
+        ProgramVersionCatalogSummary, ProgramVersionSummariesResponse, ProgramVersionsResponse,
+        PromoCode, PromoCodesResponse, RememberTelegramConfigSessionResponse,
         SaveTelegramConfigRequest, SaveTelegramConfigResponse, TelegramConfigSessionResponse,
         TelegramDeliveryMode, TelegramSubscription, TelegramSubscriptionSummaryResponse,
         TelegramSubscriptionsResponse, UpsertFirewatchUserRequest,
@@ -47,6 +48,7 @@ const CACHE_PROGRAM_LISTS: &str =
     "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400";
 const CACHE_IMMUTABLE: &str = "public, max-age=31536000, immutable";
 const CACHE_NO_STORE: &str = "private, no-store";
+const TELEGRAM_CONFIG_REMEMBER_SECONDS: i64 = 30 * 24 * 60 * 60;
 
 pub fn router(state: SharedState) -> anyhow::Result<Router> {
     let cors = CorsLayer::new()
@@ -128,6 +130,10 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
         .route(
             "/api/config-sessions/by-token/{token}",
             get(get_config_session),
+        )
+        .route(
+            "/api/config-sessions/by-token/{token}/remember",
+            axum::routing::post(remember_config_session),
         )
         .route(
             "/api/config-sessions/by-token/{token}/save",
@@ -329,6 +335,18 @@ async fn list_events(
     } else {
         Vec::new()
     };
+    let related_governances = if query.include_related_multisigs.unwrap_or(false) {
+        match normalized_protocol.as_deref() {
+            Some(protocol_slug) => state
+                .db
+                .protocol_related_governance_accounts(protocol_slug)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+            None => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    };
     let normalized_target_address = query
         .target_address
         .as_deref()
@@ -364,6 +382,7 @@ async fn list_events(
     let filters = EventListFilters {
         protocol_slug: normalized_protocol.as_deref(),
         related_multisigs: &related_multisigs,
+        related_governances: &related_governances,
         target_address: normalized_target_address,
         scope: normalized_scope,
         search: normalized_search,
@@ -618,9 +637,19 @@ async fn list_protocols(
         .program_risk_summaries(&program_ids)
         .await
         .map_err(internal_error)?;
+    let observed_idl_accounts = state
+        .db
+        .observed_program_idl_accounts(&program_ids)
+        .await
+        .map_err(internal_error)?;
     let related_multisigs = state
         .db
         .protocol_multisig_links_by_slug()
+        .await
+        .map_err(internal_error)?;
+    let related_governances = state
+        .db
+        .protocol_governance_links_by_slug()
         .await
         .map_err(internal_error)?;
 
@@ -629,11 +658,26 @@ async fn list_protocols(
             if let Some(summary) = risk_summaries.get(&program.program_id) {
                 program.risk_summary = summary.clone();
             }
+            let observed_accounts = observed_idl_accounts.get(&program.program_id);
+            if observed_accounts.map_or(true, |accounts| {
+                !accounts.contains(&program.idl_metadata_address)
+            }) {
+                program.idl_metadata_address.clear();
+            }
+            if let Some(address) = program.anchor_legacy_idl_address.as_deref() {
+                if observed_accounts.map_or(true, |accounts| !accounts.contains(address)) {
+                    program.anchor_legacy_idl_address = None;
+                }
+            }
         }
         if let Some(links) = related_multisigs.get(&protocol.slug) {
             protocol.related_multisigs = links.clone();
         }
+        if let Some(links) = related_governances.get(&protocol.slug) {
+            protocol.related_governances = links.clone();
+        }
     }
+    items.retain(protocol_has_listed_items);
 
     let included = if query
         .include
@@ -679,6 +723,31 @@ fn includes_resource(include: &str, needle: &str) -> bool {
         .split(',')
         .map(str::trim)
         .any(|resource| resource == needle)
+}
+
+fn protocol_has_listed_items(protocol: &DefiProtocolDescriptor) -> bool {
+    if !protocol.programs.is_empty()
+        || !protocol.sol_domains.is_empty()
+        || !protocol.amount_triggers.is_empty()
+    {
+        return true;
+    }
+
+    let related_multisigs = protocol
+        .related_multisigs
+        .iter()
+        .filter(|link| !link.multisig.trim().is_empty())
+        .map(|link| link.multisig.as_str())
+        .collect::<HashSet<_>>();
+
+    if !related_multisigs.is_empty() {
+        return true;
+    }
+
+    protocol
+        .related_governances
+        .iter()
+        .any(|link| !link.realm.trim().is_empty() || !link.governance.trim().is_empty())
 }
 
 async fn program_signer_stats(
@@ -1785,6 +1854,51 @@ async fn get_config_session(
     }))
 }
 
+async fn remember_config_session(
+    State(state): State<SharedState>,
+    Path(token): Path<String>,
+) -> ApiResult<RememberTelegramConfigSessionResponse> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Config session not found.",
+        ));
+    }
+
+    let current_token_hash = token_hash(token);
+    let Some((session, _user)) = state
+        .db
+        .telegram_config_session_by_token_hash(&current_token_hash, crate::models::now_ts())
+        .await
+        .map_err(internal_error)?
+    else {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Config session not found or expired.",
+        ));
+    };
+
+    let remembered_token = telegram::generate_config_token();
+    let remembered_session = state
+        .db
+        .create_telegram_config_session(
+            &session.user_id,
+            &session.chat_id,
+            session.chat_title.as_deref(),
+            session.chat_type.as_deref(),
+            &token_hash(&remembered_token),
+            crate::models::now_ts() + TELEGRAM_CONFIG_REMEMBER_SECONDS,
+        )
+        .await
+        .map_err(internal_error)?;
+
+    Ok(Json(RememberTelegramConfigSessionResponse {
+        token: remembered_token,
+        session: remembered_session,
+    }))
+}
+
 const BILLING_MONTH_SECONDS: i64 = 30 * 24 * 60 * 60;
 
 async fn user_billing_summary(
@@ -1907,8 +2021,8 @@ async fn save_config_session(
         .collect::<HashSet<_>>();
 
     let requested_rules = config_rules_from_request(&payload)?;
-    let requested_rule_count = requested_rules.len();
-    if requested_rule_count == 0 && unsubscribe_ids.is_empty() {
+    let requested_base_rule_count = requested_rules.len();
+    if requested_base_rule_count == 0 && unsubscribe_ids.is_empty() {
         return Err(error_response(
             StatusCode::BAD_REQUEST,
             "Select at least one protocol, program, wallet, or .sol domain.",
@@ -1920,17 +2034,7 @@ async fn save_config_session(
         .user_has_active_custom_entitlement(&user.id, crate::models::now_ts())
         .await
         .map_err(internal_error)?;
-    let requested_delivery_mode = payload.delivery_mode.unwrap_or(TelegramDeliveryMode::Live);
-    let delivery_mode = if has_entitlement {
-        requested_delivery_mode
-    } else {
-        TelegramDeliveryMode::DailySummary
-    };
-    let status = if has_entitlement {
-        "active"
-    } else {
-        "pending_payment"
-    };
+    let delivery_modes = delivery_modes_from_request(&payload);
 
     let mut saved_count = 0usize;
     let mut removed_rule_count = 0usize;
@@ -1948,36 +2052,46 @@ async fn save_config_session(
 
     let mut saved_rule_count = 0usize;
     for rule in requested_rules {
-        state
-            .db
-            .create_telegram_subscription(
-                &uuid::Uuid::new_v4().to_string(),
-                &rule.label,
-                Some(&user.id),
-                &session.chat_id,
-                None,
-                rule.scope,
-                rule.target_address.as_deref(),
-                &rule.required_tags,
-                delivery_mode,
-                status,
-                None,
-            )
-            .await
-            .map_err(internal_error)?;
-        saved_count += 1;
+        for delivery_mode in &delivery_modes {
+            state
+                .db
+                .create_telegram_subscription(
+                    &uuid::Uuid::new_v4().to_string(),
+                    &rule.label,
+                    Some(&user.id),
+                    &session.chat_id,
+                    None,
+                    rule.scope.clone(),
+                    rule.target_address.as_deref(),
+                    &rule.required_tags,
+                    *delivery_mode,
+                    status_for_delivery_mode(has_entitlement, *delivery_mode),
+                    None,
+                )
+                .await
+                .map_err(internal_error)?;
+            saved_count += 1;
+        }
         saved_rule_count += 1;
     }
 
-    let payment_link = if has_entitlement || requested_rule_count == 0 {
-        None
+    let needs_checkout = !has_entitlement
+        && requested_base_rule_count > 0
+        && delivery_modes.contains(&TelegramDeliveryMode::Live);
+    let response_status = if needs_checkout {
+        "pending_payment"
     } else {
+        "active"
+    };
+    let payment_link = if needs_checkout {
         let plan_id = if payload.billing.as_deref() == Some("year") {
             "paid-year"
         } else {
             "paid"
         };
         Some(create_solana_payment_link_for_user(&state, &user, plan_id).await?)
+    } else {
+        None
     };
 
     if let Err(error) = telegram::send_setup_saved_notification(
@@ -1985,7 +2099,7 @@ async fn save_config_session(
         &session.chat_id,
         saved_rule_count,
         removed_rule_count,
-        delivery_mode,
+        &delivery_modes,
         has_entitlement,
         payment_link.as_ref().map(|link| link.public_url.as_str()),
     )
@@ -1996,9 +2110,38 @@ async fn save_config_session(
 
     Ok(Json(SaveTelegramConfigResponse {
         saved_count,
-        status: status.to_owned(),
+        status: response_status.to_owned(),
         payment_link,
     }))
+}
+
+fn delivery_modes_from_request(payload: &SaveTelegramConfigRequest) -> Vec<TelegramDeliveryMode> {
+    let mut modes = Vec::new();
+    for mode in payload
+        .delivery_modes
+        .iter()
+        .copied()
+        .chain(payload.delivery_mode)
+    {
+        if !modes.contains(&mode) {
+            modes.push(mode);
+        }
+    }
+    if modes.is_empty() {
+        modes.push(TelegramDeliveryMode::Live);
+    }
+    modes
+}
+
+fn status_for_delivery_mode(
+    has_entitlement: bool,
+    delivery_mode: TelegramDeliveryMode,
+) -> &'static str {
+    if has_entitlement || delivery_mode == TelegramDeliveryMode::DailySummary {
+        "active"
+    } else {
+        "pending_payment"
+    }
 }
 
 struct ConfigRuleDraft {
@@ -2019,6 +2162,28 @@ fn config_rules_from_request(
         .filter_map(|entry| entry.split_once(':'))
         .map(|(slug, level)| (slug.trim().to_owned(), level.trim().to_ascii_lowercase()))
         .collect::<std::collections::HashMap<_, _>>();
+    let mut protocol_programs_by_slug: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for entry in &payload.protocol_program_ids {
+        let Some((slug, program_id)) = entry.split_once(':') else {
+            return Err(error_response(
+                StatusCode::BAD_REQUEST,
+                "Protocol program selection is invalid.",
+            ));
+        };
+        let slug = slug.trim();
+        let program_id = program_id.trim();
+        if slug.is_empty() || program_id.is_empty() {
+            continue;
+        }
+        let normalized = Pubkey::from_str(program_id)
+            .map_err(|_| error_response(StatusCode::BAD_REQUEST, "Program address is invalid."))?
+            .to_string();
+        protocol_programs_by_slug
+            .entry(slug.to_owned())
+            .or_default()
+            .push(normalized);
+    }
 
     for raw_slug in &payload.protocol_slugs {
         let slug = raw_slug.trim();
@@ -2031,21 +2196,63 @@ fn config_rules_from_request(
                 "Unknown protocol selected.",
             ));
         };
-        let key = format!("protocol:{}", protocol.slug);
-        if seen.insert(key.clone()) {
-            let mut required_tags = vec![key];
-            match protocol_levels.get(&protocol.slug).map(String::as_str) {
-                Some("critical") => required_tags.push("severity:critical".to_owned()),
-                Some("high_impact") => required_tags.push("impact:high".to_owned()),
-                _ => {}
+        let mut base_required_tags = vec![format!("protocol:{}", protocol.slug)];
+        match protocol_levels.get(&protocol.slug).map(String::as_str) {
+            Some("critical") => base_required_tags.push("severity:critical".to_owned()),
+            Some("high_impact") => base_required_tags.push("impact:high".to_owned()),
+            _ => {}
+        }
+
+        if let Some(program_ids) = protocol_programs_by_slug.remove(&protocol.slug) {
+            let protocol_program_ids = protocol
+                .programs
+                .iter()
+                .map(|program| (program.program_id.to_string(), program.label.as_str()))
+                .collect::<std::collections::HashMap<_, _>>();
+
+            for program_id in program_ids {
+                if !protocol_program_ids.contains_key(&program_id) {
+                    return Err(error_response(
+                        StatusCode::BAD_REQUEST,
+                        "Program is not part of the selected protocol.",
+                    ));
+                }
+                let key = format!("protocol:{}:program:{program_id}", protocol.slug);
+                if seen.insert(key) {
+                    rules.push(ConfigRuleDraft {
+                        label: format!(
+                            "Config /watch protocol - {} {}",
+                            protocol.name,
+                            protocol_program_ids
+                                .get(&program_id)
+                                .copied()
+                                .unwrap_or("program")
+                        ),
+                        scope: crate::models::TelegramEventScope::DefiWatch,
+                        target_address: Some(program_id),
+                        required_tags: base_required_tags.clone(),
+                    });
+                }
             }
+            continue;
+        }
+
+        let key = format!("protocol:{}", protocol.slug);
+        if seen.insert(key) {
             rules.push(ConfigRuleDraft {
                 label: format!("Config /watch protocol - {}", protocol.name),
                 scope: crate::models::TelegramEventScope::DefiWatch,
                 target_address: None,
-                required_tags,
+                required_tags: base_required_tags,
             });
         }
+    }
+
+    if !protocol_programs_by_slug.is_empty() {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Protocol program selection references an unknown protocol.",
+        ));
     }
 
     for raw_program in &payload.program_ids {

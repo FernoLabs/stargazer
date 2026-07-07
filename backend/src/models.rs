@@ -24,6 +24,7 @@ pub mod event_kind {
     pub const PROGRAM_METRIC_ALERT: &str = "program_metric_alert";
     pub const PROGRAM_UNKNOWN_INSTRUCTION: &str = "program_unknown_instruction";
     pub const TOKEN_LIQUIDITY_LOW: &str = "token_liquidity_low";
+    pub const TREASURY_TOKEN_OUTFLOW: &str = "treasury_token_outflow";
     pub const MULTISIG_PROPOSAL_ACTIVATED: &str = "multisig_proposal_activated";
     pub const MULTISIG_PROPOSAL_APPROVED: &str = "multisig_proposal_approved";
     pub const MULTISIG_PROPOSAL_REJECTED: &str = "multisig_proposal_rejected";
@@ -435,11 +436,19 @@ pub struct TelegramConfigSessionResponse {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RememberTelegramConfigSessionResponse {
+    pub token: String,
+    pub session: TelegramConfigSession,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SaveTelegramConfigRequest {
     #[serde(default)]
     pub protocol_slugs: Vec<String>,
     #[serde(default)]
     pub protocol_levels: Vec<String>,
+    #[serde(default)]
+    pub protocol_program_ids: Vec<String>,
     #[serde(default)]
     pub program_ids: Vec<String>,
     #[serde(default)]
@@ -448,6 +457,8 @@ pub struct SaveTelegramConfigRequest {
     pub sol_domains: Vec<String>,
     #[serde(default)]
     pub unsubscribe_ids: Vec<String>,
+    #[serde(default)]
+    pub delivery_modes: Vec<TelegramDeliveryMode>,
     pub delivery_mode: Option<TelegramDeliveryMode>,
     pub billing: Option<String>,
 }
@@ -535,6 +546,19 @@ pub struct ProtocolMultisigLink {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProtocolGovernanceLink {
+    pub governance_program_id: String,
+    pub realm: String,
+    pub realm_name: String,
+    pub governance: String,
+    pub governed_account: String,
+    pub governance_kind: String,
+    pub evidence: String,
+    pub source: String,
+    pub last_seen_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DefiProtocolDescriptor {
     pub slug: String,
     pub name: String,
@@ -549,6 +573,8 @@ pub struct DefiProtocolDescriptor {
     pub unknown_alerts: bool,
     #[serde(default)]
     pub related_multisigs: Vec<ProtocolMultisigLink>,
+    #[serde(default)]
+    pub related_governances: Vec<ProtocolGovernanceLink>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -949,7 +975,8 @@ fn is_default_defi_watch_event(event: &ChainEvent) -> bool {
         | event_kind::PROGRAM_UNKNOWN_INSTRUCTION
         | event_kind::PROGRAM_DORMANT_ACTIVITY
         | event_kind::PROGRAM_METRIC_ALERT
-        | event_kind::TOKEN_LIQUIDITY_LOW => true,
+        | event_kind::TOKEN_LIQUIDITY_LOW
+        | event_kind::TREASURY_TOKEN_OUTFLOW => true,
         event_kind::NAME_SERVICE_DOMAIN_CREATED
         | event_kind::NAME_SERVICE_DOMAIN_UPDATED
         | event_kind::NAME_SERVICE_DOMAIN_TRANSFERRED

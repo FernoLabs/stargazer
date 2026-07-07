@@ -135,7 +135,7 @@
 
 	function telegramSteps() {
 		if (effectiveMode() === 'defi') {
-			return ['Add the bot to a chat', 'Send /watch defi', 'Use /list to confirm the rule'];
+			return ['Open the bot in Telegram', 'Send /watch defi', 'Use /list to confirm the rule'];
 		}
 
 		return [
@@ -146,7 +146,7 @@
 	}
 
 	function telegramActionLabel() {
-		if (botHref()) return effectiveMode() === 'defi' ? 'Add Telegram bot' : 'Open Telegram';
+		if (botHref()) return effectiveMode() === 'defi' ? 'Open Telegram bot' : 'Open Telegram';
 		return 'Command reference';
 	}
 

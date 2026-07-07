@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { explorerAddressUrl, explorerTransactionUrl } from '$lib/explorer';
-	import { compactLongTokens, eventDetailHref } from '$lib/event-preview';
+	import {
+		compactLongTokens,
+		eventDetailHref,
+		eventProtocolSlug as previewEventProtocolSlug
+	} from '$lib/event-preview';
 	import {
 		findProgramMatch,
 		programPageHref,
@@ -112,9 +116,7 @@
 	}
 
 	function protocolSlug() {
-		const tag = event.tags.find((candidate) => candidate.startsWith('protocol:'));
-		if (tag) return tag.replace('protocol:', '');
-		return fallbackProtocolSlug;
+		return previewEventProtocolSlug(event, fallbackProtocolSlug);
 	}
 
 	function protocolLabel() {
@@ -152,8 +154,11 @@
 	}
 
 	function eventTitle() {
-		const protocol = payloadString('protocol_name') ?? protocolLabel();
-		const instruction = payloadString('instruction_name');
+		const slug = protocolSlug();
+		const protocol = protocolLabel() ?? payloadString('protocol_name');
+		const isOwnerProtocol = Boolean(protocol && slug && slug !== 'squads');
+		const instruction =
+			payloadString('decoded_instruction_name') ?? payloadString('instruction_name');
 		const targetName = targetDisplayName();
 
 		if (event.kind === 'name_service_domain_created') return `${targetName} created`;
@@ -180,12 +185,25 @@
 		if (event.kind === 'program_idl_immutable' && protocol) return `${protocol} IDL immutable`;
 		if (event.kind === 'program_idl_resized' && protocol) return `${protocol} IDL resized`;
 		if (event.kind === 'program_idl_closed' && protocol) return `${protocol} IDL closed`;
-		if (event.kind === 'multisig_proposal_activated') return 'Squads proposal activated';
-		if (event.kind === 'multisig_proposal_approved') return 'Squads proposal approval';
-		if (event.kind === 'multisig_proposal_rejected') return 'Squads proposal rejected';
-		if (event.kind === 'multisig_proposal_cancelled') return 'Squads proposal cancelled';
-		if (event.kind === 'multisig_vault_executed') return 'Squads vault execution';
-		if (event.kind === 'multisig_config_executed') return 'Squads config execution';
+		if (event.kind === 'multisig_proposal_activated') {
+			return isOwnerProtocol ? `${protocol} multisig proposal` : 'Squads proposal activated';
+		}
+		if (event.kind === 'multisig_proposal_approved') {
+			return isOwnerProtocol ? `${protocol} multisig approval` : 'Squads proposal approval';
+		}
+		if (event.kind === 'multisig_proposal_rejected') {
+			return isOwnerProtocol ? `${protocol} multisig rejection` : 'Squads proposal rejected';
+		}
+		if (event.kind === 'multisig_proposal_cancelled') {
+			return isOwnerProtocol ? `${protocol} multisig cancellation` : 'Squads proposal cancelled';
+		}
+		if (event.kind === 'multisig_vault_executed') {
+			if (isOwnerProtocol && instruction) return `${protocol} ${readableInstructionName(instruction)} via Squads`;
+			return isOwnerProtocol ? `${protocol} multisig execution` : 'Squads vault execution';
+		}
+		if (event.kind === 'multisig_config_executed') {
+			return isOwnerProtocol ? `${protocol} multisig config change` : 'Squads config execution';
+		}
 		return compactLongTokens(event.summary);
 	}
 
@@ -372,7 +390,7 @@
 
 		{#if detailItems().length > 0 || visibleFacts().length > 0}
 			<div class="detail-strip">
-				{#each visibleFacts() as fact}
+				{#each visibleFacts() as fact (`${fact.label}:${fact.value}`)}
 					<a class="detail-token fact-token" href={factHref(fact)} rel={factRel(fact)} target={factTarget(fact)}>
 						<span>{fact.label}</span>
 						<strong>{fact.value}</strong>
@@ -382,7 +400,7 @@
 					</a>
 				{/each}
 
-				{#each detailItems() as item}
+				{#each detailItems() as item (`${item.label}:${item.value}`)}
 					<span class="detail-token">
 						<span>{item.label}</span>
 						<strong>{item.value}</strong>
@@ -428,7 +446,7 @@
 				</a>
 			</div>
 
-			{#each importantTags() as tag}
+			{#each importantTags() as tag (tag)}
 				{#if onTagSelect}
 					<button class:active-tag={activeTag === tag} class="tag-button" type="button" onclick={() => onTagSelect(tag)}>
 						{tag}

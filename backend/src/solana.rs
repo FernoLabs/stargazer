@@ -137,6 +137,7 @@ struct SquadsExecutionContext {
 struct ProtocolInstructionDetails {
     actor: Option<String>,
     high_impact_override: Option<bool>,
+    protocol_override: Option<protocols::DefiProtocolMatch>,
     payload_fields: Vec<(&'static str, String)>,
 }
 
@@ -506,6 +507,11 @@ fn subscription_request(
             .map(|program_id| program_id.to_string()),
     );
     watched_programs.extend(
+        protocols::watched_treasury_addresses()
+            .into_iter()
+            .map(str::to_owned),
+    );
+    watched_programs.extend(
         program_metadata::canonical_idl_metadata_addresses(&protocols::watched_program_ids())
             .into_iter()
             .map(|metadata_account| metadata_account.to_string()),
@@ -841,6 +847,9 @@ pub(crate) async fn ingest_resolved_transaction(
         annotate_multisig_project_links(&state, &mut event)
             .await
             .context("annotate multisig project links")?;
+        annotate_governance_project_links(&state, &mut event)
+            .await
+            .context("annotate governance project links")?;
         event = name_service::hydrate_event(&state, event).await;
         if state
             .db
@@ -1133,6 +1142,118 @@ fn token_transfer_checked_amount(data: &[u8]) -> Option<u64> {
     Some(u64::from_le_bytes(amount))
 }
 
+fn token_transfer_checked_decimals(data: &[u8]) -> Option<u8> {
+    if data.first().copied()? != 12 {
+        return None;
+    }
+
+    data.get(9).copied()
+}
+
+fn parse_treasury_token_outflow_event(
+    tx: &ResolvedTransaction,
+    instruction: &ResolvedInstruction,
+    slot: u64,
+    block_time: Option<i64>,
+    instruction_path: &str,
+) -> Result<Option<ChainEvent>> {
+    let Some(raw_amount) = token_transfer_checked_amount(&instruction.data) else {
+        return Ok(None);
+    };
+    let Some(mint) = token_transfer_checked_mint(tx, instruction) else {
+        return Ok(None);
+    };
+    let source = instruction_account(tx, instruction, 0)?;
+    let destination = token_transfer_checked_destination(tx, instruction)
+        .ok_or_else(|| anyhow!("token transfer checked missing destination account"))?;
+    let authority = instruction_account(tx, instruction, 3)?;
+    let authority_address = authority.to_string();
+    let mint_address = mint.to_string();
+    let Some(watch) =
+        protocols::treasury_token_watch_for_transfer(&authority_address, &mint_address, raw_amount)
+    else {
+        return Ok(None);
+    };
+
+    let decimals =
+        token_transfer_checked_decimals(&instruction.data).unwrap_or(watch.token_decimals);
+    let display_amount = decimal_string_from_base_units(raw_amount, decimals as usize);
+    let threshold_amount = decimal_string_from_base_units(
+        watch.critical_outflow_raw_amount,
+        watch.token_decimals as usize,
+    );
+    let summary = format!(
+        "Critical {} treasury outflow: {} {} sent",
+        watch.protocol_name, display_amount, watch.token_symbol
+    );
+    let token_tag = watch.token_symbol.to_ascii_lowercase();
+
+    Ok(Some(build_event(
+        tx,
+        event_kind::TREASURY_TOKEN_OUTFLOW,
+        target_type::WALLET,
+        watch.treasury_wallet.to_owned(),
+        Some(authority_address.clone()),
+        slot,
+        block_time,
+        instruction_path,
+        summary,
+        vec![
+            "target:wallet".to_owned(),
+            "sector:defi".to_owned(),
+            "watch:defi".to_owned(),
+            "wallet:activity".to_owned(),
+            "wallet:movement".to_owned(),
+            "signal:wallet".to_owned(),
+            "signal:treasury_outflow".to_owned(),
+            "severity:critical".to_owned(),
+            "impact:high".to_owned(),
+            "alert:review_now".to_owned(),
+            format!("protocol:{}", watch.protocol_slug),
+            format!("token:{token_tag}"),
+            format!("mint:{}", watch.token_mint),
+        ],
+        json!({
+            "classification": "treasury_token_outflow",
+            "severity": "critical",
+            "protocol": watch.protocol_slug,
+            "protocol_name": watch.protocol_name,
+            "wallet": watch.treasury_wallet,
+            "source_wallet": watch.treasury_wallet,
+            "authority": authority_address,
+            "source_token_account": source.to_string(),
+            "destination_token_account": destination.to_string(),
+            "token_symbol": watch.token_symbol,
+            "token_mint": watch.token_mint,
+            "token_decimals": decimals,
+            "raw_amount": raw_amount.to_string(),
+            "display_amount": display_amount,
+            "critical_threshold_raw_amount": watch.critical_outflow_raw_amount.to_string(),
+            "critical_threshold_display_amount": threshold_amount,
+            "instruction_name": "transfer_checked",
+        }),
+    )))
+}
+
+fn decimal_string_from_base_units(raw_amount: u64, decimals: usize) -> String {
+    if decimals == 0 {
+        return raw_amount.to_string();
+    }
+
+    let unit = 10_u64.pow(decimals as u32);
+    let whole = raw_amount / unit;
+    let fraction = raw_amount % unit;
+    if fraction == 0 {
+        return whole.to_string();
+    }
+
+    let mut fraction = format!("{fraction:0decimals$}");
+    while fraction.ends_with('0') {
+        fraction.pop();
+    }
+    format!("{whole}.{fraction}")
+}
+
 fn associated_token_account(owner: &Pubkey, mint: &Pubkey) -> Option<Pubkey> {
     let token_program_id = Pubkey::from_str(TOKEN_PROGRAM_ID).ok()?;
     let associated_token_program_id = Pubkey::from_str(ASSOCIATED_TOKEN_PROGRAM_ID).ok()?;
@@ -1310,6 +1431,20 @@ async fn parse_instruction(
             program_data_writes: Vec::new(),
             program_idl_data_writes: write.into_iter().collect(),
         });
+    }
+
+    if Pubkey::from_str(TOKEN_PROGRAM_ID)
+        .is_ok_and(|token_program_id| program_id == token_program_id)
+    {
+        return Ok(ParsedInstructionArtifacts::event(
+            parse_treasury_token_outflow_event(
+                tx,
+                instruction,
+                slot,
+                block_time,
+                instruction_path,
+            )?,
+        ));
     }
 
     if protocols::protocol_for_program(program_id).is_some() {
@@ -2344,10 +2479,11 @@ fn parse_protocol_instruction_event(
 ) -> Result<(Option<ChainEvent>, Vec<ProtocolMetricObservation>)> {
     let target_program = program_id(tx, instruction)
         .ok_or_else(|| anyhow!("known protocol instruction missing program id"))?;
-    let signal = match protocols::resolve_protocol_instruction(target_program, &instruction.data) {
-        Some(signal) => signal,
-        None => return Ok((None, Vec::new())),
-    };
+    let mut signal =
+        match protocols::resolve_protocol_instruction(target_program, &instruction.data) {
+            Some(signal) => signal,
+            None => return Ok((None, Vec::new())),
+        };
     let metric_observations = decode_protocol_metric_observations(
         tx,
         instruction,
@@ -2382,6 +2518,9 @@ fn parse_protocol_instruction_event(
     }
 
     let instruction_details = protocol_instruction_details(tx, instruction, &signal);
+    if let Some(protocol_override) = instruction_details.protocol_override.clone() {
+        signal.protocol = protocol_override;
+    }
     let high_impact = instruction_details
         .high_impact_override
         .unwrap_or(signal.high_impact);
@@ -2968,7 +3107,10 @@ fn protocol_signal_tags(
     match signal.signal_kind {
         Some(ProtocolSignalKind::Admin) => {
             tags.push("signal:admin_instruction".to_owned());
-            if high_impact {
+            if protocol_signal_is_critical(signal) {
+                tags.push("severity:critical".to_owned());
+                tags.push("alert:review_now".to_owned());
+            } else if high_impact {
                 tags.push("severity:high".to_owned());
             }
         }
@@ -2986,6 +3128,11 @@ fn protocol_signal_tags(
 
     if let Some(instruction_name) = &signal.instruction_name {
         tags.push(format!("instruction:{instruction_name}"));
+    }
+
+    if is_spl_governance_signal(signal) {
+        tags.push("source:realms".to_owned());
+        tags.push("source:spl_governance".to_owned());
     }
 
     if parent_context
@@ -3059,6 +3206,10 @@ fn summary_for_protocol_signal(
     parent_context: Option<&ParentInstructionContext>,
     high_impact: bool,
 ) -> String {
+    if is_spl_governance_signal(signal) {
+        return summary_for_spl_governance_signal(signal, parent_context, high_impact);
+    }
+
     let mut summary = match signal.signal_kind {
         Some(ProtocolSignalKind::Admin) => match signal.instruction_name.as_deref() {
             Some(instruction_name) => {
@@ -3092,6 +3243,60 @@ fn summary_for_protocol_signal(
     }
 
     summary
+}
+
+fn summary_for_spl_governance_signal(
+    signal: &ProtocolInstructionSignal,
+    parent_context: Option<&ParentInstructionContext>,
+    high_impact: bool,
+) -> String {
+    let action = match signal.instruction_name.as_deref() {
+        Some("create_proposal") => "governance proposal created",
+        Some("insert_transaction") => "governance proposal transaction added",
+        Some("cancel_proposal") => "governance proposal cancelled",
+        Some("sign_off_proposal") => "governance proposal signed off",
+        Some("cast_vote") => "governance vote cast",
+        Some("finalize_vote") => "governance vote finalized",
+        Some("execute_transaction") => "governance transaction executed",
+        Some("set_governance_config") => "governance config changed",
+        Some("set_realm_authority") => "realm authority changed",
+        Some("set_realm_config") => "realm config changed",
+        Some("create_token_owner_record") => "governance token owner record created",
+        Some("complete_proposal") => "governance proposal completed",
+        Some(instruction_name) => {
+            return format!(
+                "{} governance instruction {instruction_name}",
+                signal.protocol.name
+            );
+        }
+        None => "governance instruction",
+    };
+
+    let mut summary = format!("{} {action}", signal.protocol.name);
+
+    if protocol_signal_is_critical(signal) {
+        summary = format!("Critical {summary}");
+    } else if high_impact {
+        summary = format!("High-impact {summary}");
+    }
+
+    if let Some(context) = parent_context.and_then(|context| context.squads_execution.as_ref()) {
+        summary = format!("{summary} via Squads multisig {}", context.multisig);
+    }
+
+    summary
+}
+
+fn is_spl_governance_signal(signal: &ProtocolInstructionSignal) -> bool {
+    matches!(
+        signal.protocol.slug.as_str(),
+        protocols::REALMS_PROTOCOL_SLUG | protocols::BONK_DAO_PROTOCOL_SLUG
+    )
+}
+
+fn protocol_signal_is_critical(signal: &ProtocolInstructionSignal) -> bool {
+    is_spl_governance_signal(signal)
+        && signal.instruction_name.as_deref() == Some("execute_transaction")
 }
 
 fn should_emit_protocol_signal(
@@ -3128,6 +3333,10 @@ fn call_origin_label(
 }
 
 fn protocol_signal_severity(signal: &ProtocolInstructionSignal, high_impact: bool) -> &'static str {
+    if protocol_signal_is_critical(signal) {
+        return "critical";
+    }
+
     match signal.signal_kind {
         Some(ProtocolSignalKind::Unknown) => "critical",
         Some(ProtocolSignalKind::Admin) if high_impact => "high",
@@ -3170,7 +3379,266 @@ fn protocol_instruction_details(
         }
     }
 
+    if is_spl_governance_signal(signal) {
+        return spl_governance_instruction_details(
+            tx,
+            instruction,
+            signal.instruction_name.as_deref(),
+        );
+    }
+
     ProtocolInstructionDetails::default()
+}
+
+fn spl_governance_instruction_details(
+    tx: &ResolvedTransaction,
+    instruction: &ResolvedInstruction,
+    instruction_name: Option<&str>,
+) -> ProtocolInstructionDetails {
+    let mut payload_fields = Vec::new();
+    let mut actor = None;
+
+    match instruction_name {
+        Some("create_proposal") => {
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "realm", 0);
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "proposal", 1);
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "governance", 2);
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "token_owner_record",
+                3,
+            );
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "governing_token_mint",
+                4,
+            );
+            actor = instruction_account(tx, instruction, 5)
+                .ok()
+                .map(|value| value.to_string());
+        }
+        Some("insert_transaction") => {
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "governance", 0);
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "proposal", 1);
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "token_owner_record",
+                2,
+            );
+            actor = instruction_account(tx, instruction, 3)
+                .ok()
+                .map(|value| value.to_string());
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "proposal_transaction",
+                4,
+            );
+        }
+        Some("cancel_proposal") => {
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "realm", 0);
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "governance", 1);
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "proposal", 2);
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "token_owner_record",
+                3,
+            );
+            actor = instruction_account(tx, instruction, 4)
+                .ok()
+                .map(|value| value.to_string());
+        }
+        Some("sign_off_proposal") => {
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "realm", 0);
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "governance", 1);
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "proposal", 2);
+            actor = instruction_account(tx, instruction, 3)
+                .ok()
+                .map(|value| value.to_string());
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "signatory_record",
+                4,
+            );
+        }
+        Some("cast_vote") => {
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "realm", 0);
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "governance", 1);
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "proposal", 2);
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "proposal_owner_token_owner_record",
+                3,
+            );
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "voter_token_owner_record",
+                4,
+            );
+            actor = instruction_account(tx, instruction, 5)
+                .ok()
+                .map(|value| value.to_string());
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "vote_record", 6);
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "governing_token_mint",
+                7,
+            );
+        }
+        Some("finalize_vote") => {
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "realm", 0);
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "governance", 1);
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "proposal", 2);
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "proposal_owner_token_owner_record",
+                3,
+            );
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "governing_token_mint",
+                4,
+            );
+        }
+        Some("execute_transaction") => {
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "governance", 0);
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "proposal", 1);
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "proposal_transaction",
+                2,
+            );
+        }
+        Some("set_governance_config") => {
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "realm", 0);
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "governance", 1);
+            actor = instruction_account(tx, instruction, 1)
+                .ok()
+                .map(|value| value.to_string());
+        }
+        Some("set_realm_authority") => {
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "realm", 0);
+            actor = instruction_account(tx, instruction, 1)
+                .ok()
+                .map(|value| value.to_string());
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "new_realm_authority",
+                2,
+            );
+        }
+        Some("set_realm_config") => {
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "realm", 0);
+            actor = instruction_account(tx, instruction, 1)
+                .ok()
+                .map(|value| value.to_string());
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "council_token_mint",
+                2,
+            );
+        }
+        Some("create_token_owner_record") => {
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "realm", 0);
+            actor = instruction_account(tx, instruction, 1)
+                .ok()
+                .map(|value| value.to_string());
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "token_owner_record",
+                2,
+            );
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "governing_token_mint",
+                3,
+            );
+        }
+        Some("complete_proposal") => {
+            push_instruction_account_field(tx, instruction, &mut payload_fields, "proposal", 0);
+            push_instruction_account_field(
+                tx,
+                instruction,
+                &mut payload_fields,
+                "token_owner_record",
+                1,
+            );
+            actor = instruction_account(tx, instruction, 2)
+                .ok()
+                .map(|value| value.to_string());
+        }
+        _ => {}
+    }
+
+    let protocol_override = spl_governance_protocol_override(&payload_fields);
+    if protocol_override.is_some() {
+        payload_fields.push((
+            "source_protocol",
+            protocols::REALMS_PROTOCOL_SLUG.to_owned(),
+        ));
+        payload_fields.push(("source_protocol_name", "Realms".to_owned()));
+    }
+
+    ProtocolInstructionDetails {
+        actor,
+        high_impact_override: Some(true),
+        protocol_override,
+        payload_fields,
+    }
+}
+
+fn spl_governance_protocol_override(
+    payload_fields: &[(&'static str, String)],
+) -> Option<protocols::DefiProtocolMatch> {
+    payload_fields.iter().find_map(|(key, value)| match *key {
+        "realm" | "governance" | "governing_token_mint" | "council_token_mint" => {
+            protocols::protocol_for_realms_governance_account(value)
+        }
+        _ => None,
+    })
+}
+
+fn push_instruction_account_field(
+    tx: &ResolvedTransaction,
+    instruction: &ResolvedInstruction,
+    fields: &mut Vec<(&'static str, String)>,
+    key: &'static str,
+    account_position: usize,
+) {
+    if let Ok(account) = instruction_account(tx, instruction, account_position) {
+        fields.push((key, account.to_string()));
+    }
 }
 
 fn kamino_reserve_config_details(
@@ -3210,6 +3678,7 @@ fn kamino_reserve_config_details(
         high_impact_override: parsed
             .as_ref()
             .map(kamino_reserve_config_update_high_impact),
+        protocol_override: None,
         payload_fields,
     }
 }
@@ -3352,6 +3821,7 @@ fn orca_config_extension_authority_details(
     ProtocolInstructionDetails {
         actor: Some(config_extension_authority.to_string()),
         high_impact_override: Some(high_impact && official_config),
+        protocol_override: None,
         payload_fields: vec![
             ("whirlpools_config", whirlpools_config.to_string()),
             (
@@ -3578,6 +4048,128 @@ async fn annotate_multisig_project_links(
             })
             .collect::<Vec<_>>();
         payload.insert("linked_protocols".to_owned(), json!(payload_links));
+    }
+
+    Ok(())
+}
+
+async fn annotate_governance_project_links(
+    state: &SharedState,
+    event: &mut ChainEvent,
+) -> Result<()> {
+    let is_realms_event = event.tags.iter().any(|tag| tag == "source:realms")
+        || event.tags.iter().any(|tag| tag == "protocol:realms")
+        || event
+            .payload
+            .get("source_protocol")
+            .and_then(|value| value.as_str())
+            == Some(protocols::REALMS_PROTOCOL_SLUG)
+        || event
+            .payload
+            .get("protocol")
+            .and_then(|value| value.as_str())
+            == Some(protocols::REALMS_PROTOCOL_SLUG);
+    if !is_realms_event {
+        return Ok(());
+    }
+
+    let mut lookup_addresses = Vec::<String>::new();
+    for payload_key in [
+        "governance",
+        "realm",
+        "governed_account",
+        "governing_token_mint",
+        "council_token_mint",
+    ] {
+        if let Some(address) = event
+            .payload
+            .get(payload_key)
+            .and_then(|value| value.as_str())
+        {
+            push_unique_address(&mut lookup_addresses, address);
+        }
+    }
+
+    if lookup_addresses.is_empty() {
+        return Ok(());
+    }
+
+    let links = state
+        .db
+        .governance_protocol_links_for_accounts(&lookup_addresses)
+        .await?;
+    if links.is_empty() {
+        return Ok(());
+    }
+
+    let mut linked_protocols = HashMap::<String, String>::new();
+    for (slug, link) in links {
+        linked_protocols.entry(slug).or_insert(link.evidence);
+    }
+    linked_protocols.remove(protocols::REALMS_PROTOCOL_SLUG);
+    if linked_protocols.is_empty() {
+        return Ok(());
+    }
+
+    let mut linked_protocols = linked_protocols.into_iter().collect::<Vec<_>>();
+    linked_protocols.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+    event
+        .tags
+        .retain(|tag| tag != "protocol:realms" && tag != "protocol:squads");
+    event.tags.extend([
+        "sector:defi".to_owned(),
+        "watch:defi".to_owned(),
+        "governance:project_linked".to_owned(),
+    ]);
+    event.tags.extend(
+        linked_protocols
+            .iter()
+            .map(|(slug, _)| format!("protocol:{slug}")),
+    );
+    event.tags = normalize_tags(std::mem::take(&mut event.tags));
+
+    let first_protocol = linked_protocols.first().map(|(slug, _)| slug.clone());
+    if let Some(payload) = event.payload.as_object_mut() {
+        if let Some(current_protocol) = payload.get("protocol").and_then(|value| value.as_str()) {
+            if current_protocol == protocols::REALMS_PROTOCOL_SLUG {
+                payload.insert("source_protocol".to_owned(), json!(current_protocol));
+                payload.insert("source_protocol_name".to_owned(), json!("Realms"));
+            }
+        }
+
+        let payload_links = linked_protocols
+            .iter()
+            .map(|(slug, evidence)| {
+                let protocol_name = protocols::curated_protocol_descriptor(slug)
+                    .map(|descriptor| descriptor.name)
+                    .unwrap_or_else(|| slug.clone());
+                json!({
+                    "protocol": slug,
+                    "protocol_name": protocol_name,
+                    "evidence": evidence,
+                })
+            })
+            .collect::<Vec<_>>();
+        payload.insert("linked_protocols".to_owned(), json!(payload_links));
+
+        if linked_protocols.len() == 1 {
+            let (slug, _) = &linked_protocols[0];
+            let protocol_name = protocols::curated_protocol_descriptor(slug)
+                .map(|descriptor| descriptor.name)
+                .unwrap_or_else(|| slug.clone());
+            payload.insert("protocol".to_owned(), json!(slug));
+            payload.insert("protocol_name".to_owned(), json!(protocol_name));
+        }
+    }
+
+    if linked_protocols.len() == 1 {
+        if let Some(slug) = first_protocol {
+            let protocol_name = protocols::curated_protocol_descriptor(&slug)
+                .map(|descriptor| descriptor.name)
+                .unwrap_or(slug);
+            event.summary = event.summary.replacen("Realms", &protocol_name, 1);
+        }
     }
 
     Ok(())
@@ -4024,6 +4616,69 @@ mod tests {
             .expect("kamino reserve config event")
     }
 
+    fn sample_realms_execute_transaction_event() -> ChainEvent {
+        let governance = Pubkey::from_str("Uq5BRkVfdBpMknZJHw6huS3dunEgJpUDv3M2DG3BfQg").unwrap();
+        let proposal = Pubkey::from_str("6wR1jdhhJ31bbdRNXva8MxqsgsNLKTxargcdAyZ7FcRj").unwrap();
+        let proposal_transaction =
+            Pubkey::from_str("5y9dZT4nELdqrpQY4Zfm3ZUXgeANr5tABB8vphkKv2u7").unwrap();
+        let realms_program =
+            Pubkey::from_str("GovER5Lthms3bLBqWub97yVrMmEogzX7xNjdXpPPCVZw").unwrap();
+        let signer = Pubkey::new_unique();
+        let tx = ResolvedTransaction {
+            signature: "realms-execute-test".to_owned(),
+            primary_signer: Some(signer),
+            account_keys: vec![
+                governance,
+                proposal,
+                proposal_transaction,
+                realms_program,
+                signer,
+            ],
+            top_level_instructions: vec![],
+            inner_instruction_sets: vec![],
+            log_messages: vec![],
+        };
+        let instruction = ResolvedInstruction {
+            program_id_index: 3,
+            accounts: vec![0, 1, 2],
+            data: vec![16],
+            stack_height: Some(1),
+        };
+
+        parse_protocol_instruction_event(&tx, &instruction, 431127240, Some(1783335988), "2", None)
+            .unwrap()
+            .0
+            .expect("realms execute transaction event")
+    }
+
+    fn sample_bonk_dao_treasury_transfer_event(raw_amount: u64) -> Option<ChainEvent> {
+        let source = Pubkey::from_str("F8FqZuUKfoy58aHLW6bfeEhfW9sTtJyqFTqnxVmGZ6dU").unwrap();
+        let mint = Pubkey::from_str(protocols::BONK_DAO_COMMUNITY_MINT_ADDRESS).unwrap();
+        let destination = Pubkey::from_str("28AymsqjJ6p312raqaNUNn8DADT4kyRAwT2nJ87scmPy").unwrap();
+        let authority = Pubkey::from_str(protocols::BONK_DAO_TREASURY_WALLET).unwrap();
+        let token_program = Pubkey::from_str(TOKEN_PROGRAM_ID).unwrap();
+        let tx = ResolvedTransaction {
+            signature: "bonk-dao-outflow-test".to_owned(),
+            primary_signer: Some(Pubkey::new_unique()),
+            account_keys: vec![source, mint, destination, authority, token_program],
+            top_level_instructions: vec![],
+            inner_instruction_sets: vec![],
+            log_messages: vec![],
+        };
+        let mut data = vec![12];
+        data.extend_from_slice(&raw_amount.to_le_bytes());
+        data.push(protocols::BONK_TOKEN_DECIMALS);
+        let instruction = ResolvedInstruction {
+            program_id_index: 4,
+            accounts: vec![0, 1, 2, 3],
+            data,
+            stack_height: Some(2),
+        };
+
+        parse_treasury_token_outflow_event(&tx, &instruction, 431127240, Some(1783326388), "2.0")
+            .expect("treasury transfer parse")
+    }
+
     fn kamino_reserve_config_update_data(mode: u8, value: &[u8], skip_validation: bool) -> Vec<u8> {
         let mut data = anchor_discriminator("update_reserve_config").to_vec();
         data.push(mode);
@@ -4085,6 +4740,129 @@ mod tests {
             target_program,
             Some(&parent_context),
         ));
+    }
+
+    #[test]
+    fn routes_bonk_dao_realms_execute_transaction_as_critical_defi_signal() {
+        let event = sample_realms_execute_transaction_event();
+
+        assert_eq!(event.kind, event_kind::PROGRAM_ADMIN_INSTRUCTION);
+        assert_eq!(event.target_type, target_type::PROGRAM);
+        assert_eq!(
+            event.summary,
+            "Critical Bonk DAO governance transaction executed"
+        );
+        assert!(event.tags.iter().any(|tag| tag == "protocol:bonk_dao"));
+        assert!(event.tags.iter().any(|tag| tag == "source:realms"));
+        assert!(event.tags.iter().any(|tag| tag == "source:spl_governance"));
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "instruction:execute_transaction")
+        );
+        assert!(event.tags.iter().any(|tag| tag == "severity:critical"));
+        assert!(event.tags.iter().any(|tag| tag == "impact:high"));
+        assert!(event.tags.iter().any(|tag| tag == "alert:review_now"));
+        assert!(TelegramEventScope::DefiWatch.matches_event(&event));
+        assert_eq!(
+            event
+                .payload
+                .get("severity")
+                .and_then(|value| value.as_str()),
+            Some("critical")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("protocol")
+                .and_then(|value| value.as_str()),
+            Some("bonk_dao")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("protocol_name")
+                .and_then(|value| value.as_str()),
+            Some("Bonk DAO")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("source_protocol")
+                .and_then(|value| value.as_str()),
+            Some("realms")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("governance")
+                .and_then(|value| value.as_str()),
+            Some("Uq5BRkVfdBpMknZJHw6huS3dunEgJpUDv3M2DG3BfQg")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("proposal")
+                .and_then(|value| value.as_str()),
+            Some("6wR1jdhhJ31bbdRNXva8MxqsgsNLKTxargcdAyZ7FcRj")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("proposal_transaction")
+                .and_then(|value| value.as_str()),
+            Some("5y9dZT4nELdqrpQY4Zfm3ZUXgeANr5tABB8vphkKv2u7")
+        );
+    }
+
+    #[test]
+    fn routes_bonk_dao_large_treasury_outflow_as_critical_defi_wallet_event() {
+        let event = sample_bonk_dao_treasury_transfer_event(442_610_445_030_596_600)
+            .expect("large Bonk DAO outflow event");
+
+        assert_eq!(event.kind, event_kind::TREASURY_TOKEN_OUTFLOW);
+        assert_eq!(event.target_type, target_type::WALLET);
+        assert_eq!(event.target_address, protocols::BONK_DAO_TREASURY_WALLET);
+        assert_eq!(
+            event.summary,
+            "Critical Bonk DAO treasury outflow: 4426104450305.966 BONK sent"
+        );
+        assert!(event.tags.iter().any(|tag| tag == "protocol:bonk_dao"));
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "signal:treasury_outflow")
+        );
+        assert!(event.tags.iter().any(|tag| tag == "severity:critical"));
+        assert!(event.tags.iter().any(|tag| tag == "impact:high"));
+        assert!(TelegramEventScope::DefiWatch.matches_event(&event));
+        assert!(TelegramEventScope::WalletActivity.matches_event(&event));
+        assert_eq!(
+            event
+                .payload
+                .get("display_amount")
+                .and_then(|value| value.as_str()),
+            Some("4426104450305.966")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("destination_token_account")
+                .and_then(|value| value.as_str()),
+            Some("28AymsqjJ6p312raqaNUNn8DADT4kyRAwT2nJ87scmPy")
+        );
+    }
+
+    #[test]
+    fn ignores_bonk_dao_treasury_outflow_below_critical_threshold() {
+        assert!(
+            sample_bonk_dao_treasury_transfer_event(
+                protocols::BONK_DAO_CRITICAL_OUTFLOW_RAW_AMOUNT - 1
+            )
+            .is_none()
+        );
     }
 
     #[test]

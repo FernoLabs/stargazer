@@ -6,6 +6,7 @@
 	import { protocolDisplayName } from '$lib/catalog';
 	import ProtocolCombobox from '$lib/components/ProtocolCombobox.svelte';
 	import SimpleEventFeed from '$lib/components/SimpleEventFeed.svelte';
+	import { eventProtocolSlugs } from '$lib/event-preview';
 	import type { ChainEvent, EventsResponse } from '$lib/types';
 	import type { PageData } from './$types';
 
@@ -352,10 +353,6 @@
 		return 'standard';
 	}
 
-	function protocolTag(event: ChainEvent) {
-		return event.tags.find((tag) => tag.startsWith('protocol:')) ?? null;
-	}
-
 	function currentProtocolLabel() {
 		if (protocolFilter === 'all') return null;
 		return protocolDisplayName(data.defiProtocols, protocolFilter);
@@ -409,7 +406,7 @@
 		if (!matchesTab(event)) return false;
 		if (severityFilter !== 'all' && severity(event) !== severityFilter) return false;
 		if (coverageFilter === 'known' && !event.tags.includes('watch:defi')) return false;
-		if (protocolFilter !== 'all' && protocolTag(event) !== `protocol:${protocolFilter}`) return false;
+		if (protocolFilter !== 'all' && !eventProtocolSlugs(event).includes(protocolFilter)) return false;
 
 		if (tagFilter.trim()) {
 			const needle = tagFilter.trim().toLowerCase();

@@ -14,6 +14,7 @@ mod program_authority;
 mod program_bytes;
 mod program_disassembly;
 mod program_metadata;
+mod protocol_governance;
 mod protocol_metrics;
 mod protocols;
 mod solana;
@@ -35,6 +36,7 @@ use liquidity_pools::{
     default_seed_mint_label, dimension_liquidity_pools, seed_liquidity_pools,
 };
 use program_authority::{ProtocolAuthoritySyncReport, sync_protocol_upgrade_authority_multisigs};
+use protocol_governance::{ProtocolGovernanceSyncReport, sync_protocol_governance_realms};
 use std::env;
 use token_liquidity::{
     LOMBARD_LBTC_MINT, LOMBARD_LBTC_SYMBOL, PoolBuyPressureReport, PoolLiquidityTransition,
@@ -66,8 +68,10 @@ async fn main() -> Result<()> {
 
     let state = AppState::shared(config.clone(), db, reqwest::Client::new());
 
+    let api_only = matches!(&command, Command::ServeApi);
+
     match command {
-        Command::Serve => {}
+        Command::Serve | Command::ServeApi => {}
         Command::BackfillBlock {
             slot,
             enqueue_deliveries,
@@ -281,6 +285,11 @@ async fn main() -> Result<()> {
             print_protocol_authority_sync_report(&report);
             return Ok(());
         }
+        Command::SyncGovernanceRealms => {
+            let report = sync_protocol_governance_realms(state).await?;
+            print_protocol_governance_sync_report(&report);
+            return Ok(());
+        }
         Command::ScanTokenLiquidity {
             mint,
             symbol,
@@ -314,43 +323,53 @@ async fn main() -> Result<()> {
         }
     }
 
-    let suppressed_false_positive_deliveries = state
-        .db
-        .mark_raydium_amm_v4_swap_false_positive_deliveries(models::now_ts())
-        .await?;
-    if suppressed_false_positive_deliveries > 0 {
-        warn!(
-            count = suppressed_false_positive_deliveries,
-            "marked Raydium AMM v4 swap false-positive telegram deliveries as delivered"
-        );
-    }
-    let suppressed_false_positive_deliveries = state
-        .db
-        .mark_raydium_clmm_known_false_positive_deliveries(models::now_ts())
-        .await?;
-    if suppressed_false_positive_deliveries > 0 {
-        warn!(
-            count = suppressed_false_positive_deliveries,
-            "marked Raydium CLMM known false-positive deliveries as delivered"
-        );
-    }
-    let suppressed_false_positive_deliveries = state
-        .db
-        .mark_kamino_reserve_config_parser_false_positive_deliveries(models::now_ts())
-        .await?;
-    if suppressed_false_positive_deliveries > 0 {
-        warn!(
-            count = suppressed_false_positive_deliveries,
-            "marked Kamino reserve config parser false-positive deliveries as delivered"
-        );
-    }
+    if !api_only {
+        let suppressed_false_positive_deliveries = state
+            .db
+            .mark_raydium_amm_v4_swap_false_positive_deliveries(models::now_ts())
+            .await?;
+        if suppressed_false_positive_deliveries > 0 {
+            warn!(
+                count = suppressed_false_positive_deliveries,
+                "marked Raydium AMM v4 swap false-positive telegram deliveries as delivered"
+            );
+        }
+        let suppressed_false_positive_deliveries = state
+            .db
+            .mark_raydium_clmm_known_false_positive_deliveries(models::now_ts())
+            .await?;
+        if suppressed_false_positive_deliveries > 0 {
+            warn!(
+                count = suppressed_false_positive_deliveries,
+                "marked Raydium CLMM known false-positive deliveries as delivered"
+            );
+        }
+        let suppressed_false_positive_deliveries = state
+            .db
+            .mark_kamino_reserve_config_parser_false_positive_deliveries(models::now_ts())
+            .await?;
+        if suppressed_false_positive_deliveries > 0 {
+            warn!(
+                count = suppressed_false_positive_deliveries,
+                "marked Kamino reserve config parser false-positive deliveries as delivered"
+            );
+        }
 
-    spawn_block_time_repair(state.clone());
-    spawn_sns_label_bootstrap(state.clone());
-    spawn_liquidity_pool_snapshot_prune(state.clone());
+        spawn_block_time_repair(state.clone());
+        spawn_sns_label_bootstrap(state.clone());
+        spawn_liquidity_pool_snapshot_prune(state.clone());
+    }
 
     let router = http::router(state.clone())?;
     let listener = TcpListener::bind(&config.http_bind).await?;
+
+    if api_only {
+        info!(bind = %config.http_bind, "serving HTTP API only");
+        axum::serve(listener, router)
+            .await
+            .map_err(anyhow::Error::from)?;
+        return Ok(());
+    }
 
     tokio::try_join!(
         solana::run_indexer(state.clone()),
@@ -369,6 +388,7 @@ async fn main() -> Result<()> {
 
 enum Command {
     Serve,
+    ServeApi,
     BackfillBlock {
         slot: u64,
         enqueue_deliveries: bool,
@@ -420,6 +440,7 @@ enum Command {
         vault_index_count: u8,
         discover_all_squads: bool,
     },
+    SyncGovernanceRealms,
     ScanTokenLiquidity {
         mint: String,
         symbol: String,
@@ -441,6 +462,8 @@ fn parse_command() -> Result<Command> {
     }
 
     match args[0].as_str() {
+        "serve" | "--serve" => Ok(Command::Serve),
+        "serve-api" | "--serve-api" | "api" | "--api" => Ok(Command::ServeApi),
         "backfill-block" | "--backfill-block" => {
             let slot = args
                 .get(1)
@@ -792,6 +815,7 @@ fn parse_command() -> Result<Command> {
                 discover_all_squads,
             })
         }
+        "sync-governance-realms" | "--sync-governance-realms" => Ok(Command::SyncGovernanceRealms),
         "scan-token-liquidity" | "--scan-token-liquidity" => {
             let mut mint = LOMBARD_LBTC_MINT.to_owned();
             let mut symbol = LOMBARD_LBTC_SYMBOL.to_owned();
@@ -922,13 +946,14 @@ fn parse_command() -> Result<Command> {
             println!(
                 "  firewatch-backend sync-program-authorities [--discover-all-squads] [--vault-index-count N]"
             );
+            println!("  firewatch-backend sync-governance-realms");
             println!(
                 "  firewatch-backend scan-token-liquidity [--mint MINT] [--symbol SYMBOL] [--lookback-days N] [--min-token-reserve N] [--min-token-reserve-usd N] [--max-signature-pages N] [--wallet ADDRESS] [--wallet-subscriptions] [--emit] [--deliver]"
             );
             std::process::exit(0);
         }
         unknown => bail!(
-            "unknown command {unknown:?}; use `backfill-block <slot>`, `backfill-blocks <start> <end>`, `backfill-rpc <start> <end>`, `backfill-grpc <start> <end>`, `backfill-program-history <program-id>`, `migrate-blobs`, `repair-block-time <slot>`, `repair-recent-block-times [limit]`, `dimension-liquidity-pools`, `prune-liquidity-snapshots`, `seed-liquidity-pools`, `sync-program-authorities`, `scan-token-liquidity`, or no command"
+            "unknown command {unknown:?}; use `backfill-block <slot>`, `backfill-blocks <start> <end>`, `backfill-rpc <start> <end>`, `backfill-grpc <start> <end>`, `backfill-program-history <program-id>`, `migrate-blobs`, `repair-block-time <slot>`, `repair-recent-block-times [limit]`, `dimension-liquidity-pools`, `prune-liquidity-snapshots`, `seed-liquidity-pools`, `sync-program-authorities`, `sync-governance-realms`, `scan-token-liquidity`, or no command"
         ),
     }
 }
@@ -1608,6 +1633,22 @@ fn print_protocol_authority_sync_report(report: &ProtocolAuthoritySyncReport) {
     println!("Linked programs: {}", report.linked_program_count);
     println!("Protocol multisig links found: {}", report.link_count);
     println!("Protocol multisig links stored: {}", report.inserted_count);
+}
+
+fn print_protocol_governance_sync_report(report: &ProtocolGovernanceSyncReport) {
+    println!("Synced protocol governance realms");
+    println!(
+        "Realms governance programs checked: {}",
+        report.governance_program_count
+    );
+    println!("Realm accounts loaded: {}", report.realm_count);
+    println!("Governance accounts loaded: {}", report.governance_count);
+    println!("Matched realms: {}", report.matched_realm_count);
+    println!("Protocol governance links found: {}", report.link_count);
+    println!(
+        "Protocol governance links stored: {}",
+        report.inserted_count
+    );
 }
 
 fn format_bytes(bytes: f64) -> String {

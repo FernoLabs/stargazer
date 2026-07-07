@@ -16,6 +16,18 @@
 		alertLabel?: string;
 	};
 
+	type ConfigHeaderData = {
+		session?: {
+			chat_title?: string | null;
+			chat_type?: string | null;
+		} | null;
+		user?: {
+			telegram_username?: string | null;
+			telegram_user_id?: number | string | null;
+			label?: string | null;
+		} | null;
+	};
+
 	const SLOT_TICK_MS = 1000;
 	const LIVE_REFRESH_MS = 4_000;
 	const INITIAL_REFRESH_DELAY_MS = 1500;
@@ -65,11 +77,27 @@
 	}
 
 	function addBotUrl() {
-		return `https://t.me/${botUsername()}?startgroup=setup`;
+		return `https://t.me/${botUsername()}`;
 	}
 
 	function openAddBot() {
 		window.open(addBotUrl(), '_blank', 'noopener,noreferrer');
+	}
+
+	function configHeaderData() {
+		return page.data as ConfigHeaderData;
+	}
+
+	function hasConfigHeaderSession() {
+		return page.url.pathname.startsWith('/config/') && Boolean(configHeaderData().session && configHeaderData().user);
+	}
+
+	function configHeaderUserLabel() {
+		const user = configHeaderData().user;
+		if (!user) return 'Connected';
+		if (user.telegram_username) return `@${user.telegram_username}`;
+		if (user.telegram_user_id) return String(user.telegram_user_id);
+		return user.label ?? 'Connected';
 	}
 
 	onMount(() => {
@@ -157,16 +185,23 @@
 
 				<nav class="primary-nav" aria-label="Primary">
 					{#each primaryNav as item (item.href)}
-							<a class={isActive(page.url.pathname, item.href) ? 'active' : ''} href={resolve(item.href)}>
+						<a class={isActive(page.url.pathname, item.href) ? 'active' : ''} href={resolve(item.href)}>
 							{item.label}
 						</a>
 					{/each}
 				</nav>
 
-				<button class="header-cta" type="button" onclick={openAddBot}>
-					<span class="cta-long">Add Telegram bot</span>
-					<span class="cta-short">Telegram</span>
-				</button>
+				{#if hasConfigHeaderSession()}
+					<form class="header-session" method="POST" action="?/forget_config">
+						<a href={resolve('/config')}>{configHeaderUserLabel()}</a>
+						<button type="submit">Disconnect</button>
+					</form>
+				{:else}
+					<button class="header-cta" type="button" onclick={openAddBot}>
+						<span class="cta-long">Open Telegram bot</span>
+						<span class="cta-short">Open bot</span>
+					</button>
+				{/if}
 			</div>
 
 			{#if data.backendError && !liveStatusContext.liveStatus}
@@ -313,6 +348,51 @@
 		border-color: var(--fw-accent-strong);
 	}
 
+	.header-session {
+		display: inline-flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 0.44rem;
+		min-width: 0;
+	}
+
+	.header-session a {
+		max-width: 10rem;
+		overflow: hidden;
+		color: #53606b;
+		font-size: 0.78rem;
+		font-weight: 780;
+		text-decoration: none;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.header-session a:hover {
+		color: var(--fw-accent-strong);
+		text-decoration: underline;
+	}
+
+	.header-session button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 1.86rem;
+		padding: 0 0.56rem;
+		border: 1px solid rgba(23, 32, 42, 0.14);
+		border-radius: 7px;
+		background: #fffdfa;
+		color: #53606b;
+		font: inherit;
+		font-size: 0.74rem;
+		font-weight: 760;
+		cursor: pointer;
+	}
+
+	.header-session button:hover {
+		border-color: rgba(173, 78, 34, 0.4);
+		color: var(--fw-accent-strong);
+	}
+
 	.cta-short {
 		display: none;
 	}
@@ -363,6 +443,17 @@
 			min-height: 1.78rem;
 			padding: 0 0.5rem;
 			font-size: 0.72rem;
+		}
+
+		.header-session a {
+			max-width: 6.5rem;
+			font-size: 0.72rem;
+		}
+
+		.header-session button {
+			min-height: 1.78rem;
+			padding: 0 0.5rem;
+			font-size: 0.7rem;
 		}
 	}
 

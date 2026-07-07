@@ -2,7 +2,12 @@ import {
 	DISCOVERED_PROTOCOL_MULTISIG_LAST_SEEN_AT,
 	DISCOVERED_PROTOCOL_MULTISIG_LINK_ROWS
 } from '$lib/generated/protocolMultisigLinks';
-import type { DefiProtocolDescriptor, ProtocolMultisigLink, ProtocolProgramSurface } from '$lib/types';
+import type {
+	DefiProtocolDescriptor,
+	ProtocolGovernanceLink,
+	ProtocolMultisigLink,
+	ProtocolProgramSurface
+} from '$lib/types';
 
 export const SQUADS_V4_PROGRAM_ID = 'SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf';
 
@@ -26,6 +31,16 @@ let discoveredProtocolMultisigLinksBySlug: Map<string, ProtocolMultisigLink[]> |
 
 function protocolMultisigLinkKey(link: ProtocolMultisigLink) {
 	return `${link.source}:${link.program_id}:${link.multisig}:${link.authority}`;
+}
+
+function protocolGovernanceLinkKey(link: ProtocolGovernanceLink) {
+	return [
+		link.source,
+		link.governance_program_id,
+		link.realm,
+		link.governance,
+		link.governed_account
+	].join(':');
 }
 
 function uniqueBy<T>(items: T[], keyFor: (item: T) => string) {
@@ -173,6 +188,10 @@ export function mergeProtocolAliases(protocols: DefiProtocolDescriptor[]): DefiP
 				related_multisigs: uniqueBy(
 					[...(acc.related_multisigs ?? []), ...(protocol.related_multisigs ?? [])],
 					protocolMultisigLinkKey
+				),
+				related_governances: uniqueBy(
+					[...(acc.related_governances ?? []), ...(protocol.related_governances ?? [])],
+					protocolGovernanceLinkKey
 				)
 			}),
 			{
@@ -185,7 +204,8 @@ export function mergeProtocolAliases(protocols: DefiProtocolDescriptor[]): DefiP
 				admin_instruction_filters: [],
 				high_impact_instruction_filters: [],
 				amount_triggers: [],
-				related_multisigs: []
+				related_multisigs: [],
+				related_governances: []
 			}
 		);
 	});
@@ -193,8 +213,34 @@ export function mergeProtocolAliases(protocols: DefiProtocolDescriptor[]): DefiP
 	return changed ? merged : protocols;
 }
 
+export function uniqueProtocolMultisigCount(protocol: DefiProtocolDescriptor) {
+	return new Set((protocol.related_multisigs ?? []).map((link) => link.multisig).filter(Boolean)).size;
+}
+
+export function uniqueProtocolGovernanceCount(protocol: DefiProtocolDescriptor) {
+	return new Set(
+		(protocol.related_governances ?? [])
+			.map((link) => link.realm || link.governance || link.governed_account)
+			.filter(Boolean)
+	).size;
+}
+
+export function protocolListedItemCount(protocol: DefiProtocolDescriptor) {
+	return (
+		protocol.programs.length +
+		protocol.sol_domains.length +
+		protocol.amount_triggers.length +
+		uniqueProtocolMultisigCount(protocol) +
+		uniqueProtocolGovernanceCount(protocol)
+	);
+}
+
+export function hasProtocolListedItems(protocol: DefiProtocolDescriptor) {
+	return protocolListedItemCount(protocol) > 0;
+}
+
 export function normalizedProtocolCatalog(protocols: DefiProtocolDescriptor[]) {
-	return mergeProtocolAliases(hydrateProtocolRelatedMultisigs(protocols));
+	return mergeProtocolAliases(hydrateProtocolRelatedMultisigs(protocols)).filter(hasProtocolListedItems);
 }
 
 export function syntheticSquadsDescriptor(): DefiProtocolDescriptor {
@@ -217,7 +263,8 @@ export function syntheticSquadsDescriptor(): DefiProtocolDescriptor {
 		high_impact_instruction_filters: ['config_transaction_execute'],
 		amount_triggers: [],
 		unknown_alerts: false,
-		related_multisigs: []
+		related_multisigs: [],
+		related_governances: []
 	};
 }
 

@@ -102,6 +102,7 @@
 		return [
 			...programItems,
 			...monitoredMultisigItems(current),
+			...monitoredGovernanceItems(current),
 			...current.sol_domains.map((domain) => ({
 				id: `domain:${domain}`,
 				kind: 'Wallet',
@@ -156,15 +157,60 @@
 		}));
 	}
 
+	function monitoredGovernanceItems(current: DefiProtocolDescriptor) {
+		const groups: {
+			key: string;
+			realm: string;
+			realmName: string;
+			governances: Set<string>;
+			kinds: Set<string>;
+		}[] = [];
+
+		for (const link of current.related_governances ?? []) {
+			const key = link.realm || link.governance || link.governed_account;
+			if (!key) continue;
+			let group = groups.find((candidate) => candidate.key === key);
+			if (!group) {
+				group = {
+					key,
+					realm: link.realm,
+					realmName: link.realm_name,
+					governances: new Set(),
+					kinds: new Set()
+				};
+				groups.push(group);
+			}
+			if (link.governance) group.governances.add(link.governance);
+			if (link.governance_kind) group.kinds.add(link.governance_kind.replaceAll('_', ' '));
+		}
+
+		return groups.map((group) => ({
+			id: `realm:${group.key}`,
+			kind: 'Realm',
+			title: group.realmName || 'Realms governance',
+			detail: group.realm || group.key,
+			note:
+				group.governances.size > 0
+					? `${formatCount(group.governances.size)} governance account${group.governances.size === 1 ? '' : 's'}`
+					: [...group.kinds][0] || 'Governance account',
+			programAddress: null,
+			monospace: true
+		}));
+	}
+
 	function monitoringSummary(current: DefiProtocolDescriptor | null) {
 		if (!current) return 'No monitored items';
 		const multisigCount = uniqueRelatedMultisigCount(current);
+		const realmCount = uniqueRelatedGovernanceCount(current);
 		const parts = [
 			current.programs.length > 0
 				? `${formatCount(current.programs.length)} program${current.programs.length === 1 ? '' : 's'}`
 				: null,
 			multisigCount > 0
 				? `${formatCount(multisigCount)} multisig${multisigCount === 1 ? '' : 's'}`
+				: null,
+			realmCount > 0
+				? `${formatCount(realmCount)} realm${realmCount === 1 ? '' : 's'}`
 				: null,
 			current.sol_domains.length > 0
 				? `${formatCount(current.sol_domains.length)} wallet${current.sol_domains.length === 1 ? '' : 's'}`
@@ -179,6 +225,14 @@
 
 	function uniqueRelatedMultisigCount(current: DefiProtocolDescriptor) {
 		return new Set((current.related_multisigs ?? []).map((link) => link.multisig).filter(Boolean)).size;
+	}
+
+	function uniqueRelatedGovernanceCount(current: DefiProtocolDescriptor) {
+		return new Set(
+			(current.related_governances ?? [])
+				.map((link) => link.realm || link.governance || link.governed_account)
+				.filter(Boolean)
+		).size;
 	}
 
 	function coverageLabel(current: DefiProtocolDescriptor | null) {

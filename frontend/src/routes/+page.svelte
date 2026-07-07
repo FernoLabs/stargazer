@@ -4,7 +4,7 @@
 	import { onMount } from 'svelte';
 	import ProtocolActivityCard from '$lib/components/ProtocolActivityCard.svelte';
 	import RollingNumber from '$lib/components/RollingNumber.svelte';
-	import { compactLongTokens } from '$lib/event-preview';
+	import { compactLongTokens, eventProtocolSlugs as previewEventProtocolSlugs } from '$lib/event-preview';
 	import { getLiveStatusContext } from '$lib/live-status-context.svelte';
 	import type { ChainEvent, DefiProtocolDescriptor, EventsResponse, EventsSummary } from '$lib/types';
 	import type { PageData } from './$types';
@@ -45,6 +45,7 @@
 		protocols: number;
 		programs: number;
 		multisigs: number;
+		realms: number;
 		accounts: number;
 	};
 
@@ -121,6 +122,7 @@
 		const programs = new Set<string>();
 		const accounts = new Set<string>();
 		const multisigs = new Set<string>();
+		const realms = new Set<string>();
 
 		for (const protocol of data.defiProtocols) {
 			if (protocol.program_id) programs.add(protocol.program_id);
@@ -138,12 +140,17 @@
 			for (const link of protocol.related_multisigs ?? []) {
 				if (link.multisig) multisigs.add(link.multisig);
 			}
+
+			for (const link of protocol.related_governances ?? []) {
+				if (link.realm) realms.add(link.realm);
+			}
 		}
 
 		return {
 			protocols: data.defiProtocols.length,
 			programs: programs.size,
 			multisigs: Math.max(multisigs.size, liveWindowMultisigCount),
+			realms: realms.size,
 			accounts: accounts.size
 		};
 	});
@@ -290,7 +297,7 @@
 	}
 
 	function addBotUrl() {
-		return `https://t.me/${botUsername()}?startgroup=setup`;
+		return `https://t.me/${botUsername()}`;
 	}
 
 	function openAddBot() {
@@ -349,8 +356,9 @@
 		return [
 			pluralLabel(stats.programs, 'program'),
 			pluralLabel(stats.multisigs, 'multisig'),
+			stats.realms > 0 ? pluralLabel(stats.realms, 'realm') : null,
 			pluralLabel(stats.accounts, 'account')
-		];
+		].filter((part): part is string => Boolean(part));
 	}
 
 	function protocolActivitySort(left: ProtocolRow, right: ProtocolRow) {
@@ -370,16 +378,26 @@
 
 	function trackedSourceParts(protocol: DefiProtocolDescriptor) {
 		const multisigCount = uniqueRelatedMultisigCount(protocol);
+		const realmCount = uniqueRelatedGovernanceCount(protocol);
 		return [
 			protocol.sol_domains.length > 0 ? pluralLabel(protocol.sol_domains.length, 'wallet') : null,
 			protocol.programs.length > 0 ? pluralLabel(protocol.programs.length, 'program') : null,
 			multisigCount > 0 ? pluralLabel(multisigCount, 'multisig') : null,
+			realmCount > 0 ? pluralLabel(realmCount, 'realm') : null,
 			protocol.amount_triggers.length > 0 ? pluralLabel(protocol.amount_triggers.length, 'rule') : null
 		].filter((part): part is string => Boolean(part));
 	}
 
 	function uniqueRelatedMultisigCount(protocol: DefiProtocolDescriptor) {
 		return new Set((protocol.related_multisigs ?? []).map((link) => link.multisig).filter(Boolean)).size;
+	}
+
+	function uniqueRelatedGovernanceCount(protocol: DefiProtocolDescriptor) {
+		return new Set(
+			(protocol.related_governances ?? [])
+				.map((link) => link.realm || link.governance || link.governed_account)
+				.filter(Boolean)
+		).size;
 	}
 
 	function trackedSourceLabel(protocol: DefiProtocolDescriptor) {
@@ -488,37 +506,8 @@
 		return 'standard';
 	}
 
-	function linkedProtocolSlugs(event: ChainEvent) {
-		const linked = event.payload.linked_protocols;
-		if (!Array.isArray(linked)) return [];
-
-		return linked
-			.map((item) => {
-				if (!item || typeof item !== 'object') return null;
-				const protocol = (item as Record<string, unknown>).protocol;
-				return typeof protocol === 'string' ? protocol : null;
-			})
-			.filter((value): value is string => Boolean(value));
-	}
-
 	function eventProtocolSlugs(event: ChainEvent, knownProtocolSlugs: Set<string>) {
-		const slugs = new Set<string>();
-		for (const tag of event.tags) {
-			if (!tag.startsWith('protocol:')) continue;
-			const slug = tag.slice('protocol:'.length);
-			if (knownProtocolSlugs.has(slug)) slugs.add(slug);
-		}
-
-		for (const slug of [
-			payloadString(event, 'protocol'),
-			payloadString(event, 'decoded_protocol'),
-			payloadString(event, 'protocol_slug'),
-			...linkedProtocolSlugs(event)
-		]) {
-			if (slug && knownProtocolSlugs.has(slug)) slugs.add(slug);
-		}
-
-		return [...slugs];
+		return previewEventProtocolSlugs(event).filter((slug) => knownProtocolSlugs.has(slug));
 	}
 
 	function protocolAlertRowsFromEvents(events: ChainEvent[]) {
@@ -725,13 +714,18 @@
 			</div>
 			{#if liveHeroAlert}
 				<div class="latest-alert-block">
-					<span class="latest-alert-label">Last critical alert</span>
+					<div class="latest-alert-head">
+						<span class="latest-alert-label">Last critical alert</span>
+						<a class="latest-alert-more" href={resolve('/events?scope=critical')}>
+							See more
+						</a>
+					</div>
 					<a
 						class="alert-preview"
 						class:critical-preview={liveHeroAlert.severity === 'critical'}
 						class:high-preview={liveHeroAlert.severity === 'high'}
-						href={resolve('/events?scope=critical')}
-						aria-label="Open critical alerts feed"
+						href={resolve('/events/[id]', { id: liveHeroAlert.eventId })}
+						aria-label={`Open ${liveHeroAlert.protocolName} critical alert details`}
 					>
 						<div>
 							<div class="alert-preview-topline">
@@ -756,7 +750,7 @@
 						<ol class="start-steps" aria-label="Telegram alert setup">
 							<li>
 								<div class="step-copy">
-									<strong>Add bot</strong>
+									<strong>Open bot</strong>
 									<code class="bot-handle">{botHandle()}</code>
 								</div>
 							</li>
@@ -771,7 +765,7 @@
 						</ol>
 						<div class="start-card-action">
 							<button class="primary-action" type="button" onclick={openAddBot}>
-								Open Telegram
+								Open Telegram bot
 							</button>
 						</div>
 					</article>
@@ -797,7 +791,6 @@
 			<div class="section-head">
 				<div>
 					<h2 id="protocols-title">Most active protocols</h2>
-					<p>Top 10 by alerts in the last {data.homeActivityWindow.days} days, then total alerts.</p>
 				</div>
 				<a href={resolve('/protocols')}>All protocols</a>
 			</div>
@@ -983,11 +976,32 @@
 		gap: 0.24rem;
 	}
 
+	.latest-alert-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+
 	.latest-alert-label {
 		color: #62707c;
 		font-size: 0.72rem;
 		font-weight: 760;
 		line-height: 1.2;
+	}
+
+	.latest-alert-more {
+		color: #6f7b86;
+		font-size: 0.72rem;
+		font-weight: 760;
+		line-height: 1.2;
+		text-decoration: none;
+	}
+
+	.latest-alert-more:hover {
+		color: #17202a;
+		text-decoration: underline;
+		text-underline-offset: 0.16em;
 	}
 
 	.get-started-panel {

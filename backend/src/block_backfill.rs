@@ -1150,6 +1150,11 @@ fn base_watched_backfill_accounts() -> &'static HashSet<String> {
         accounts.insert(loader_v4::ID.to_string());
         accounts.insert(name_service::program_id().to_string());
         accounts.insert(protocols::SQUADS_V4_PROGRAM_ID.to_owned());
+        accounts.extend(
+            protocols::watched_treasury_addresses()
+                .into_iter()
+                .map(str::to_owned),
+        );
 
         let watched_programs = protocols::watched_program_ids();
         accounts.extend(watched_programs.iter().map(ToString::to_string));

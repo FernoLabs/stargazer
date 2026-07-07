@@ -78,6 +78,13 @@
 				link.program_id,
 				link.program_label
 			]),
+			...(protocol.related_governances ?? []).flatMap((link) => [
+				link.realm_name,
+				link.realm,
+				link.governance,
+				link.governed_account,
+				link.governance_kind
+			]),
 			...protocol.sol_domains
 		]
 			.filter(Boolean)
@@ -111,17 +118,27 @@
 
 	function trackedSourceParts(protocol: DefiProtocolDescriptor) {
 		const multisigCount = uniqueRelatedMultisigCount(protocol);
+		const realmCount = uniqueRelatedGovernanceCount(protocol);
 		const rules = ruleCount(protocol);
 		return [
 			protocol.sol_domains.length > 0 ? pluralLabel(protocol.sol_domains.length, 'wallet') : null,
 			protocol.programs.length > 0 ? pluralLabel(protocol.programs.length, 'program') : null,
 			multisigCount > 0 ? pluralLabel(multisigCount, 'multisig') : null,
+			realmCount > 0 ? pluralLabel(realmCount, 'realm') : null,
 			rules > 0 ? pluralLabel(rules, 'rule') : null
 		].filter((part): part is string => Boolean(part));
 	}
 
 	function uniqueRelatedMultisigCount(protocol: DefiProtocolDescriptor) {
 		return new Set((protocol.related_multisigs ?? []).map((link) => link.multisig).filter(Boolean)).size;
+	}
+
+	function uniqueRelatedGovernanceCount(protocol: DefiProtocolDescriptor) {
+		return new Set(
+			(protocol.related_governances ?? [])
+				.map((link) => link.realm || link.governance || link.governed_account)
+				.filter(Boolean)
+		).size;
 	}
 
 	function trackedSourceLabel(protocol: DefiProtocolDescriptor) {
@@ -154,6 +171,19 @@
 			candidate.toLowerCase().includes(normalizedSearch)
 		);
 		if (domain) return `.sol name: ${domain}`;
+
+		const governance = (protocol.related_governances ?? []).find((candidate) =>
+			[
+				candidate.realm_name,
+				candidate.realm,
+				candidate.governance,
+				candidate.governed_account,
+				candidate.governance_kind
+			]
+				.filter(Boolean)
+				.some((value) => value.toLowerCase().includes(normalizedSearch))
+		);
+		if (governance) return `Realm: ${governance.realm_name || governance.governance_kind}`;
 
 		return null;
 	}

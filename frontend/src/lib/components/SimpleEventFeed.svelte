@@ -197,24 +197,24 @@
 
 		if (event.kind === 'multisig_vault_executed') {
 			if (protocolName && instruction) return `${protocolName} ${instruction} via Squads`;
-			if (protocolName) return `Squads execution for ${protocolName}`;
+			if (protocolName) return `${protocolName} multisig execution`;
 			return 'Squads vault execution';
 		}
 
 		if (event.kind === 'multisig_proposal_approved') {
-			return protocolName ? `Squads approval for ${protocolName}` : 'Squads approval';
+			return protocolName ? `${protocolName} multisig approval` : 'Squads approval';
 		}
 		if (event.kind === 'multisig_proposal_rejected') {
-			return protocolName ? `Squads rejection for ${protocolName}` : 'Squads rejection';
+			return protocolName ? `${protocolName} multisig rejection` : 'Squads rejection';
 		}
 		if (event.kind === 'multisig_proposal_cancelled') {
-			return protocolName ? `Squads cancellation for ${protocolName}` : 'Squads cancellation';
+			return protocolName ? `${protocolName} multisig cancellation` : 'Squads cancellation';
 		}
 		if (event.kind === 'multisig_proposal_activated') {
-			return protocolName ? `Squads proposal for ${protocolName}` : 'Squads proposal activated';
+			return protocolName ? `${protocolName} multisig proposal` : 'Squads proposal activated';
 		}
 		if (event.kind === 'multisig_config_executed') {
-			return protocolName ? `Squads config change for ${protocolName}` : 'Squads config change';
+			return protocolName ? `${protocolName} multisig config change` : 'Squads config change';
 		}
 
 		if (event.kind === 'program_admin_instruction' && protocolName && instruction) {

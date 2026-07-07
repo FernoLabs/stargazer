@@ -1658,7 +1658,7 @@ async fn is_group_admin(state: &SharedState, chat_id: &str, user_id: i64) -> Res
     ))
 }
 
-fn generate_config_token() -> String {
+pub(crate) fn generate_config_token() -> String {
     format!(
         "{}{}",
         uuid::Uuid::new_v4().simple(),
@@ -1906,14 +1906,14 @@ pub async fn send_setup_saved_notification(
     chat_id: &str,
     saved_rule_count: usize,
     removed_rule_count: usize,
-    delivery_mode: TelegramDeliveryMode,
+    delivery_modes: &[TelegramDeliveryMode],
     has_entitlement: bool,
     payment_url: Option<&str>,
 ) -> Result<()> {
     let message = build_setup_saved_notification(
         saved_rule_count,
         removed_rule_count,
-        delivery_mode,
+        delivery_modes,
         has_entitlement,
         payment_url,
     );
@@ -1923,7 +1923,7 @@ pub async fn send_setup_saved_notification(
 fn build_setup_saved_notification(
     saved_rule_count: usize,
     removed_rule_count: usize,
-    delivery_mode: TelegramDeliveryMode,
+    delivery_modes: &[TelegramDeliveryMode],
     has_entitlement: bool,
     payment_url: Option<&str>,
 ) -> String {
@@ -1939,22 +1939,35 @@ fn build_setup_saved_notification(
         String::new()
     };
 
-    match delivery_mode {
-        TelegramDeliveryMode::DailySummary => {
-            let payment_line = if has_entitlement {
-                String::new()
-            } else if let Some(url) = payment_url {
-                format!("\n\nLive per-event alerts unlock after Custom Plan checkout:\n{url}")
-            } else {
-                "\n\nLive per-event alerts unlock after Custom Plan checkout.".to_owned()
-            };
-            format!(
-                "Setup saved. This chat will get one daily FireWatch update when matching activity appears.\nSaved {saved}.{removed_line}\n\nUse /list anytime to check active rules.{payment_line}"
-            )
+    let wants_daily = delivery_modes.contains(&TelegramDeliveryMode::DailySummary);
+    let wants_live = delivery_modes.contains(&TelegramDeliveryMode::Live);
+    let payment_line = if !has_entitlement && wants_live {
+        if let Some(url) = payment_url {
+            format!("\n\nLive per-event alerts unlock after Custom Plan checkout:\n{url}")
+        } else {
+            "\n\nLive per-event alerts unlock after Custom Plan checkout.".to_owned()
         }
-        TelegramDeliveryMode::Live => format!(
+    } else {
+        String::new()
+    };
+
+    match (wants_daily, wants_live, has_entitlement) {
+        (true, true, true) => format!(
+            "Setup saved. This chat will get daily FireWatch summaries and live alerts for {saved}.{removed_line}\n\nUse /list anytime to check active rules."
+        ),
+        (true, true, false) => format!(
+            "Setup saved. Daily FireWatch summaries are active now; live alerts are saved for checkout.\nSaved {saved}.{removed_line}\n\nUse /list anytime to check active rules.{payment_line}"
+        ),
+        (true, false, _) => format!(
+            "Setup saved. This chat will get one daily FireWatch update when matching activity appears.\nSaved {saved}.{removed_line}\n\nUse /list anytime to check active rules."
+        ),
+        (false, true, true) => format!(
             "Setup saved. Live FireWatch alerts are on for {saved}.{removed_line}\n\nPrefer fewer messages? Send /watch summary for one daily DeFi update. Use /list anytime."
         ),
+        (false, true, false) => format!(
+            "Setup saved. Live FireWatch alerts are saved and will activate after checkout.\nSaved {saved}.{removed_line}{payment_line}"
+        ),
+        (false, false, _) => format!("Setup saved. Saved {saved}.{removed_line}"),
     }
 }
 

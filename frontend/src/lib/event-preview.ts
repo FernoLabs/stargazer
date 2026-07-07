@@ -1,4 +1,5 @@
 import {
+	canonicalProtocolSlug,
 	findProgramMatch,
 	programPageHref,
 	protocolDisplayName,
@@ -12,6 +13,60 @@ export type AlertLevel = 'critical' | 'high' | 'standard';
 export function payloadString(event: ChainEvent, key: string) {
 	const value = event.payload[key];
 	return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function normalizedProtocolSlug(slug: string | null | undefined) {
+	const trimmed = slug?.trim();
+	return trimmed ? canonicalProtocolSlug(trimmed) : null;
+}
+
+function linkedProtocolSlugs(event: ChainEvent) {
+	const linked = event.payload.linked_protocols;
+	if (!Array.isArray(linked)) return [];
+
+	return linked
+		.map((item) => {
+			if (!item || typeof item !== 'object') return null;
+			const protocol = (item as Record<string, unknown>).protocol;
+			return typeof protocol === 'string' ? protocol : null;
+		})
+		.filter((value): value is string => Boolean(value));
+}
+
+export function eventProtocolSlugs(
+	event: ChainEvent,
+	options: { includeSquadsFallback?: boolean } = {}
+) {
+	const includeSquadsFallback = options.includeSquadsFallback ?? true;
+	const slugs = new Set<string>();
+	let hasSquads = false;
+
+	const collect = (candidate: string | null | undefined) => {
+		const slug = normalizedProtocolSlug(candidate);
+		if (!slug) return;
+		if (slug === 'squads') {
+			hasSquads = true;
+			return;
+		}
+		slugs.add(slug);
+	};
+
+	for (const slug of [
+		...linkedProtocolSlugs(event),
+		payloadString(event, 'decoded_protocol'),
+		payloadString(event, 'protocol_slug'),
+		payloadString(event, 'protocol')
+	]) {
+		collect(slug);
+	}
+
+	for (const tag of event.tags) {
+		if (!tag.startsWith('protocol:')) continue;
+		collect(tag.slice('protocol:'.length));
+	}
+
+	if (slugs.size === 0 && hasSquads && includeSquadsFallback) return ['squads'];
+	return [...slugs];
 }
 
 export function eventAlertLevel(event: ChainEvent): AlertLevel {
@@ -29,9 +84,8 @@ export function eventAlertLabel(event: ChainEvent) {
 	return 'Standard alert';
 }
 
-export function eventProtocolSlug(event: ChainEvent) {
-	const tag = event.tags.find((candidate) => candidate.startsWith('protocol:'));
-	return tag?.replace('protocol:', '') ?? null;
+export function eventProtocolSlug(event: ChainEvent, fallbackProtocolSlug: string | null = null) {
+	return eventProtocolSlugs(event)[0] ?? fallbackProtocolSlug;
 }
 
 export function eventProtocolLabel(event: ChainEvent, protocols: DefiProtocolDescriptor[]) {
@@ -90,6 +144,8 @@ export function eventKindLabel(event: ChainEvent) {
 			return 'Loader migration';
 		case 'program_metric_alert':
 			return 'Metric anomaly';
+		case 'treasury_token_outflow':
+			return 'Treasury outflow';
 		case 'program_idl_initialized':
 		case 'program_idl_updated':
 		case 'program_idl_authority_changed':
@@ -115,8 +171,11 @@ export function eventKindLabel(event: ChainEvent) {
 }
 
 export function eventTitle(event: ChainEvent, protocols: DefiProtocolDescriptor[]) {
-	const protocol = payloadString(event, 'protocol_name') ?? eventProtocolLabel(event, protocols);
-	const instruction = payloadString(event, 'instruction_name');
+	const protocolSlug = eventProtocolSlug(event);
+	const protocol = eventProtocolLabel(event, protocols) ?? payloadString(event, 'protocol_name');
+	const isOwnerProtocol = Boolean(protocol && protocolSlug && protocolSlug !== 'squads');
+	const instruction =
+		payloadString(event, 'decoded_instruction_name') ?? payloadString(event, 'instruction_name');
 	const targetName = eventTargetDisplayName(event, protocols);
 
 	if (event.kind === 'name_service_domain_created') return `${targetName} created`;
@@ -135,6 +194,12 @@ export function eventTitle(event: ChainEvent, protocols: DefiProtocolDescriptor[
 		return `${protocol} ${readableInstructionName(instruction)}`;
 	}
 	if (event.kind === 'program_metric_alert' && protocol) return `${protocol} metric anomaly`;
+	if (event.kind === 'treasury_token_outflow') {
+		const symbol = payloadString(event, 'token_symbol') ?? 'token';
+		const amount = payloadString(event, 'display_amount');
+		const amountLabel = amount ? ` ${amount} ${symbol}` : ` ${symbol}`;
+		return protocol ? `${protocol} treasury outflow:${amountLabel}` : `Treasury outflow:${amountLabel}`;
+	}
 	if (event.kind === 'program_idl_updated' && protocol) return `${protocol} IDL updated`;
 	if (event.kind === 'program_idl_initialized' && protocol) return `${protocol} IDL initialized`;
 	if (event.kind === 'program_idl_authority_changed' && protocol) {
@@ -143,12 +208,25 @@ export function eventTitle(event: ChainEvent, protocols: DefiProtocolDescriptor[
 	if (event.kind === 'program_idl_immutable' && protocol) return `${protocol} IDL immutable`;
 	if (event.kind === 'program_idl_resized' && protocol) return `${protocol} IDL resized`;
 	if (event.kind === 'program_idl_closed' && protocol) return `${protocol} IDL closed`;
-	if (event.kind === 'multisig_proposal_activated') return 'Squads proposal activated';
-	if (event.kind === 'multisig_proposal_approved') return 'Squads proposal approval';
-	if (event.kind === 'multisig_proposal_rejected') return 'Squads proposal rejected';
-	if (event.kind === 'multisig_proposal_cancelled') return 'Squads proposal cancelled';
-	if (event.kind === 'multisig_vault_executed') return 'Squads vault execution';
-	if (event.kind === 'multisig_config_executed') return 'Squads config execution';
+	if (event.kind === 'multisig_proposal_activated') {
+		return isOwnerProtocol ? `${protocol} multisig proposal` : 'Squads proposal activated';
+	}
+	if (event.kind === 'multisig_proposal_approved') {
+		return isOwnerProtocol ? `${protocol} multisig approval` : 'Squads proposal approval';
+	}
+	if (event.kind === 'multisig_proposal_rejected') {
+		return isOwnerProtocol ? `${protocol} multisig rejection` : 'Squads proposal rejected';
+	}
+	if (event.kind === 'multisig_proposal_cancelled') {
+		return isOwnerProtocol ? `${protocol} multisig cancellation` : 'Squads proposal cancelled';
+	}
+	if (event.kind === 'multisig_vault_executed') {
+		if (isOwnerProtocol && instruction) return `${protocol} ${readableInstructionName(instruction)} via Squads`;
+		return isOwnerProtocol ? `${protocol} multisig execution` : 'Squads vault execution';
+	}
+	if (event.kind === 'multisig_config_executed') {
+		return isOwnerProtocol ? `${protocol} multisig config change` : 'Squads config execution';
+	}
 	return compactLongTokens(event.summary);
 }
 
