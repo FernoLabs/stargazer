@@ -165,6 +165,10 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
             axum::routing::post(cleanup_actor_only_domain_links),
         )
         .route(
+            "/api/admin/cleanup/hidden-anchor-unknown-signals",
+            axum::routing::post(cleanup_hidden_anchor_unknown_signals),
+        )
+        .route(
             "/api/admin/sync/protocol-links",
             axum::routing::post(sync_protocol_links),
         )
@@ -658,6 +662,17 @@ async fn cleanup_actor_only_domain_links(
     let cleanup = state
         .db
         .cleanup_actor_only_domain_protocol_links()
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(json!({ "cleanup": cleanup })))
+}
+
+async fn cleanup_hidden_anchor_unknown_signals(
+    State(state): State<SharedState>,
+) -> ApiResult<serde_json::Value> {
+    let cleanup = state
+        .db
+        .restore_hidden_anchor_unknown_instruction_signals()
         .await
         .map_err(internal_error)?;
     Ok(Json(json!({ "cleanup": cleanup })))

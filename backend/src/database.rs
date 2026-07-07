@@ -270,6 +270,13 @@ pub struct MultisigProjectLinkAnnotationReport {
     pub remaining_unlinked_events: i64,
 }
 
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct HiddenAnchorUnknownSignalReport {
+    pub matched_missing_signal: i64,
+    pub updated_events: u64,
+    pub remaining_missing_signal: i64,
+}
+
 impl Database {
     pub async fn connect(database_url: &str, blob_store: BlobStore) -> Result<Self> {
         let connect_options = SqliteConnectOptions::from_str(database_url)?
@@ -7744,6 +7751,70 @@ impl Database {
         Ok(row.try_get("count")?)
     }
 
+    pub async fn restore_hidden_anchor_unknown_instruction_signals(
+        &self,
+    ) -> Result<HiddenAnchorUnknownSignalReport> {
+        let matched_missing_signal = self.hidden_anchor_unknowns_missing_signal_count().await?;
+        let updated_events = sqlx::query(
+            r#"
+            UPDATE events
+            SET tags_json = (
+                SELECT COALESCE(json_group_array(value), '[]')
+                FROM (
+                    SELECT value
+                    FROM json_each(events.tags_json)
+                    UNION
+                    SELECT 'signal:unknown_instruction'
+                    ORDER BY value
+                )
+            )
+            WHERE kind = 'program_unknown_instruction'
+              AND target_address IN (
+                  'KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD',
+                  'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo',
+                  'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc'
+              )
+              AND json_extract(payload_json, '$.discriminator') = '40f4bc78a7e9690a'
+              AND COALESCE(json_extract(payload_json, '$.classification'), '') = 'hidden'
+              AND COALESCE(json_extract(payload_json, '$.severity'), '') = 'hidden'
+              AND tags_json NOT LIKE '%"signal:unknown_instruction"%';
+            "#,
+        )
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        let remaining_missing_signal = self.hidden_anchor_unknowns_missing_signal_count().await?;
+
+        Ok(HiddenAnchorUnknownSignalReport {
+            matched_missing_signal,
+            updated_events,
+            remaining_missing_signal,
+        })
+    }
+
+    async fn hidden_anchor_unknowns_missing_signal_count(&self) -> Result<i64> {
+        let row = sqlx::query(
+            r#"
+            SELECT COUNT(*) AS count
+            FROM events
+            WHERE kind = 'program_unknown_instruction'
+              AND target_address IN (
+                  'KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD',
+                  'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo',
+                  'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc'
+              )
+              AND json_extract(payload_json, '$.discriminator') = '40f4bc78a7e9690a'
+              AND COALESCE(json_extract(payload_json, '$.classification'), '') = 'hidden'
+              AND COALESCE(json_extract(payload_json, '$.severity'), '') = 'hidden'
+              AND tags_json NOT LIKE '%"signal:unknown_instruction"%';
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row.try_get("count")?)
+    }
+
     pub async fn annotate_existing_multisig_project_links(
         &self,
     ) -> Result<MultisigProjectLinkAnnotationReport> {
@@ -9375,6 +9446,86 @@ mod tests {
                 .await?
                 .is_empty()
         );
+
+        let _ = std::fs::remove_file(db_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn restore_hidden_anchor_unknown_instruction_signals_retags_existing_rows() -> Result<()>
+    {
+        let db_path = std::env::temp_dir().join(format!(
+            "firewatch-restore-hidden-anchor-unknown-signal-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let database_url = format!("sqlite://{}", db_path.display());
+        let db = Database::connect(&database_url, BlobStore::new(None, None)?).await?;
+        db.migrate().await?;
+
+        let target = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo";
+        let event_id = "restore-anchor-hidden-test:0:unknown".to_owned();
+        db.insert_event(&ChainEvent {
+            id: event_id.clone(),
+            signature: "restore-anchor-hidden-test".to_owned(),
+            instruction_path: "0".to_owned(),
+            kind: event_kind::PROGRAM_UNKNOWN_INSTRUCTION.to_owned(),
+            target_type: target_type::PROGRAM.to_owned(),
+            target_address: target.to_owned(),
+            actor: None,
+            slot: 42,
+            block_time: Some(100),
+            indexed_at: 100,
+            summary: format!("Hidden legacy Anchor IDL staging on {target}"),
+            tags: vec![
+                "protocol:meteora_dlmm".to_owned(),
+                "target:program".to_owned(),
+            ],
+            payload: json!({
+                "classification": "hidden",
+                "discriminator": "40f4bc78a7e9690a",
+                "instruction_name": "legacy_anchor_idl_staging",
+                "protocol": "meteora_dlmm",
+                "protocol_name": "Meteora DLMM",
+                "severity": "hidden",
+            }),
+            delivery_attempts: 0,
+            delivered_at: None,
+            last_error: None,
+            next_retry_at: 100,
+        })
+        .await?;
+
+        let report = db
+            .restore_hidden_anchor_unknown_instruction_signals()
+            .await?;
+        assert_eq!(report.matched_missing_signal, 1);
+        assert_eq!(report.updated_events, 1);
+        assert_eq!(report.remaining_missing_signal, 0);
+
+        let event = db.event_by_id(&event_id).await?.expect("hidden event");
+        assert!(event.has_tag("signal:unknown_instruction"));
+        assert!(event.is_hidden_signal());
+        assert!(!event.is_critical_signal());
+
+        let related_multisigs = Vec::new();
+        let related_governances = Vec::new();
+        let counts = db
+            .event_scope_counts(EventListFilters {
+                protocol_slug: None,
+                related_multisigs: &related_multisigs,
+                related_governances: &related_governances,
+                target_address: Some(target),
+                scope: None,
+                search: None,
+                severity: None,
+                known_defi_only: false,
+                tag: None,
+                from_ts: None,
+                before_ts: None,
+            })
+            .await?;
+        assert_eq!(counts.all, 1);
+        assert_eq!(counts.critical, 0);
 
         let _ = std::fs::remove_file(db_path);
         Ok(())
