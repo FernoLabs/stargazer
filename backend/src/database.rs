@@ -7260,7 +7260,17 @@ impl Database {
                   'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo',
                   'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc'
               )
-              AND json_extract(payload_json, '$.discriminator') = '40f4bc78a7e9690a';
+              AND json_extract(payload_json, '$.discriminator') = '40f4bc78a7e9690a'
+              AND (
+                  tags_json LIKE '%"alert:review_now"%'
+                  OR tags_json LIKE '%"impact:high"%'
+                  OR tags_json LIKE '%"sector:defi"%'
+                  OR tags_json LIKE '%"severity:critical"%'
+                  OR tags_json LIKE '%"signal:unknown_instruction"%'
+                  OR tags_json LIKE '%"watch:defi"%'
+                  OR COALESCE(json_extract(payload_json, '$.classification'), '') <> 'hidden'
+                  OR COALESCE(json_extract(payload_json, '$.severity'), '') <> 'hidden'
+              );
             "#,
         )
         .execute(&mut *transaction)
