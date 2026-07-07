@@ -256,7 +256,8 @@ impl Database {
     pub async fn connect(database_url: &str, blob_store: BlobStore) -> Result<Self> {
         let connect_options = SqliteConnectOptions::from_str(database_url)?
             .create_if_missing(true)
-            .journal_mode(SqliteJournalMode::Wal);
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_secs(30));
 
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
