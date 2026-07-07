@@ -160,6 +160,10 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
             "/api/admin/cleanup/stale-critical-noise",
             axum::routing::post(cleanup_stale_critical_noise),
         )
+        .route(
+            "/api/admin/cleanup/actor-only-domain-links",
+            axum::routing::post(cleanup_actor_only_domain_links),
+        )
         .with_state(state.clone())
         .layer(from_fn(apply_cache_control))
         .layer(from_fn_with_state(state.clone(), require_origin_token));
@@ -631,6 +635,17 @@ async fn cleanup_stale_critical_noise(
     let cleanup = state
         .db
         .cleanup_stale_critical_noise()
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(json!({ "cleanup": cleanup })))
+}
+
+async fn cleanup_actor_only_domain_links(
+    State(state): State<SharedState>,
+) -> ApiResult<serde_json::Value> {
+    let cleanup = state
+        .db
+        .cleanup_actor_only_domain_protocol_links()
         .await
         .map_err(internal_error)?;
     Ok(Json(json!({ "cleanup": cleanup })))

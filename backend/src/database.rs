@@ -256,6 +256,13 @@ pub struct CriticalNoiseCleanupReport {
     pub remaining_squads_critical_events: i64,
 }
 
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct ActorOnlyDomainProtocolCleanupReport {
+    pub matched_before: i64,
+    pub normalized_events: u64,
+    pub remaining: i64,
+}
+
 impl Database {
     pub async fn connect(database_url: &str, blob_store: BlobStore) -> Result<Self> {
         let connect_options = SqliteConnectOptions::from_str(database_url)?
@@ -7606,6 +7613,103 @@ impl Database {
         .await?;
 
         Ok(row.try_get("remaining_squads_critical_events")?)
+    }
+
+    pub async fn cleanup_actor_only_domain_protocol_links(
+        &self,
+    ) -> Result<ActorOnlyDomainProtocolCleanupReport> {
+        let matched_before = self.actor_only_domain_protocol_event_count().await?;
+        let normalized_events = sqlx::query(
+            r#"
+            UPDATE events
+            SET
+                tags_json = (
+                    SELECT COALESCE(json_group_array(value), '[]')
+                    FROM (
+                        SELECT value
+                        FROM json_each(events.tags_json)
+                        WHERE value NOT IN (
+                            'alert:review_now',
+                            'domain:project_linked',
+                            'impact:high',
+                            'sector:defi',
+                            'severity:critical',
+                            'severity:high',
+                            'watch:defi'
+                        )
+                          AND value NOT LIKE 'protocol:%'
+                        ORDER BY key
+                    )
+                ),
+                payload_json = json_set(
+                    payload_json,
+                    '$.critical_domain', json('false'),
+                    '$.critical_domain_reasons.project_link_count', 0,
+                    '$.linked_protocols', json('[]')
+                )
+            WHERE kind IN (
+                'name_service_domain_created',
+                'name_service_domain_updated',
+                'name_service_domain_transferred',
+                'name_service_domain_deleted',
+                'name_service_domain_reallocated'
+            )
+              AND tags_json LIKE '%"domain:project_linked"%'
+              AND COALESCE(json_extract(payload_json, '$.critical_domain_reasons.explicit_watch'), 0) = 0
+              AND EXISTS (
+                  SELECT 1
+                  FROM json_each(events.payload_json, '$.linked_protocols') AS linked_protocol
+                  WHERE json_extract(linked_protocol.value, '$.evidence') = 'known protocol actor'
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM json_each(events.payload_json, '$.linked_protocols') AS linked_protocol
+                  WHERE COALESCE(json_extract(linked_protocol.value, '$.evidence'), '') <> 'known protocol actor'
+              );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        let remaining = self.actor_only_domain_protocol_event_count().await?;
+
+        Ok(ActorOnlyDomainProtocolCleanupReport {
+            matched_before,
+            normalized_events,
+            remaining,
+        })
+    }
+
+    async fn actor_only_domain_protocol_event_count(&self) -> Result<i64> {
+        let row = sqlx::query(
+            r#"
+            SELECT COUNT(*) AS count
+            FROM events
+            WHERE kind IN (
+                'name_service_domain_created',
+                'name_service_domain_updated',
+                'name_service_domain_transferred',
+                'name_service_domain_deleted',
+                'name_service_domain_reallocated'
+            )
+              AND tags_json LIKE '%"domain:project_linked"%'
+              AND COALESCE(json_extract(payload_json, '$.critical_domain_reasons.explicit_watch'), 0) = 0
+              AND EXISTS (
+                  SELECT 1
+                  FROM json_each(events.payload_json, '$.linked_protocols') AS linked_protocol
+                  WHERE json_extract(linked_protocol.value, '$.evidence') = 'known protocol actor'
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM json_each(events.payload_json, '$.linked_protocols') AS linked_protocol
+                  WHERE COALESCE(json_extract(linked_protocol.value, '$.evidence'), '') <> 'known protocol actor'
+              );
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row.try_get("count")?)
     }
 
     async fn app_state_value(&self, key: &str) -> Result<Option<String>> {
