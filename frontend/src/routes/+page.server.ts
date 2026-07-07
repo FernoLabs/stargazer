@@ -1,7 +1,7 @@
 import { backendRequest, readBackendError } from '$lib/server/backend';
 import { nextPageOffset } from '$lib/api-pagination';
 import { canonicalProtocolSlug } from '$lib/catalog';
-import { compactLongTokens } from '$lib/event-preview';
+import { compactLongTokens, eventProtocolSlugs as previewEventProtocolSlugs } from '$lib/event-preview';
 import type {
 	ChainEvent,
 	DefiProtocolsResponse,
@@ -238,37 +238,8 @@ async function activityWindowStats(
 	return loadWindow(7);
 }
 
-function linkedProtocolSlugs(event: ChainEvent) {
-	const linked = event.payload.linked_protocols;
-	if (!Array.isArray(linked)) return [];
-
-	return linked
-		.map((item) => {
-			if (!item || typeof item !== 'object') return null;
-			const protocol = (item as Record<string, unknown>).protocol;
-			return typeof protocol === 'string' ? protocol : null;
-		})
-		.filter((value): value is string => Boolean(value));
-}
-
 function eventProtocolSlugs(event: ChainEvent, knownProtocolSlugs: Set<string>) {
-	const slugs = new Set<string>();
-	for (const tag of event.tags) {
-		if (!tag.startsWith('protocol:')) continue;
-		const slug = canonicalProtocolSlug(tag.slice('protocol:'.length));
-		if (knownProtocolSlugs.has(slug)) slugs.add(slug);
-	}
-
-	for (const slug of [
-		payloadString(event, 'protocol'),
-		payloadString(event, 'decoded_protocol'),
-		...linkedProtocolSlugs(event)
-	]) {
-		const canonicalSlug = slug ? canonicalProtocolSlug(slug) : null;
-		if (canonicalSlug && knownProtocolSlugs.has(canonicalSlug)) slugs.add(canonicalSlug);
-	}
-
-	return [...slugs];
+	return previewEventProtocolSlugs(event).filter((slug) => knownProtocolSlugs.has(slug));
 }
 
 function eventMultisigAddress(event: ChainEvent) {
