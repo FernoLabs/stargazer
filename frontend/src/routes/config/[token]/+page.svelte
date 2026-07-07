@@ -3137,7 +3137,7 @@
 	@media (max-width: 840px) {
 		.page-shell {
 			width: min(var(--fw-page-max), calc(100vw - 1rem));
-			padding: 0.75rem 0 1.5rem;
+			padding: 0.75rem 0 calc(6rem + env(safe-area-inset-bottom));
 			gap: 0.75rem;
 		}
 
@@ -3193,6 +3193,21 @@
 		.billing-row label,
 		.choice-pill {
 			min-height: 3rem;
+		}
+
+		.checkout-panel > button[type='submit'] {
+			position: fixed;
+			left: 0.75rem;
+			right: 0.75rem;
+			bottom: calc(0.75rem + env(safe-area-inset-bottom));
+			z-index: 50;
+			width: auto;
+			min-height: 3.15rem;
+			box-shadow: 0 6px 18px rgba(23, 32, 42, 0.18);
+		}
+
+		:global(.site-footer) {
+			padding-bottom: calc(5.75rem + env(safe-area-inset-bottom));
 		}
 
 		.modal-backdrop {
