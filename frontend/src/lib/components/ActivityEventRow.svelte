@@ -49,7 +49,9 @@
 
 	function isCriticalEvent() {
 		return (
-			event.tags.includes('severity:critical') || event.tags.includes('signal:unknown_instruction')
+			event.payload.classification !== 'hidden' &&
+			event.payload.severity !== 'hidden' &&
+			(event.tags.includes('severity:critical') || event.tags.includes('signal:unknown_instruction'))
 		);
 	}
 

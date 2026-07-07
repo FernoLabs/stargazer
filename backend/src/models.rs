@@ -148,6 +148,23 @@ impl ChainEvent {
     pub fn has_tag(&self, needle: &str) -> bool {
         self.tags.iter().any(|tag| tag == needle)
     }
+
+    pub fn is_hidden_signal(&self) -> bool {
+        self.payload
+            .get("classification")
+            .and_then(|value| value.as_str())
+            .is_some_and(|value| value == "hidden")
+            || self
+                .payload
+                .get("severity")
+                .and_then(|value| value.as_str())
+                .is_some_and(|value| value == "hidden")
+    }
+
+    pub fn is_critical_signal(&self) -> bool {
+        !self.is_hidden_signal()
+            && (self.has_tag("severity:critical") || self.has_tag("signal:unknown_instruction"))
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

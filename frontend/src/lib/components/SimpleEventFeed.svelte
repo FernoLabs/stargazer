@@ -52,10 +52,12 @@
 
 	function eventSeverity(event: ChainEvent) {
 		const payloadSeverity = payloadString(event, 'severity');
+		const isHidden = payloadSeverity === 'hidden' || payloadString(event, 'classification') === 'hidden';
 		if (
-			payloadSeverity === 'critical' ||
-			event.tags.includes('severity:critical') ||
-			event.tags.includes('signal:unknown_instruction')
+			!isHidden &&
+			(payloadSeverity === 'critical' ||
+				event.tags.includes('severity:critical') ||
+				event.tags.includes('signal:unknown_instruction'))
 		) {
 			return 'critical';
 		}

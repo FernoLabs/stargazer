@@ -198,7 +198,11 @@
 	}
 
 	function unknownInstructionEvents() {
-		return allEvents().filter((event) => event.tags.includes('signal:unknown_instruction'));
+		return allEvents().filter(
+			(event) =>
+				event.kind === 'program_unknown_instruction' ||
+				event.tags.includes('signal:unknown_instruction')
+		);
 	}
 
 	function instructionFlagRows(): InstructionFlagRow[] {

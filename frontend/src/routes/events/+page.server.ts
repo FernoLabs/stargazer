@@ -18,7 +18,11 @@ const EMPTY_SCOPE_COUNTS = {
 type EventItem = EventsResponse['items'][number];
 
 function isCriticalEvent(event: EventItem) {
-	return event.tags.includes('severity:critical') || event.tags.includes('signal:unknown_instruction');
+	return (
+		event.payload.classification !== 'hidden' &&
+		event.payload.severity !== 'hidden' &&
+		(event.tags.includes('severity:critical') || event.tags.includes('signal:unknown_instruction'))
+	);
 }
 
 function isIdlEvent(event: EventItem) {

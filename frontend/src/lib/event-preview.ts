@@ -15,6 +15,17 @@ export function payloadString(event: ChainEvent, key: string) {
 	return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
+export function eventIsHidden(event: ChainEvent) {
+	return event.payload.classification === 'hidden' || event.payload.severity === 'hidden';
+}
+
+export function eventIsCritical(event: ChainEvent) {
+	return (
+		!eventIsHidden(event) &&
+		(event.tags.includes('severity:critical') || event.tags.includes('signal:unknown_instruction'))
+	);
+}
+
 function normalizedProtocolSlug(slug: string | null | undefined) {
 	const trimmed = slug?.trim();
 	return trimmed ? canonicalProtocolSlug(trimmed) : null;
@@ -70,7 +81,7 @@ export function eventProtocolSlugs(
 }
 
 export function eventAlertLevel(event: ChainEvent): AlertLevel {
-	if (event.tags.includes('severity:critical') || event.tags.includes('signal:unknown_instruction')) {
+	if (eventIsCritical(event)) {
 		return 'critical';
 	}
 	if (event.tags.includes('severity:high') || event.tags.includes('impact:high')) return 'high';

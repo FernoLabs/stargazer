@@ -61,12 +61,7 @@ enum AlertLevel {
 
 impl AlertLevel {
     fn from_event(event: &ChainEvent) -> Self {
-        if event.tags.iter().any(|tag| {
-            matches!(
-                tag.as_str(),
-                "severity:critical" | "signal:unknown_instruction"
-            )
-        }) {
+        if event.is_critical_signal() {
             return Self::Critical;
         }
 

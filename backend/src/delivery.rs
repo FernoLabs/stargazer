@@ -680,7 +680,7 @@ fn event_context_label(event: &ChainEvent) -> Option<String> {
 }
 
 fn event_severity(event: &ChainEvent) -> &'static str {
-    if event.has_tag("severity:critical") || event.has_tag("signal:unknown_instruction") {
+    if event.is_critical_signal() {
         "critical"
     } else if event.has_tag("severity:high")
         || payload_str(event, "severity").is_some_and(|severity| severity == "high")
