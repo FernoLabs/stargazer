@@ -44,6 +44,8 @@
 	type CopyState = 'idle' | 'copied' | 'error';
 	type RpcEndpoint = Parameters<typeof createSolanaRpc>[0];
 
+	const SOL_DECIMALS = 9;
+	const SOL_FEE_RESERVE_BASE_UNITS = 5_000_000n;
 	const statusRefreshMs = 10_000;
 	const statusRefreshTimeoutMs = 15_000;
 	const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
@@ -61,7 +63,13 @@
 	let walletPayDetail = $state<string | null>(null);
 	let statusRefreshState = $state<'idle' | 'checking' | 'error'>('idle');
 	let statusRefreshMessage = $state<string | null>(null);
+	let depositAmount = $derived(data.payment_link.amount);
+	let depositMessage = $state<string | null>(null);
+	let walletBalanceState = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
+	let walletBalanceBaseUnits = $state<bigint | null>(null);
+	let walletBalanceDecimals = $state(SOL_DECIMALS);
 	let submittedSignature = $state<string | null>(null);
+	let walletBalanceRequestId = 0;
 
 	function userLabel() {
 		if (data.user.telegram_username) return `@${data.user.telegram_username}`;
@@ -90,6 +98,14 @@
 		return data.payment_link.spl_token === USDC_MINT ? 'USDC' : 'SPL';
 	}
 
+	function paymentAmount() {
+		return depositAmount.trim();
+	}
+
+	function displayedPaymentAmount() {
+		return paymentAmount() || data.payment_link.amount;
+	}
+
 	function baseUnitsFromDecimal(amount: string, decimals: number) {
 		const [wholeRaw, fractionRaw = ''] = amount.trim().split('.');
 		const whole = wholeRaw || '0';
@@ -101,8 +117,80 @@
 		return BigInt(whole) * 10n ** BigInt(decimals) + BigInt(fraction || '0');
 	}
 
-	function lamportsFromSol(amount: string) {
-		return baseUnitsFromDecimal(amount, 9);
+	function formatBaseUnits(amount: bigint, decimals: number) {
+		const divisor = 10n ** BigInt(decimals);
+		const whole = amount / divisor;
+		const fraction = amount % divisor;
+		if (fraction === 0n) return whole.toString();
+
+		const fractionText = fraction.toString().padStart(decimals, '0').replace(/0+$/, '');
+		return `${whole}.${fractionText}`;
+	}
+
+	function formatCompactBaseUnits(amount: bigint, decimals: number) {
+		const [whole, fraction = ''] = formatBaseUnits(amount, decimals).split('.');
+		const fractionLimit = BigInt(whole) >= 1n ? 4 : 6;
+		const visibleFraction = fraction.slice(0, fractionLimit).replace(/0+$/, '');
+		return visibleFraction ? `${whole}.${visibleFraction}` : whole;
+	}
+
+	function walletBalanceInlineLabel() {
+		if (!wallet.connected) return 'Connect wallet';
+		if (walletBalanceState === 'loading') return 'Loading balance';
+		if (walletBalanceState === 'error') return 'Balance unavailable';
+		if (walletBalanceBaseUnits === null) return 'Balance pending';
+		return `Wallet ${formatCompactBaseUnits(walletBalanceBaseUnits, walletBalanceDecimals)} ${tokenLabel()}`;
+	}
+
+	function walletSpendableBaseUnits() {
+		if (walletBalanceBaseUnits === null) return null;
+		if (data.payment_link.spl_token) return walletBalanceBaseUnits;
+		return walletBalanceBaseUnits > SOL_FEE_RESERVE_BASE_UNITS
+			? walletBalanceBaseUnits - SOL_FEE_RESERVE_BASE_UNITS
+			: 0n;
+	}
+
+	function minimumPaymentBaseUnits(decimals: number) {
+		return baseUnitsFromDecimal(data.payment_link.amount, decimals);
+	}
+
+	function depositAmountIssue(amount = paymentAmount(), decimals = walletBalanceDecimals) {
+		try {
+			const selected = baseUnitsFromDecimal(amount, decimals);
+			const minimum = minimumPaymentBaseUnits(decimals);
+			if (selected < minimum) return `Minimum deposit is ${data.payment_link.amount} ${tokenLabel()}.`;
+			return null;
+		} catch {
+			return 'Enter a valid decimal amount.';
+		}
+	}
+
+	function validatedDepositBaseUnits(amount: string, decimals: number) {
+		const issue = depositAmountIssue(amount, decimals);
+		if (issue) throw new Error(issue);
+		return baseUnitsFromDecimal(amount, decimals);
+	}
+
+	function setDepositFromWalletPercent(percent: number) {
+		const spendable = walletSpendableBaseUnits();
+		if (spendable === null) return;
+
+		const candidate = (spendable * BigInt(percent)) / 100n;
+		const minimum = minimumPaymentBaseUnits(walletBalanceDecimals);
+		const nextAmount = candidate < minimum ? minimum : candidate;
+		depositAmount = formatBaseUnits(nextAmount, walletBalanceDecimals);
+		depositMessage =
+			candidate < minimum
+				? `Set to checkout minimum because ${percent}% is below ${data.payment_link.amount} ${tokenLabel()}.`
+				: null;
+	}
+
+	function onDepositAmountInput() {
+		depositMessage = depositAmountIssue();
+	}
+
+	function isDepositMessageError() {
+		return depositMessage !== null && depositMessage === depositAmountIssue();
 	}
 
 	function asAddress(value: string) {
@@ -149,11 +237,56 @@
 		return mintAccount.data.decimals;
 	}
 
+	async function loadWalletBalance(publicKey: string) {
+		const requestId = ++walletBalanceRequestId;
+		walletBalanceState = 'loading';
+		walletBalanceBaseUnits = null;
+		try {
+			const rpc = createSolanaRpc(
+				`${data.backendBaseUrl}/api/payment-links/by-token/${data.checkout_token}/solana-rpc` as RpcEndpoint
+			);
+			const owner = asAddress(publicKey);
+
+			if (!data.payment_link.spl_token) {
+				const { value } = await rpc.getBalance(owner, { commitment: 'confirmed' }).send();
+				if (requestId !== walletBalanceRequestId) return;
+				walletBalanceDecimals = SOL_DECIMALS;
+				walletBalanceBaseUnits = BigInt(value);
+			} else {
+				const mint = asAddress(data.payment_link.spl_token);
+				const decimals = await splTokenDecimals(rpc, mint);
+				const [source] = await findAssociatedTokenPda({
+					mint,
+					owner,
+					tokenProgram: TOKEN_PROGRAM_ADDRESS
+				});
+				try {
+					const { value } = await rpc.getTokenAccountBalance(source, { commitment: 'confirmed' }).send();
+					if (requestId !== walletBalanceRequestId) return;
+					walletBalanceDecimals = value.decimals;
+					walletBalanceBaseUnits = BigInt(value.amount);
+				} catch {
+					if (requestId !== walletBalanceRequestId) return;
+					walletBalanceDecimals = decimals;
+					walletBalanceBaseUnits = 0n;
+				}
+			}
+
+			walletBalanceState = 'ready';
+			depositMessage = depositAmountIssue();
+		} catch {
+			if (requestId !== walletBalanceRequestId) return;
+			walletBalanceState = 'error';
+			walletBalanceBaseUnits = null;
+		}
+	}
+
 	async function buildPaymentTransactionBytes(rpc: ReturnType<typeof createSolanaRpc>, payer: TransactionSigner) {
 		const recipient = asAddress(data.payment_link.recipient);
 		const reference = asAddress(data.payment_link.reference);
 		const { value: latestBlockhash } = await rpc.getLatestBlockhash({ commitment: 'confirmed' }).send();
 		const instructions: Instruction[] = [];
+		const amount = paymentAmount();
 
 		if (!data.payment_link.spl_token) {
 			if (data.payment_link.memo) {
@@ -164,7 +297,7 @@
 					getTransferSolInstruction({
 						source: payer,
 						destination: recipient,
-						amount: lamportsFromSol(data.payment_link.amount)
+						amount: validatedDepositBaseUnits(amount, SOL_DECIMALS)
 					}),
 					reference
 				)
@@ -182,7 +315,7 @@
 				owner: recipient,
 				tokenProgram: TOKEN_PROGRAM_ADDRESS
 			});
-			const amount = baseUnitsFromDecimal(data.payment_link.amount, decimals);
+			const transferAmount = validatedDepositBaseUnits(amount, decimals);
 
 			instructions.push(
 				getCreateAssociatedTokenIdempotentInstruction({
@@ -203,7 +336,7 @@
 						mint,
 						destination,
 						authority: payer,
-						amount,
+						amount: transferAmount,
 						decimals
 					}),
 					reference
@@ -311,7 +444,8 @@
 		return JSON.stringify(
 			{
 				status: data.payment_link.status,
-				amount: data.payment_link.amount,
+				amount: displayedPaymentAmount(),
+				required_amount: data.payment_link.amount,
 				token: tokenLabel(),
 				mint: data.payment_link.spl_token,
 				recipient: data.payment_link.recipient,
@@ -322,7 +456,10 @@
 					connected: wallet.connected,
 					publicKey: wallet.publicKey,
 					name: wallet.standardWallet?.name,
-					chains: wallet.standardAccount?.chains
+					chains: wallet.standardAccount?.chains,
+					balance: walletBalanceBaseUnits !== null
+						? formatBaseUnits(walletBalanceBaseUnits, walletBalanceDecimals)
+						: null
 				},
 				paymentState: walletPayState,
 				paymentMessage: walletPayMessage,
@@ -377,6 +514,7 @@
 				`${data.backendBaseUrl}/api/payment-links/by-token/${data.checkout_token}/solana-rpc` as RpcEndpoint
 			);
 			const payer = createNoopSigner(asAddress(wallet.publicKey));
+			validatedDepositBaseUnits(paymentAmount(), data.payment_link.spl_token ? walletBalanceDecimals : SOL_DECIMALS);
 			const serialized = await buildPaymentTransactionBytes(rpc, payer);
 			const chain = wallet.standardAccount.chains.find((value) => value.startsWith('solana:')) ?? 'solana:mainnet';
 			walletPayState = 'sending';
@@ -483,7 +621,7 @@
 	function setupChecklist() {
 		return [
 			`FireWatch Custom Plan setup for ${userLabel()}`,
-			`Amount: ${data.payment_link.amount} ${tokenLabel()}`,
+			`Amount: ${displayedPaymentAmount()} ${tokenLabel()}`,
 			`Recipient: ${data.payment_link.recipient}`,
 			`Reference: ${data.payment_link.reference}`,
 			`Memo: ${data.payment_link.memo}`,
@@ -558,6 +696,19 @@
 
 		return () => window.clearInterval(interval);
 	});
+
+	$effect(() => {
+		const publicKey = wallet.publicKey;
+		if (!wallet.connected || !publicKey) {
+			walletBalanceRequestId += 1;
+			walletBalanceState = 'idle';
+			walletBalanceBaseUnits = null;
+			depositMessage = null;
+			return;
+		}
+
+		void loadWalletBalance(publicKey);
+	});
 </script>
 
 <svelte:head>
@@ -583,11 +734,57 @@
 			<div class="payment-head">
 				<div>
 					<span>Custom Plan</span>
-					<h2>{data.payment_link.amount} {tokenLabel()}</h2>
+					<h2>{displayedPaymentAmount()} {tokenLabel()}</h2>
 					<p>{userLabel()}</p>
 				</div>
 				<span class={`status status-${data.payment_link.status}`}>{statusLabel()}</span>
 			</div>
+
+			<label class="deposit-field">
+				<span>Deposit amount</span>
+				<div class="deposit-input-shell">
+					<input
+						aria-describedby="wallet-balance-label deposit-message"
+						aria-invalid={depositAmountIssue() ? 'true' : 'false'}
+						bind:value={depositAmount}
+						inputmode="decimal"
+						oninput={onDepositAmountInput}
+						type="text"
+					/>
+					<div class="deposit-input-actions">
+						<span id="wallet-balance-label" class="wallet-balance-label">
+							{walletBalanceInlineLabel()}
+						</span>
+						<button
+							class="amount-chip"
+							type="button"
+							onclick={() => setDepositFromWalletPercent(25)}
+							disabled={walletBalanceBaseUnits === null}
+						>
+							25%
+						</button>
+						<button
+							class="amount-chip"
+							type="button"
+							onclick={() => setDepositFromWalletPercent(50)}
+							disabled={walletBalanceBaseUnits === null}
+						>
+							50%
+						</button>
+						<button
+							class="amount-chip"
+							type="button"
+							onclick={() => setDepositFromWalletPercent(100)}
+							disabled={walletBalanceBaseUnits === null}
+						>
+							Max
+						</button>
+					</div>
+				</div>
+			</label>
+			{#if depositMessage}
+				<p id="deposit-message" class:error={isDepositMessageError()} class="amount-note">{depositMessage}</p>
+			{/if}
 
 			<div class="action-row">
 				{#if canPay() && !wallet.connected}
@@ -597,7 +794,10 @@
 						class="pay-button"
 						type="button"
 						onclick={payWithConnectedWallet}
-						disabled={!wallet.connected || walletPayState === 'preparing' || walletPayState === 'sending'}
+						disabled={!wallet.connected ||
+							walletPayState === 'preparing' ||
+							walletPayState === 'sending' ||
+							depositAmountIssue() !== null}
 					>
 						{#if walletPayState === 'preparing'}
 							Preparing transaction...
@@ -859,6 +1059,91 @@
 		color: #9c3929;
 	}
 
+	.deposit-field {
+		display: grid;
+		gap: 0.42rem;
+		min-width: 0;
+		color: #26313d;
+		font-size: 0.84rem;
+		font-weight: 800;
+	}
+
+	.deposit-input-shell {
+		position: relative;
+		min-width: 0;
+	}
+
+	.deposit-input-shell input {
+		width: 100%;
+		min-height: 3rem;
+		padding: 0 15.4rem 0 0.82rem;
+		border: 1px solid rgba(23, 32, 42, 0.12);
+		border-radius: 8px;
+		background: #fff;
+		color: #17202a;
+		font: inherit;
+		font-size: 1rem;
+		font-weight: 800;
+		outline: none;
+	}
+
+	.deposit-input-shell input:focus {
+		border-color: rgba(189, 74, 23, 0.48);
+		box-shadow: 0 0 0 3px rgba(189, 74, 23, 0.08);
+	}
+
+	.deposit-input-actions {
+		position: absolute;
+		inset: 0 0.46rem 0 auto;
+		display: flex;
+		align-items: center;
+		gap: 0.34rem;
+		max-width: calc(100% - 5.5rem);
+		pointer-events: none;
+	}
+
+	.wallet-balance-label {
+		max-width: 7.8rem;
+		overflow: hidden;
+		color: #6d7782;
+		font-size: 0.72rem;
+		font-weight: 750;
+		line-height: 1.1;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.amount-chip {
+		min-width: 2.18rem;
+		min-height: 1.65rem;
+		padding: 0 0.38rem;
+		border: 1px solid rgba(23, 32, 42, 0.11);
+		border-radius: 7px;
+		background: #fbfaf8;
+		color: #556473;
+		cursor: pointer;
+		font: inherit;
+		font-size: 0.72rem;
+		font-weight: 850;
+		pointer-events: auto;
+	}
+
+	.amount-chip:disabled {
+		cursor: default;
+		opacity: 0.45;
+	}
+
+	.amount-note {
+		color: #6d7782;
+		font-size: 0.8rem;
+		font-weight: 700;
+		line-height: 1.45;
+	}
+
+	.amount-note.error {
+		color: #9c3929;
+	}
+
 	.wallet-status {
 		display: grid;
 		gap: 0.55rem;
@@ -1102,6 +1387,14 @@
 		.payment-head {
 			display: grid;
 			gap: 0.58rem;
+		}
+
+		.deposit-input-shell input {
+			padding-right: 12.8rem;
+		}
+
+		.wallet-balance-label {
+			max-width: 5.5rem;
 		}
 
 		.detail-panel li {
