@@ -41,7 +41,7 @@ const CACHE_EVENTS_FILTERED: &str = "public, max-age=10, s-maxage=60, stale-whil
 const CACHE_EVENT_DETAIL: &str = "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400";
 const CACHE_PREVIEW_CARD: &str =
     "public, max-age=300, s-maxage=86400, stale-while-revalidate=604800";
-const CACHE_PROTOCOLS: &str = "public, max-age=600, s-maxage=21600, stale-while-revalidate=86400";
+const CACHE_PROTOCOLS: &str = "public, max-age=60, s-maxage=300, stale-while-revalidate=1800";
 const CACHE_PROGRAM_STATS: &str =
     "public, max-age=300, s-maxage=1800, stale-while-revalidate=21600";
 const CACHE_PROGRAM_LISTS: &str =

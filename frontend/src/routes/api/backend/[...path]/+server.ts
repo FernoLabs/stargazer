@@ -93,8 +93,8 @@ function cachePolicyFor(path: string, searchParams: URLSearchParams): CachePolic
 
 	if (path === 'api/protocols') {
 		return {
-			header: 'public, max-age=600, s-maxage=21600, stale-while-revalidate=86400',
-			edgeTtlSeconds: 21600
+			header: 'public, max-age=60, s-maxage=300, stale-while-revalidate=1800',
+			edgeTtlSeconds: 300
 		};
 	}
 

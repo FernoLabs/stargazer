@@ -14,7 +14,7 @@ export const DEFAULT_PUBLIC_BACKEND_BASE_URL = '/api/backend';
 export const DEFAULT_EXPLORER_CLUSTER = 'mainnet-beta';
 const APP_SHELL_FETCH_TIMEOUT_MS = 6000;
 const LIVE_STATUS_CACHE_MS = 3000;
-const PROTOCOLS_CACHE_MS = 5 * 60 * 1000;
+const PROTOCOLS_CACHE_MS = 60 * 1000;
 const TELEGRAM_SUMMARY_CACHE_MS = 15_000;
 
 export interface AppShellLoadData {
@@ -153,7 +153,7 @@ async function loadDefiProtocols(fetch: typeof globalThis.fetch) {
 
 	try {
 		const value = normalizedProtocolCatalog(
-			(await backendJson<DefiProtocolsResponse>(fetch, '/api/protocols')).items
+			(await backendJson<DefiProtocolsResponse>(fetch, '/api/protocols', { origin: true })).items
 		);
 		protocolsCache = cacheUntil(value, PROTOCOLS_CACHE_MS);
 		return value;

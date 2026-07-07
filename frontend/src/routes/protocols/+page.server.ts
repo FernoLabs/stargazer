@@ -1,4 +1,4 @@
-import { backendRequest, readBackendError } from '$lib/server/backend';
+import { backendOriginRequest, readBackendError } from '$lib/server/backend';
 import { canonicalProtocolSlug, normalizedProtocolCatalog } from '$lib/catalog';
 import type { DefiProtocolsResponse, ProtocolActivitySummary } from '$lib/types';
 import type { PageServerLoad } from './$types';
@@ -21,7 +21,7 @@ export const load = (async ({ fetch, parent }) => {
 	const protocolActivitySummaries: Record<string, ProtocolActivitySummaryView> = {};
 
 	try {
-		const response = await backendRequest(fetch, '/api/protocols?include=activitySummary');
+		const response = await backendOriginRequest(fetch, '/api/protocols?include=activitySummary');
 		if (!response.ok) throw new Error(await readBackendError(response));
 
 		const payload = (await response.json()) as DefiProtocolsResponse;
