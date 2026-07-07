@@ -7659,6 +7659,40 @@ impl Database {
               AND (
                   tags_json LIKE '%"impact:high"%'
                   OR COALESCE(json_extract(payload_json, '$.high_impact'), 0) = 1
+                  OR (
+                      tags_json LIKE '%"protocol:drift"%'
+                      AND (
+                          tags_json LIKE '%"instruction:recenter_perp_market_amm"%'
+                          OR tags_json LIKE '%"instruction:recenter_perp_market_amm_crank"%'
+                          OR tags_json LIKE '%"instruction:update_feature_bit_flags_mm_oracle"%'
+                          OR tags_json LIKE '%"instruction:update_feature_bit_flags_median_trigger_price"%'
+                          OR tags_json LIKE '%"instruction:update_feature_bit_flags_builder_codes"%'
+                          OR tags_json LIKE '%"instruction:change_approved_builder"%'
+                      )
+                  )
+                  OR (
+                      tags_json LIKE '%"protocol:marginfi"%'
+                      AND (
+                          tags_json LIKE '%"instruction:marginfi_group_configure"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_configure_bank"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_configure_bank_interest_only"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_configure_bank_limits_only"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_configure_bank_oracle"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_set_fixed_oracle_price"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_configure_bank_emode"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_clone_emode"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_update_fees_destination_account"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_withdraw_insurance"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_close_bank"%'
+                          OR tags_json LIKE '%"instruction:edit_global_fee_state"%'
+                          OR tags_json LIKE '%"instruction:config_group_fee"%'
+                          OR tags_json LIKE '%"instruction:configure_deleverage_withdrawal_limit"%'
+                          OR tags_json LIKE '%"instruction:update_deleverage_withdrawals"%'
+                          OR tags_json LIKE '%"instruction:configure_bank_rate_limits"%'
+                          OR tags_json LIKE '%"instruction:configure_group_rate_limits"%'
+                          OR tags_json LIKE '%"instruction:update_group_rate_limiter"%'
+                      )
+                  )
               )
               AND (
                   tags_json NOT LIKE '%"alert:review_now"%'
@@ -7690,6 +7724,7 @@ impl Database {
             SET
                 summary = CASE
                     WHEN summary LIKE 'High-impact %' THEN 'Critical ' || substr(summary, 13)
+                    WHEN summary NOT LIKE 'Critical %' THEN 'Critical ' || summary
                     ELSE summary
                 END,
                 tags_json = (
@@ -8109,6 +8144,7 @@ impl Database {
             SET
                 summary = CASE
                     WHEN summary LIKE 'High-impact %' THEN 'Critical ' || substr(summary, 13)
+                    WHEN summary NOT LIKE 'Critical %' THEN 'Critical ' || summary
                     ELSE summary
                 END,
                 tags_json = (
@@ -8141,6 +8177,40 @@ impl Database {
               AND (
                   tags_json LIKE '%"impact:high"%'
                   OR COALESCE(json_extract(payload_json, '$.high_impact'), 0) = 1
+                  OR (
+                      tags_json LIKE '%"protocol:drift"%'
+                      AND (
+                          tags_json LIKE '%"instruction:recenter_perp_market_amm"%'
+                          OR tags_json LIKE '%"instruction:recenter_perp_market_amm_crank"%'
+                          OR tags_json LIKE '%"instruction:update_feature_bit_flags_mm_oracle"%'
+                          OR tags_json LIKE '%"instruction:update_feature_bit_flags_median_trigger_price"%'
+                          OR tags_json LIKE '%"instruction:update_feature_bit_flags_builder_codes"%'
+                          OR tags_json LIKE '%"instruction:change_approved_builder"%'
+                      )
+                  )
+                  OR (
+                      tags_json LIKE '%"protocol:marginfi"%'
+                      AND (
+                          tags_json LIKE '%"instruction:marginfi_group_configure"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_configure_bank"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_configure_bank_interest_only"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_configure_bank_limits_only"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_configure_bank_oracle"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_set_fixed_oracle_price"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_configure_bank_emode"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_clone_emode"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_update_fees_destination_account"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_withdraw_insurance"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_close_bank"%'
+                          OR tags_json LIKE '%"instruction:edit_global_fee_state"%'
+                          OR tags_json LIKE '%"instruction:config_group_fee"%'
+                          OR tags_json LIKE '%"instruction:configure_deleverage_withdrawal_limit"%'
+                          OR tags_json LIKE '%"instruction:update_deleverage_withdrawals"%'
+                          OR tags_json LIKE '%"instruction:configure_bank_rate_limits"%'
+                          OR tags_json LIKE '%"instruction:configure_group_rate_limits"%'
+                          OR tags_json LIKE '%"instruction:update_group_rate_limiter"%'
+                      )
+                  )
               )
               AND (
                   tags_json NOT LIKE '%"alert:review_now"%'
@@ -8177,6 +8247,40 @@ impl Database {
               AND (
                   tags_json LIKE '%"impact:high"%'
                   OR COALESCE(json_extract(payload_json, '$.high_impact'), 0) = 1
+                  OR (
+                      tags_json LIKE '%"protocol:drift"%'
+                      AND (
+                          tags_json LIKE '%"instruction:recenter_perp_market_amm"%'
+                          OR tags_json LIKE '%"instruction:recenter_perp_market_amm_crank"%'
+                          OR tags_json LIKE '%"instruction:update_feature_bit_flags_mm_oracle"%'
+                          OR tags_json LIKE '%"instruction:update_feature_bit_flags_median_trigger_price"%'
+                          OR tags_json LIKE '%"instruction:update_feature_bit_flags_builder_codes"%'
+                          OR tags_json LIKE '%"instruction:change_approved_builder"%'
+                      )
+                  )
+                  OR (
+                      tags_json LIKE '%"protocol:marginfi"%'
+                      AND (
+                          tags_json LIKE '%"instruction:marginfi_group_configure"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_configure_bank"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_configure_bank_interest_only"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_configure_bank_limits_only"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_configure_bank_oracle"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_set_fixed_oracle_price"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_configure_bank_emode"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_clone_emode"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_update_fees_destination_account"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_withdraw_insurance"%'
+                          OR tags_json LIKE '%"instruction:lending_pool_close_bank"%'
+                          OR tags_json LIKE '%"instruction:edit_global_fee_state"%'
+                          OR tags_json LIKE '%"instruction:config_group_fee"%'
+                          OR tags_json LIKE '%"instruction:configure_deleverage_withdrawal_limit"%'
+                          OR tags_json LIKE '%"instruction:update_deleverage_withdrawals"%'
+                          OR tags_json LIKE '%"instruction:configure_bank_rate_limits"%'
+                          OR tags_json LIKE '%"instruction:configure_group_rate_limits"%'
+                          OR tags_json LIKE '%"instruction:update_group_rate_limiter"%'
+                      )
+                  )
               )
               AND (
                   tags_json NOT LIKE '%"alert:review_now"%'
@@ -10122,6 +10226,83 @@ mod tests {
             )
             .await?;
         assert!(!drift_high.iter().any(|event| event.id == event_id));
+
+        let _ = std::fs::remove_file(db_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn targeted_cleanup_promotes_newly_high_impact_admin_instruction_rows() -> Result<()> {
+        let db_path = std::env::temp_dir().join(format!(
+            "firewatch-promote-new-critical-admin-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let database_url = format!("sqlite://{}", db_path.display());
+        let db = Database::connect(&database_url, BlobStore::new(None, None)?).await?;
+        db.migrate().await?;
+
+        let marginfi_program = "MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA";
+        let event_id = "marginfi-configure-bank-test:1:program_admin_instruction:MFv2".to_owned();
+        db.insert_event(&ChainEvent {
+            id: event_id.clone(),
+            signature: "marginfi-configure-bank-test".to_owned(),
+            instruction_path: "1".to_owned(),
+            kind: event_kind::PROGRAM_ADMIN_INSTRUCTION.to_owned(),
+            target_type: target_type::PROGRAM.to_owned(),
+            target_address: marginfi_program.to_owned(),
+            actor: Some("marginfi-admin".to_owned()),
+            slot: 431_000_000,
+            block_time: Some(1_783_000_000),
+            indexed_at: 1_783_000_001,
+            summary: "Marginfi admin instruction lending_pool_configure_bank".to_owned(),
+            tags: vec![
+                "instruction:lending_pool_configure_bank".to_owned(),
+                "protocol:marginfi".to_owned(),
+                "sector:defi".to_owned(),
+                "severity:standard".to_owned(),
+                "signal:admin_instruction".to_owned(),
+                "target:program".to_owned(),
+                "watch:defi".to_owned(),
+            ],
+            payload: json!({
+                "classification": "admin",
+                "high_impact": false,
+                "instruction_name": "lending_pool_configure_bank",
+                "program": marginfi_program,
+                "protocol": "marginfi",
+                "protocol_name": "Marginfi",
+                "severity": "standard",
+                "via_multisig": false
+            }),
+            delivery_attempts: 0,
+            delivered_at: None,
+            last_error: None,
+            next_retry_at: 1_783_000_001,
+        })
+        .await?;
+
+        let report = db.promote_stale_high_impact_admin_critical_events().await?;
+        assert_eq!(report.matched_before, 1);
+        assert_eq!(report.promoted_events, 1);
+        assert_eq!(report.remaining, 0);
+
+        let event = db.event_by_id(&event_id).await?.expect("promoted event");
+        assert!(
+            event
+                .summary
+                .starts_with("Critical Marginfi admin instruction lending_pool_configure_bank")
+        );
+        assert!(event.has_tag("alert:review_now"));
+        assert!(event.has_tag("impact:high"));
+        assert!(event.has_tag("severity:critical"));
+        assert!(!event.has_tag("severity:standard"));
+        assert_eq!(
+            event
+                .payload
+                .get("high_impact")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
 
         let _ = std::fs::remove_file(db_path);
         Ok(())

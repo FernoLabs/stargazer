@@ -3671,7 +3671,15 @@ fn is_spl_governance_signal(signal: &ProtocolInstructionSignal) -> bool {
 
 fn protocol_signal_is_critical(signal: &ProtocolInstructionSignal, high_impact: bool) -> bool {
     if is_spl_governance_signal(signal) {
-        return signal.instruction_name.as_deref() == Some("execute_transaction");
+        return matches!(
+            signal.instruction_name.as_deref(),
+            Some(
+                "execute_transaction"
+                    | "set_governance_config"
+                    | "set_realm_authority"
+                    | "set_realm_config"
+            )
+        );
     }
 
     matches!(signal.signal_kind, Some(ProtocolSignalKind::Admin)) && high_impact
@@ -5328,6 +5336,32 @@ mod tests {
             .expect("realms create proposal event")
     }
 
+    fn sample_realms_set_realm_authority_event() -> ChainEvent {
+        let realm = Pubkey::from_str(protocols::BONK_DAO_REALM_ADDRESS).unwrap();
+        let signer = Pubkey::from_str("8xxRdtzsw1CJWfEahViqNjZwh5dYJAdSbBctWwcbycVo").unwrap();
+        let new_realm_authority = Pubkey::new_unique();
+        let realms_program = Pubkey::from_str(protocols::BONK_DAO_GOVERNANCE_PROGRAM_ID).unwrap();
+        let tx = ResolvedTransaction {
+            signature: "realms-set-realm-authority-test".to_owned(),
+            primary_signer: Some(signer),
+            account_keys: vec![realm, signer, new_realm_authority, realms_program],
+            top_level_instructions: vec![],
+            inner_instruction_sets: vec![],
+            log_messages: vec![],
+        };
+        let instruction = ResolvedInstruction {
+            program_id_index: 3,
+            accounts: vec![0, 1, 2],
+            data: vec![21],
+            stack_height: Some(1),
+        };
+
+        parse_protocol_instruction_event(&tx, &instruction, 431127241, Some(1783335990), "4", None)
+            .unwrap()
+            .0
+            .expect("realms set realm authority event")
+    }
+
     fn sample_bonk_dao_treasury_transfer_event(raw_amount: u64) -> Option<ChainEvent> {
         let source = Pubkey::from_str("F8FqZuUKfoy58aHLW6bfeEhfW9sTtJyqFTqnxVmGZ6dU").unwrap();
         let mint = Pubkey::from_str(protocols::BONK_DAO_COMMUNITY_MINT_ADDRESS).unwrap();
@@ -5544,6 +5578,53 @@ mod tests {
                 .get("proposal")
                 .and_then(|value| value.as_str()),
             Some("6wR1jdhhJ31bbdRNXva8MxqsgsNLKTxargcdAyZ7FcRj")
+        );
+    }
+
+    #[test]
+    fn routes_bonk_dao_realms_authority_change_as_critical_defi_signal() {
+        let event = sample_realms_set_realm_authority_event();
+
+        assert_eq!(event.kind, event_kind::PROGRAM_ADMIN_INSTRUCTION);
+        assert_eq!(event.target_type, target_type::PROGRAM);
+        assert_eq!(event.summary, "Critical Bonk DAO realm authority changed");
+        assert!(event.tags.iter().any(|tag| tag == "protocol:bonk_dao"));
+        assert!(event.tags.iter().any(|tag| tag == "source:realms"));
+        assert!(event.tags.iter().any(|tag| tag == "source:spl_governance"));
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "instruction:set_realm_authority")
+        );
+        assert!(event.tags.iter().any(|tag| tag == "severity:critical"));
+        assert!(event.tags.iter().any(|tag| tag == "impact:high"));
+        assert!(event.tags.iter().any(|tag| tag == "alert:review_now"));
+        assert!(TelegramEventScope::DefiWatch.matches_event(&event));
+        assert_eq!(
+            event
+                .payload
+                .get("severity")
+                .and_then(|value| value.as_str()),
+            Some("critical")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("protocol")
+                .and_then(|value| value.as_str()),
+            Some("bonk_dao")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("source_protocol")
+                .and_then(|value| value.as_str()),
+            Some("realms")
+        );
+        assert_eq!(
+            event.payload.get("realm").and_then(|value| value.as_str()),
+            Some(protocols::BONK_DAO_REALM_ADDRESS)
         );
     }
 

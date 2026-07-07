@@ -1,4 +1,5 @@
 use crate::{
+    block_backfill::{backfill_ferno_blocks, backfill_grpc_transactions, backfill_rpc_blocks},
     context::SharedState,
     database::{EventListFilters, ProgramVersionByteSide},
     link_preview,
@@ -13,7 +14,7 @@ use crate::{
         PromoCode, PromoCodesResponse, RememberTelegramConfigSessionResponse,
         SaveTelegramConfigRequest, SaveTelegramConfigResponse, TelegramConfigSessionResponse,
         TelegramDeliveryMode, TelegramSubscription, TelegramSubscriptionSummaryResponse,
-        TelegramSubscriptionsResponse, UpsertFirewatchUserRequest,
+        TelegramSubscriptionsResponse, UpsertFirewatchUserRequest, now_ts,
     },
     name_service, program_authority, protocol_governance, protocols, telegram,
 };
@@ -36,7 +37,7 @@ use std::{
     time::Instant,
 };
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
-use tracing::{debug, warn};
+use tracing::{debug, error, info, warn};
 
 const ESTIMATED_SLOT_TIME_MS: i64 = 400;
 const CACHE_LIVE_STATUS: &str = "public, max-age=1, s-maxage=2, stale-while-revalidate=5";
@@ -57,6 +58,7 @@ const TELEGRAM_CONFIG_REMEMBER_SECONDS: i64 = 30 * 24 * 60 * 60;
 const WALLET_HISTORY_SCAN_MAX_WALLETS: usize = 8;
 const WALLET_HISTORY_SCAN_SIGNATURE_LIMIT: usize = 100;
 const WALLET_HISTORY_SCAN_TRANSACTION_CONCURRENCY: usize = 12;
+const ADMIN_BACKFILL_MAX_SLOT_RANGE: u64 = 1_500_000;
 
 pub fn router(state: SharedState) -> anyhow::Result<Router> {
     let cors = CorsLayer::new()
@@ -187,6 +189,10 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
         .route(
             "/api/admin/sync/protocol-links",
             axum::routing::post(sync_protocol_links),
+        )
+        .route(
+            "/api/admin/backfill/blocks",
+            axum::routing::post(start_block_backfill),
         )
         .with_state(state.clone())
         .layer(from_fn(apply_cache_control))
@@ -339,6 +345,17 @@ struct SyncProtocolLinksQuery {
     vault_index_count: Option<u8>,
     discover_all_squads: Option<bool>,
     include_governance: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BlockBackfillQuery {
+    start_slot: u64,
+    end_slot: u64,
+    mode: Option<String>,
+    concurrency: Option<usize>,
+    retries: Option<usize>,
+    deliver: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -751,6 +768,163 @@ async fn sync_protocol_links(
         "program_authorities": program_authorities,
         "governance": governance,
         "existing_multisig_events": existing_multisig_events,
+    })))
+}
+
+async fn start_block_backfill(
+    State(state): State<SharedState>,
+    Query(query): Query<BlockBackfillQuery>,
+) -> ApiResult<serde_json::Value> {
+    if query.start_slot > query.end_slot {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "start_slot must be less than or equal to end_slot.",
+        ));
+    }
+
+    let slot_count = query.end_slot - query.start_slot + 1;
+    if slot_count > ADMIN_BACKFILL_MAX_SLOT_RANGE {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            &format!(
+                "slot range is too large; max {} slots.",
+                ADMIN_BACKFILL_MAX_SLOT_RANGE
+            ),
+        ));
+    }
+
+    let mode = query
+        .mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("grpc")
+        .to_ascii_lowercase();
+    if !matches!(mode.as_str(), "grpc" | "ferno" | "rpc") {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "mode must be one of: grpc, ferno, rpc.",
+        ));
+    }
+
+    let concurrency = query.concurrency.unwrap_or(4).clamp(1, 16);
+    let retries = query.retries.unwrap_or(2).min(5);
+    let enqueue_deliveries = query.deliver.unwrap_or(false);
+    let start_slot = query.start_slot;
+    let end_slot = query.end_slot;
+    let job_id = format!("{mode}-{start_slot}-{end_slot}-{}", now_ts());
+    let spawned_job_id = job_id.clone();
+    let spawned_mode = mode.clone();
+    let spawned_state = state.clone();
+
+    tokio::spawn(async move {
+        info!(
+            job_id = %spawned_job_id,
+            mode = %spawned_mode,
+            start_slot,
+            end_slot,
+            concurrency,
+            retries,
+            enqueue_deliveries,
+            "started admin block backfill",
+        );
+
+        match spawned_mode.as_str() {
+            "grpc" => {
+                match backfill_grpc_transactions(
+                    spawned_state,
+                    start_slot,
+                    end_slot,
+                    enqueue_deliveries,
+                )
+                .await
+                {
+                    Ok(report) => {
+                        info!(
+                            job_id = %spawned_job_id,
+                            start_slot = report.start_slot,
+                            end_slot = report.end_slot,
+                            observed_block_count = report.observed_block_count,
+                            transaction_count = report.transaction_count,
+                            matched_transaction_count = report.matched_transaction_count,
+                            parsed_event_count = report.parsed_event_count,
+                            inserted_event_count = report.inserted_event_count,
+                            elapsed_ms = report.elapsed_ms,
+                            "completed admin gRPC block backfill",
+                        );
+                    }
+                    Err(err) => {
+                        error!(
+                            job_id = %spawned_job_id,
+                            error = %err,
+                            "admin gRPC block backfill failed",
+                        );
+                    }
+                }
+            }
+            "rpc" => {
+                let report = backfill_rpc_blocks(
+                    spawned_state,
+                    start_slot,
+                    end_slot,
+                    concurrency,
+                    retries,
+                    enqueue_deliveries,
+                )
+                .await;
+                info!(
+                    job_id = %spawned_job_id,
+                    start_slot = report.start_slot,
+                    end_slot = report.end_slot,
+                    ok_count = report.ok_count(),
+                    error_count = report.error_count(),
+                    transaction_count = report.transaction_count(),
+                    matched_transaction_count = report.matched_transaction_count(),
+                    parsed_event_count = report.parsed_event_count(),
+                    inserted_event_count = report.inserted_event_count(),
+                    elapsed_ms = report.elapsed_ms,
+                    "completed admin RPC block backfill",
+                );
+            }
+            _ => {
+                let report = backfill_ferno_blocks(
+                    spawned_state,
+                    start_slot,
+                    end_slot,
+                    concurrency,
+                    retries,
+                    enqueue_deliveries,
+                )
+                .await;
+                info!(
+                    job_id = %spawned_job_id,
+                    start_slot = report.start_slot,
+                    end_slot = report.end_slot,
+                    ok_count = report.ok_count(),
+                    error_count = report.error_count(),
+                    transaction_count = report.transaction_count(),
+                    matched_transaction_count = report.matched_transaction_count(),
+                    parsed_event_count = report.parsed_event_count(),
+                    inserted_event_count = report.inserted_event_count(),
+                    elapsed_ms = report.elapsed_ms,
+                    "completed admin Ferno block backfill",
+                );
+            }
+        }
+    });
+
+    Ok(Json(json!({
+        "backfill": {
+            "job_id": job_id,
+            "status": "started",
+            "mode": mode,
+            "start_slot": start_slot,
+            "end_slot": end_slot,
+            "slot_count": slot_count,
+            "concurrency": concurrency,
+            "retries": retries,
+            "deliver": enqueue_deliveries,
+        }
     })))
 }
 

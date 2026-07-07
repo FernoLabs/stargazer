@@ -610,9 +610,15 @@ const DRIFT_HIGH_IMPACT_INSTRUCTIONS: &[&str] = &[
     "transferProtocolIfSharesToRevenuePool",
     "adminWithdrawFromInsuranceFundVault",
     "moveAmmPrice",
+    "recenterPerpMarketAmm",
+    "recenterPerpMarketAmmCrank",
     "repegAmmCurve",
     "updateAdmin",
     "updateExchangeStatus",
+    "updateFeatureBitFlagsMmOracle",
+    "updateFeatureBitFlagsMedianTriggerPrice",
+    "updateFeatureBitFlagsBuilderCodes",
+    "changeApprovedBuilder",
     "zeroMmOracleFields",
 ];
 
@@ -663,12 +669,30 @@ const MARGINFI_ADMIN_INSTRUCTIONS: &[&str] = &[
 ];
 
 const MARGINFI_HIGH_IMPACT_INSTRUCTIONS: &[&str] = &[
+    "marginfi_group_configure",
+    "lending_pool_configure_bank",
+    "lending_pool_configure_bank_interest_only",
+    "lending_pool_configure_bank_limits_only",
     "lending_pool_force_tokenless_repay_complete",
+    "lending_pool_configure_bank_oracle",
+    "lending_pool_set_fixed_oracle_price",
+    "lending_pool_configure_bank_emode",
+    "lending_pool_clone_emode",
     "lending_pool_handle_bankruptcy",
     "super_admin_withdraw",
+    "lending_pool_update_fees_destination_account",
+    "lending_pool_withdraw_insurance",
+    "lending_pool_close_bank",
+    "edit_global_fee_state",
+    "config_group_fee",
     "panic_pause",
     "panic_unpause",
     "panic_unpause_permissionless",
+    "configure_deleverage_withdrawal_limit",
+    "update_deleverage_withdrawals",
+    "configure_bank_rate_limits",
+    "configure_group_rate_limits",
+    "update_group_rate_limiter",
     "purge_deleverage_balance",
 ];
 
@@ -4340,6 +4364,82 @@ mod tests {
         assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
         assert_eq!(signal.instruction_name.as_deref(), Some("zap_protocol_fee"));
         assert!(!signal.high_impact);
+    }
+
+    #[test]
+    fn classifies_drift_control_plane_updates_as_high_impact_admin() {
+        let program_id = Pubkey::from_str("dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH").unwrap();
+        let cases = [
+            ("recenterPerpMarketAmm", "recenter_perp_market_amm"),
+            (
+                "recenterPerpMarketAmmCrank",
+                "recenter_perp_market_amm_crank",
+            ),
+            (
+                "updateFeatureBitFlagsMmOracle",
+                "update_feature_bit_flags_mm_oracle",
+            ),
+            (
+                "updateFeatureBitFlagsMedianTriggerPrice",
+                "update_feature_bit_flags_median_trigger_price",
+            ),
+            (
+                "updateFeatureBitFlagsBuilderCodes",
+                "update_feature_bit_flags_builder_codes",
+            ),
+            ("changeApprovedBuilder", "change_approved_builder"),
+        ];
+
+        for (raw_name, normalized_name) in cases {
+            let signal = resolve_protocol_instruction(
+                program_id,
+                &discriminator_for_name(raw_name, InstructionNameStyle::CamelCase),
+            )
+            .expect("known Drift control-plane instruction");
+
+            assert_eq!(signal.protocol.slug, "drift");
+            assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+            assert_eq!(signal.instruction_name.as_deref(), Some(normalized_name));
+            assert!(
+                signal.high_impact,
+                "{normalized_name} should be high impact"
+            );
+        }
+    }
+
+    #[test]
+    fn classifies_marginfi_bank_and_oracle_controls_as_high_impact_admin() {
+        let program_id = Pubkey::from_str("MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA").unwrap();
+        let cases = [
+            "marginfi_group_configure",
+            "lending_pool_configure_bank",
+            "lending_pool_configure_bank_limits_only",
+            "lending_pool_configure_bank_oracle",
+            "lending_pool_set_fixed_oracle_price",
+            "lending_pool_configure_bank_emode",
+            "lending_pool_withdraw_insurance",
+            "lending_pool_close_bank",
+            "configure_deleverage_withdrawal_limit",
+            "configure_bank_rate_limits",
+            "configure_group_rate_limits",
+            "update_group_rate_limiter",
+        ];
+
+        for instruction_name in cases {
+            let signal = resolve_protocol_instruction(
+                program_id,
+                &discriminator_for_name(instruction_name, InstructionNameStyle::SnakeCase),
+            )
+            .expect("known Marginfi control-plane instruction");
+
+            assert_eq!(signal.protocol.slug, "marginfi");
+            assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+            assert_eq!(signal.instruction_name.as_deref(), Some(instruction_name));
+            assert!(
+                signal.high_impact,
+                "{instruction_name} should be high impact"
+            );
+        }
     }
 
     #[test]
