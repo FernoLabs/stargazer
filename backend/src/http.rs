@@ -686,6 +686,11 @@ async fn cleanup_stale_critical_noise(
         .annotate_existing_multisig_project_links()
         .await
         .map_err(internal_error)?;
+    let existing_governance_events = state
+        .db
+        .annotate_existing_governance_project_links()
+        .await
+        .map_err(internal_error)?;
     let cleanup = state
         .db
         .cleanup_stale_critical_noise()
@@ -693,6 +698,7 @@ async fn cleanup_stale_critical_noise(
         .map_err(internal_error)?;
     Ok(Json(json!({
         "existing_multisig_events": existing_multisig_events,
+        "existing_governance_events": existing_governance_events,
         "cleanup": cleanup,
     })))
 }
@@ -763,11 +769,23 @@ async fn sync_protocol_links(
         .annotate_existing_multisig_project_links()
         .await
         .map_err(internal_error)?;
+    let existing_governance_events = if query.include_governance.unwrap_or(false) {
+        Some(
+            state
+                .db
+                .annotate_existing_governance_project_links()
+                .await
+                .map_err(internal_error)?,
+        )
+    } else {
+        None
+    };
 
     Ok(Json(json!({
         "program_authorities": program_authorities,
         "governance": governance,
         "existing_multisig_events": existing_multisig_events,
+        "existing_governance_events": existing_governance_events,
     })))
 }
 

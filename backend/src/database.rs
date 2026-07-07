@@ -282,6 +282,13 @@ pub struct MultisigProjectLinkAnnotationReport {
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct GovernanceProjectLinkAnnotationReport {
+    pub matched_unlinked_events: i64,
+    pub updated_events: u64,
+    pub remaining_unlinked_events: i64,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct HiddenAnchorUnknownSignalReport {
     pub matched_missing_signal: i64,
     pub updated_events: u64,
@@ -8473,6 +8480,130 @@ impl Database {
         Ok(row.try_get("count")?)
     }
 
+    pub async fn annotate_existing_governance_project_links(
+        &self,
+    ) -> Result<GovernanceProjectLinkAnnotationReport> {
+        let address_links = self.governance_project_link_address_map().await?;
+        let events = self.unlinked_protocol_governance_events().await?;
+        let matched_unlinked_events = events
+            .iter()
+            .filter(|event| !governance_project_links_for_event(event, &address_links).is_empty())
+            .count() as i64;
+
+        let mut updated_events = 0;
+        for mut event in events {
+            let linked_protocols = governance_project_links_for_event(&event, &address_links);
+            if linked_protocols.is_empty() {
+                continue;
+            }
+
+            annotate_governance_event_with_project_links(&mut event, &linked_protocols);
+            sqlx::query(
+                r#"
+                UPDATE events
+                SET
+                    summary = ?,
+                    tags_json = ?,
+                    payload_json = ?
+                WHERE id = ?;
+                "#,
+            )
+            .bind(&event.summary)
+            .bind(serde_json::to_string(&event.tags)?)
+            .bind(serde_json::to_string(&event.payload)?)
+            .bind(&event.id)
+            .execute(&self.pool)
+            .await?;
+            updated_events += 1;
+        }
+
+        let remaining_unlinked_events = self.unlinked_protocol_governance_event_count().await?;
+
+        Ok(GovernanceProjectLinkAnnotationReport {
+            matched_unlinked_events,
+            updated_events,
+            remaining_unlinked_events,
+        })
+    }
+
+    async fn governance_project_link_address_map(
+        &self,
+    ) -> Result<HashMap<String, Vec<(String, String)>>> {
+        let links_by_slug = self.protocol_governance_links_by_slug().await?;
+        let mut address_links = HashMap::<String, Vec<(String, String)>>::new();
+        for (protocol_slug, links) in links_by_slug {
+            for link in links {
+                for address in [&link.realm, &link.governance, &link.governed_account] {
+                    let address = address.trim();
+                    if address.is_empty() {
+                        continue;
+                    }
+                    address_links
+                        .entry(address.to_owned())
+                        .or_default()
+                        .push((protocol_slug.clone(), link.evidence.clone()));
+                }
+            }
+        }
+
+        Ok(address_links)
+    }
+
+    async fn unlinked_protocol_governance_event_count(&self) -> Result<i64> {
+        let address_links = self.governance_project_link_address_map().await?;
+        Ok(self
+            .unlinked_protocol_governance_events()
+            .await?
+            .iter()
+            .filter(|event| !governance_project_links_for_event(event, &address_links).is_empty())
+            .count() as i64)
+    }
+
+    async fn unlinked_protocol_governance_events(&self) -> Result<Vec<ChainEvent>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                id,
+                signature,
+                instruction_path,
+                kind,
+                target_type,
+                target_address,
+                actor,
+                slot,
+                block_time,
+                indexed_at,
+                summary,
+                tags_json,
+                payload_json,
+                delivery_attempts,
+                delivered_at,
+                last_error,
+                next_retry_at
+            FROM events
+            WHERE tags_json NOT LIKE '%"governance:project_linked"%'
+              AND (
+                  tags_json LIKE '%"source:realms"%'
+                  OR tags_json LIKE '%"source:spl_governance"%'
+                  OR tags_json LIKE '%"protocol:realms"%'
+                  OR json_extract(payload_json, '$.protocol') = 'realms'
+                  OR json_extract(payload_json, '$.source_protocol') = 'realms'
+              )
+              AND (
+                  COALESCE(json_extract(payload_json, '$.governance'), '') <> ''
+                  OR COALESCE(json_extract(payload_json, '$.realm'), '') <> ''
+                  OR COALESCE(json_extract(payload_json, '$.governed_account'), '') <> ''
+                  OR COALESCE(json_extract(payload_json, '$.governing_token_mint'), '') <> ''
+                  OR COALESCE(json_extract(payload_json, '$.council_token_mint'), '') <> ''
+              );
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(row_to_event).collect()
+    }
+
     async fn app_state_value(&self, key: &str) -> Result<Option<String>> {
         let row = sqlx::query(
             r#"
@@ -10473,6 +10604,108 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn annotates_existing_realms_events_from_governance_links() -> Result<()> {
+        let db_path = std::env::temp_dir().join(format!(
+            "firewatch-annotate-existing-governance-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let database_url = format!("sqlite://{}", db_path.display());
+        let db = Database::connect(&database_url, BlobStore::new(None, None)?).await?;
+        db.migrate().await?;
+
+        db.replace_protocol_governance_links(
+            "test",
+            &[ProtocolGovernanceLinkWrite {
+                protocol_slug: protocols::BONK_DAO_PROTOCOL_SLUG.to_owned(),
+                governance_program_id: protocols::BONK_DAO_GOVERNANCE_PROGRAM_ID.to_owned(),
+                realm: protocols::BONK_DAO_REALM_ADDRESS.to_owned(),
+                realm_name: "Bonk DAO".to_owned(),
+                governance: protocols::BONK_DAO_GOVERNANCE_ADDRESS.to_owned(),
+                governed_account: String::new(),
+                governance_kind: "realm_governance".to_owned(),
+                evidence: "Known Bonk DAO Realms account".to_owned(),
+                source: "test".to_owned(),
+            }],
+        )
+        .await?;
+
+        let event_id = "realm-sig:0:program_admin_instruction:realms".to_owned();
+        db.insert_event(&ChainEvent {
+            id: event_id.clone(),
+            signature: "realm-sig".to_owned(),
+            instruction_path: "0".to_owned(),
+            kind: event_kind::PROGRAM_ADMIN_INSTRUCTION.to_owned(),
+            target_type: target_type::PROGRAM.to_owned(),
+            target_address: protocols::BONK_DAO_GOVERNANCE_PROGRAM_ID.to_owned(),
+            actor: Some("RealmAuthority11111111111111111111111111111".to_owned()),
+            slot: 431_000_000,
+            block_time: Some(1_783_000_000),
+            indexed_at: 1_783_000_001,
+            summary: "Critical Realms realm authority changed".to_owned(),
+            tags: vec![
+                "alert:review_now".to_owned(),
+                "impact:high".to_owned(),
+                "protocol:realms".to_owned(),
+                "sector:defi".to_owned(),
+                "severity:critical".to_owned(),
+                "signal:admin_instruction".to_owned(),
+                "source:realms".to_owned(),
+                "source:spl_governance".to_owned(),
+                "target:program".to_owned(),
+                "watch:defi".to_owned(),
+            ],
+            payload: json!({
+                "governance": protocols::BONK_DAO_GOVERNANCE_ADDRESS,
+                "instruction_name": "set_realm_authority",
+                "protocol": "realms",
+                "protocol_name": "Realms",
+                "realm": protocols::BONK_DAO_REALM_ADDRESS,
+                "severity": "critical",
+            }),
+            delivery_attempts: 0,
+            delivered_at: None,
+            last_error: None,
+            next_retry_at: 1_783_000_001,
+        })
+        .await?;
+
+        let report = db.annotate_existing_governance_project_links().await?;
+        assert_eq!(report.matched_unlinked_events, 1);
+        assert_eq!(report.updated_events, 1);
+        assert_eq!(report.remaining_unlinked_events, 0);
+
+        let event = db.event_by_id(&event_id).await?.expect("updated event");
+        assert_eq!(event.summary, "Critical Bonk DAO realm authority changed");
+        assert!(event.has_tag("governance:project_linked"));
+        assert!(event.has_tag("protocol:bonk_dao"));
+        assert!(!event.has_tag("protocol:realms"));
+        assert_eq!(
+            event
+                .payload
+                .get("protocol")
+                .and_then(|value| value.as_str()),
+            Some("bonk_dao")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("source_protocol")
+                .and_then(|value| value.as_str()),
+            Some("realms")
+        );
+        assert!(
+            event
+                .payload
+                .get("linked_protocols")
+                .and_then(|value| value.as_array())
+                .is_some_and(|items| items.len() == 1)
+        );
+
+        let _ = std::fs::remove_file(db_path);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn list_program_idl_versions_skips_incomplete_previous_versions() -> Result<()> {
         let db_path = std::env::temp_dir().join(format!(
             "firewatch-idl-version-list-{}.db",
@@ -10907,6 +11140,134 @@ fn protocol_governance_link_from_row(row: &SqliteRow) -> Result<ProtocolGovernan
         source: row.try_get("source")?,
         last_seen_at: row.try_get("last_seen_at")?,
     })
+}
+
+fn governance_project_links_for_event(
+    event: &ChainEvent,
+    address_links: &HashMap<String, Vec<(String, String)>>,
+) -> Vec<(String, String)> {
+    let mut lookup_addresses = Vec::<String>::new();
+    for payload_key in [
+        "governance",
+        "realm",
+        "governed_account",
+        "governing_token_mint",
+        "council_token_mint",
+    ] {
+        if let Some(address) = event
+            .payload
+            .get(payload_key)
+            .and_then(|value| value.as_str())
+        {
+            push_unique_address(&mut lookup_addresses, address);
+        }
+    }
+
+    let mut linked_protocols = HashMap::<String, String>::new();
+    for address in lookup_addresses {
+        let Some(links) = address_links.get(&address) else {
+            continue;
+        };
+        for (slug, evidence) in links {
+            linked_protocols
+                .entry(slug.clone())
+                .or_insert_with(|| evidence.clone());
+        }
+    }
+
+    linked_protocols.remove(protocols::REALMS_PROTOCOL_SLUG);
+    let mut linked_protocols = linked_protocols.into_iter().collect::<Vec<_>>();
+    linked_protocols.sort_by(|(left, _), (right, _)| left.cmp(right));
+    linked_protocols
+}
+
+fn annotate_governance_event_with_project_links(
+    event: &mut ChainEvent,
+    linked_protocols: &[(String, String)],
+) {
+    event
+        .tags
+        .retain(|tag| tag != "protocol:realms" && tag != "protocol:squads");
+    event.tags.extend([
+        "sector:defi".to_owned(),
+        "watch:defi".to_owned(),
+        "governance:project_linked".to_owned(),
+    ]);
+    event.tags.extend(
+        linked_protocols
+            .iter()
+            .map(|(slug, _)| format!("protocol:{slug}")),
+    );
+    event.tags = normalize_event_tags(std::mem::take(&mut event.tags));
+
+    let first_protocol = linked_protocols.first().map(|(slug, _)| slug.clone());
+    if let Some(payload) = event.payload.as_object_mut() {
+        if payload
+            .get("protocol")
+            .and_then(|value| value.as_str())
+            .is_some_and(|protocol| protocol == protocols::REALMS_PROTOCOL_SLUG)
+        {
+            payload.insert(
+                "source_protocol".to_owned(),
+                serde_json::json!(protocols::REALMS_PROTOCOL_SLUG),
+            );
+            payload.insert(
+                "source_protocol_name".to_owned(),
+                serde_json::json!("Realms"),
+            );
+        }
+
+        let payload_links = linked_protocols
+            .iter()
+            .map(|(slug, evidence)| {
+                let protocol_name = protocols::curated_protocol_descriptor(slug)
+                    .map(|descriptor| descriptor.name)
+                    .unwrap_or_else(|| slug.clone());
+                serde_json::json!({
+                    "protocol": slug,
+                    "protocol_name": protocol_name,
+                    "evidence": evidence,
+                })
+            })
+            .collect::<Vec<_>>();
+        payload.insert(
+            "linked_protocols".to_owned(),
+            serde_json::json!(payload_links),
+        );
+
+        if linked_protocols.len() == 1 {
+            let (slug, _) = &linked_protocols[0];
+            let protocol_name = protocols::curated_protocol_descriptor(slug)
+                .map(|descriptor| descriptor.name)
+                .unwrap_or_else(|| slug.clone());
+            payload.insert("protocol".to_owned(), serde_json::json!(slug));
+            payload.insert("protocol_name".to_owned(), serde_json::json!(protocol_name));
+        }
+    }
+
+    if linked_protocols.len() == 1 {
+        if let Some(slug) = first_protocol {
+            let protocol_name = protocols::curated_protocol_descriptor(&slug)
+                .map(|descriptor| descriptor.name)
+                .unwrap_or(slug);
+            event.summary = event.summary.replacen("Realms", &protocol_name, 1);
+        }
+    }
+}
+
+fn push_unique_address(addresses: &mut Vec<String>, address: &str) {
+    let address = address.trim();
+    if address.is_empty() || addresses.iter().any(|candidate| candidate == address) {
+        return;
+    }
+
+    addresses.push(address.to_owned());
+}
+
+fn normalize_event_tags(mut tags: Vec<String>) -> Vec<String> {
+    tags.sort();
+    tags.dedup();
+    tags
 }
 
 fn row_to_promo_code(row: sqlx::sqlite::SqliteRow) -> Result<PromoCode> {
