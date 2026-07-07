@@ -2155,6 +2155,9 @@ async fn build_domain_risk_context(
         }
 
         for link in state.db.address_protocol_links(&address, 64).await? {
+            if !is_strong_domain_project_link_evidence(&link.evidence) {
+                continue;
+            }
             if seen_protocols.contains_key(&link.protocol_slug) {
                 continue;
             }
@@ -2179,6 +2182,10 @@ async fn build_domain_risk_context(
             || protocols::protocol_for_sol_domain(&domain_event.target_name).is_some(),
         project_links,
     })
+}
+
+fn is_strong_domain_project_link_evidence(evidence: &str) -> bool {
+    matches!(evidence, "program_surface" | "multisig" | "multisig_signer")
 }
 
 fn humanize_domain_link_evidence(evidence: &str) -> String {
@@ -5619,6 +5626,15 @@ mod tests {
                 .and_then(|value| value.as_array())
                 .is_some_and(|items| !items.is_empty())
         );
+    }
+
+    #[test]
+    fn domain_project_links_ignore_actor_only_protocol_history() {
+        assert!(!is_strong_domain_project_link_evidence("actor"));
+        assert!(!is_strong_domain_project_link_evidence("related"));
+        assert!(is_strong_domain_project_link_evidence("program_surface"));
+        assert!(is_strong_domain_project_link_evidence("multisig"));
+        assert!(is_strong_domain_project_link_evidence("multisig_signer"));
     }
 
     #[test]

@@ -246,6 +246,10 @@ pub struct CriticalNoiseCleanupReport {
     pub hidden_anchor_idl_staging_events: u64,
     pub matched_squads_critical_events: i64,
     pub normalized_squads_events: u64,
+    pub matched_actor_only_domain_protocol_events: i64,
+    pub normalized_actor_only_domain_protocol_events: u64,
+    pub deleted_actor_only_domain_telegram_deliveries: u64,
+    pub deleted_actor_only_domain_daily_summary_entries: u64,
     pub deleted_telegram_deliveries: u64,
     pub deleted_events: u64,
     pub remaining_critical_stale_unknown_events: i64,
@@ -7144,6 +7148,9 @@ impl Database {
         sqlx::query("DROP TABLE IF EXISTS temp.firewatch_stale_squads_critical_events;")
             .execute(&mut *transaction)
             .await?;
+        sqlx::query("DROP TABLE IF EXISTS temp.firewatch_actor_only_domain_protocol_events;")
+            .execute(&mut *transaction)
+            .await?;
 
         sqlx::query(
             r#"
@@ -7365,6 +7372,97 @@ impl Database {
         .await?
         .rows_affected();
 
+        sqlx::query(
+            r#"
+            CREATE TEMP TABLE firewatch_actor_only_domain_protocol_events AS
+            SELECT id
+            FROM events
+            WHERE kind IN (
+                'name_service_domain_created',
+                'name_service_domain_updated',
+                'name_service_domain_transferred',
+                'name_service_domain_deleted',
+                'name_service_domain_reallocated'
+            )
+              AND tags_json LIKE '%"domain:project_linked"%'
+              AND COALESCE(json_extract(payload_json, '$.critical_domain_reasons.explicit_watch'), 0) = 0
+              AND EXISTS (
+                  SELECT 1
+                  FROM json_each(events.payload_json, '$.linked_protocols') AS linked_protocol
+                  WHERE json_extract(linked_protocol.value, '$.evidence') = 'known protocol actor'
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM json_each(events.payload_json, '$.linked_protocols') AS linked_protocol
+                  WHERE COALESCE(json_extract(linked_protocol.value, '$.evidence'), '') <> 'known protocol actor'
+              );
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?;
+
+        let matched_actor_only_domain_protocol_events = sqlx::query(
+            "SELECT COUNT(*) AS matched_actor_only_domain_protocol_events FROM firewatch_actor_only_domain_protocol_events;",
+        )
+        .fetch_one(&mut *transaction)
+        .await?
+        .try_get::<i64, _>("matched_actor_only_domain_protocol_events")?;
+
+        let normalized_actor_only_domain_protocol_events = sqlx::query(
+            r#"
+            UPDATE events
+            SET
+                tags_json = (
+                    SELECT COALESCE(json_group_array(value), '[]')
+                    FROM (
+                        SELECT value
+                        FROM json_each(events.tags_json)
+                        WHERE value NOT IN (
+                            'alert:review_now',
+                            'domain:project_linked',
+                            'impact:high',
+                            'sector:defi',
+                            'severity:critical',
+                            'severity:high',
+                            'watch:defi'
+                        )
+                          AND value NOT LIKE 'protocol:%'
+                        ORDER BY key
+                    )
+                ),
+                payload_json = json_set(
+                    payload_json,
+                    '$.critical_domain', json('false'),
+                    '$.critical_domain_reasons.project_link_count', 0,
+                    '$.linked_protocols', json('[]')
+                )
+            WHERE id IN (SELECT id FROM firewatch_actor_only_domain_protocol_events);
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+
+        let deleted_actor_only_domain_telegram_deliveries = sqlx::query(
+            r#"
+            DELETE FROM telegram_deliveries
+            WHERE event_id IN (SELECT id FROM firewatch_actor_only_domain_protocol_events);
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+
+        let deleted_actor_only_domain_daily_summary_entries = sqlx::query(
+            r#"
+            DELETE FROM telegram_daily_summary_entries
+            WHERE event_id IN (SELECT id FROM firewatch_actor_only_domain_protocol_events);
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+
         let deleted_telegram_deliveries = sqlx::query(
             r#"
             DELETE FROM telegram_deliveries
@@ -7406,6 +7504,10 @@ impl Database {
             hidden_anchor_idl_staging_events,
             matched_squads_critical_events,
             normalized_squads_events,
+            matched_actor_only_domain_protocol_events,
+            normalized_actor_only_domain_protocol_events,
+            deleted_actor_only_domain_telegram_deliveries,
+            deleted_actor_only_domain_daily_summary_entries,
             deleted_telegram_deliveries,
             deleted_events,
             remaining_critical_stale_unknown_events,
