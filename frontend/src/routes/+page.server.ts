@@ -1,4 +1,4 @@
-import { backendRequest, readBackendError } from '$lib/server/backend';
+import { backendOriginRequest, backendRequest, readBackendError } from '$lib/server/backend';
 import { nextPageOffset } from '$lib/api-pagination';
 import { canonicalProtocolSlug } from '$lib/catalog';
 import { compactLongTokens, eventProtocolSlugs as previewEventProtocolSlugs } from '$lib/event-preview';
@@ -53,11 +53,13 @@ type HomeHeroAlert = {
 	timestamp: number | null;
 };
 
-async function backendJson<T>(fetch: typeof globalThis.fetch, path: string) {
+async function backendJson<T>(fetch: typeof globalThis.fetch, path: string, options: { origin?: boolean } = {}) {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), HOME_FETCH_TIMEOUT_MS);
 	try {
-		const response = await backendRequest(fetch, path, { signal: controller.signal });
+		const response = options.origin
+			? await backendOriginRequest(fetch, path, { signal: controller.signal })
+			: await backendRequest(fetch, path, { signal: controller.signal });
 		if (!response.ok) throw new Error(await readBackendError(response));
 		return (await response.json()) as T;
 	} finally {
@@ -374,7 +376,9 @@ export const load = (async ({ fetch, parent }) => {
 				fetch,
 				`/api/events?page%5Bsize%5D=${RECENT_DEFI_ALERT_LIMIT}&scope=defi&include_related_multisigs=true&from_ts=${sevenDaysAgoTs}&before_ts=${nowTs}`
 			),
-			backendJson<DefiProtocolsResponse>(fetch, '/api/protocols?include=activitySummary'),
+			backendJson<DefiProtocolsResponse>(fetch, '/api/protocols?include=activitySummary', {
+				origin: true
+			}),
 			eventTotal(fetch, { severity: 'high' }),
 			eventTotal(fetch, { severity: 'standard' }),
 			backendJson<ProgramVersionSummariesResponse>(fetch, '/api/programs/version-summaries'),
