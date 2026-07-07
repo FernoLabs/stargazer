@@ -32,7 +32,7 @@ const EXPLICIT_LOGO_IDS: Record<string, string> = {
 
 const EXPLICIT_LOGO_URLS: Record<string, string> = {
 	bonk_dao:
-		'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/6dhTynDkYsVM7cbF7TKfC9DWB636TcEM935fq7JzL2ES/logo.png'
+		'https://www.bonkcoin.com/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Fbonk-logo.6e917566.png&w=256&q=75'
 };
 
 export function protocolLogoId(slug: string | null) {
