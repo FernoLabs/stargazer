@@ -771,6 +771,9 @@
 	}
 
 	.tab-button {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.36rem;
 		padding: 0.42rem 0;
 		border: none;
 		border-bottom: 2px solid transparent;
@@ -806,7 +809,6 @@
 	}
 
 	.tab-button span {
-		margin-left: 0.36rem;
 		font-size: 0.76rem;
 		color: #7a8896;
 	}
@@ -909,7 +911,7 @@
 	@media (max-width: 720px) {
 		.page-shell {
 			width: min(100vw - 1.25rem, var(--fw-page-max));
-			padding-top: 0.62rem;
+			padding-top: 0.68rem;
 			gap: 0.72rem;
 		}
 
@@ -931,18 +933,18 @@
 			grid-template-columns: minmax(0, 1fr) auto;
 			align-items: center;
 			width: 100%;
+			row-gap: 0.46rem;
 		}
 
 		.toolbar-top {
-			gap: 0.62rem;
+			gap: 0.66rem;
 		}
 
 		.tab-row {
-			flex-wrap: nowrap;
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
 			width: 100%;
-			overflow-x: auto;
-			padding-bottom: 0.05rem;
-			scrollbar-width: none;
+			gap: 0.42rem 0.72rem;
 		}
 
 		.tab-row::-webkit-scrollbar,
@@ -951,15 +953,32 @@
 		}
 
 		.tab-button {
-			flex: 0 0 auto;
+			justify-content: space-between;
+			min-width: 0;
+			min-height: 2.25rem;
+			padding: 0.2rem 0 0.32rem;
+			font-size: 0.78rem;
+			line-height: 1.15;
+		}
+
+		.tab-button:last-child {
+			grid-column: 1 / -1;
+		}
+
+		.tab-button span {
+			margin-left: 0.2rem;
+			font-size: 0.72rem;
 		}
 
 		.quick-search {
 			grid-column: 1 / -1;
+			min-height: 2.5rem;
 		}
 
 		.filter-toggle {
 			margin-left: 0;
+			justify-self: start;
+			min-height: 2.25rem;
 		}
 
 		.filter-grid {

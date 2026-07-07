@@ -287,15 +287,22 @@
 		margin: 0 auto;
 		display: grid;
 		grid-template-columns: auto minmax(0, 1fr) auto;
+		grid-template-areas: 'brand nav action';
 		align-items: center;
 		gap: 0.74rem;
 	}
 
 	.brand {
+		grid-area: brand;
 		min-width: 0;
 	}
 
+	.brand :global(.brand-lockup) {
+		min-height: 2.25rem;
+	}
+
 	.primary-nav {
+		grid-area: nav;
 		display: flex;
 		flex-wrap: nowrap;
 		gap: 0.68rem;
@@ -326,6 +333,7 @@
 	}
 
 	.header-cta {
+		grid-area: action;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -349,6 +357,7 @@
 	}
 
 	.header-session {
+		grid-area: action;
 		display: inline-flex;
 		align-items: center;
 		justify-content: flex-end;
@@ -431,7 +440,7 @@
 
 	@media (max-width: 560px) {
 		.topbar {
-			padding: 0.44rem 0.5rem;
+			padding: 0.5rem 0.5rem 0.42rem;
 		}
 
 		.topbar-row,
@@ -439,10 +448,33 @@
 			width: min(100vw - 1rem, var(--fw-page-max));
 		}
 
+		.topbar-row {
+			grid-template-columns: minmax(0, 1fr) auto;
+			grid-template-areas:
+				'brand action'
+				'nav nav';
+			row-gap: 0.42rem;
+			column-gap: 0.6rem;
+		}
+
+		.primary-nav {
+			margin: 0 -0.06rem;
+			padding-top: 0.38rem;
+			border-top: 1px solid rgba(23, 32, 42, 0.07);
+			gap: 0.85rem;
+		}
+
+		.primary-nav a {
+			display: inline-flex;
+			align-items: center;
+			min-height: 2.25rem;
+			font-size: 0.78rem;
+		}
+
 		.header-cta {
-			min-height: 1.78rem;
-			padding: 0 0.5rem;
-			font-size: 0.72rem;
+			min-height: 2.25rem;
+			padding: 0 0.62rem;
+			font-size: 0.74rem;
 		}
 
 		.header-session a {
@@ -451,8 +483,8 @@
 		}
 
 		.header-session button {
-			min-height: 1.78rem;
-			padding: 0 0.5rem;
+			min-height: 2.25rem;
+			padding: 0 0.56rem;
 			font-size: 0.7rem;
 		}
 	}

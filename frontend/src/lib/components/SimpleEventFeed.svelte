@@ -568,8 +568,8 @@
 			align-items: center;
 			justify-content: center;
 			flex: 0 0 auto;
-			width: 1.58rem;
-			height: 1.58rem;
+			width: 2rem;
+			height: 2rem;
 			padding: 0;
 			border: 1px solid rgba(23, 32, 42, 0.1);
 			border-radius: 6px;
@@ -593,7 +593,7 @@
 		padding: 0.74rem 0;
 	}
 
-	@media (max-width: 560px) {
+		@media (max-width: 560px) {
 			.feed-head {
 				display: grid;
 				grid-template-columns: 1fr;
@@ -605,9 +605,9 @@
 			}
 
 			.event-topline {
-			align-items: flex-start;
-			gap: 0.52rem;
-		}
+				align-items: flex-start;
+				gap: 0.52rem;
+			}
 
 			.event-protocol {
 				flex-wrap: wrap;
@@ -617,8 +617,13 @@
 				padding-top: 0.08rem;
 			}
 
-		.event-meta {
-			gap: 0.3rem 0.42rem;
+			.event-action {
+				width: 2.25rem;
+				height: 2.25rem;
+			}
+
+			.event-meta {
+				gap: 0.3rem 0.42rem;
+			}
 		}
-	}
-</style>
+	</style>

@@ -110,8 +110,8 @@
 
 	strong {
 		color: #17202a;
-		font-size: 1.05rem;
-		font-weight: 900;
+		font-size: 1rem;
+		font-weight: 820;
 	}
 
 	ol,
@@ -119,7 +119,7 @@
 		margin: 0;
 		padding-left: 1.1rem;
 		color: #5f6c79;
-		font-weight: 750;
+		font-weight: 650;
 		line-height: 1.5;
 	}
 
@@ -166,11 +166,22 @@
 		}
 
 		.panel {
-			padding: 1rem;
+			padding: 0.95rem;
 		}
 
 		.connect-grid {
 			grid-template-columns: 1fr;
+		}
+
+		article {
+			gap: 0.76rem;
+			padding: 0.92rem;
+		}
+
+		ol,
+		ul {
+			font-size: 0.94rem;
+			line-height: 1.46;
 		}
 
 		.primary-action,
