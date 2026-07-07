@@ -246,6 +246,8 @@ pub struct CriticalNoiseCleanupReport {
     pub hidden_anchor_idl_staging_events: u64,
     pub matched_squads_critical_events: i64,
     pub normalized_squads_events: u64,
+    pub matched_project_linked_multisig_critical_events: i64,
+    pub promoted_project_linked_multisig_critical_events: u64,
     pub matched_actor_only_domain_protocol_events: i64,
     pub normalized_actor_only_domain_protocol_events: u64,
     pub deleted_actor_only_domain_telegram_deliveries: u64,
@@ -6300,6 +6302,107 @@ impl Database {
         rows.into_iter().map(row_to_telegram_subscription).collect()
     }
 
+    pub async fn active_wallet_subscription_addresses(&self) -> Result<Vec<String>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT DISTINCT target_address
+            FROM telegram_subscriptions
+            WHERE scope = ?
+              AND status = 'active'
+              AND target_address IS NOT NULL
+            ORDER BY target_address ASC;
+            "#,
+        )
+        .bind(TelegramEventScope::WalletActivity.as_str())
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| row.try_get::<String, _>("target_address").ok())
+            .collect())
+    }
+
+    pub async fn active_wallet_subscriptions_for_addresses(
+        &self,
+        addresses: &HashSet<String>,
+    ) -> Result<Vec<TelegramSubscription>> {
+        if addresses.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            r#"
+            SELECT
+                id,
+                label,
+                user_id,
+                chat_id,
+                thread_id,
+                scope,
+                target_address,
+                required_tags_json,
+                delivery_mode,
+                status,
+                payment_link_id,
+                created_at
+            FROM telegram_subscriptions
+            WHERE scope =
+            "#,
+        );
+        builder.push_bind(TelegramEventScope::WalletActivity.as_str());
+        builder.push(
+            r#"
+              AND status = 'active'
+              AND target_address IN (
+            "#,
+        );
+        let mut separated = builder.separated(", ");
+        for address in addresses {
+            separated.push_bind(address);
+        }
+        separated.push_unseparated(")");
+
+        let rows = builder.build().fetch_all(&self.pool).await?;
+        rows.into_iter().map(row_to_telegram_subscription).collect()
+    }
+
+    pub async fn user_protocol_subscription_exists(
+        &self,
+        user_id: &str,
+        chat_id: &str,
+        thread_id: Option<i64>,
+        protocol_slug: &str,
+    ) -> Result<bool> {
+        let protocol_tag = format!("protocol:{protocol_slug}");
+        let count = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*)
+            FROM telegram_subscriptions
+            WHERE chat_id = ?
+              AND (user_id = ? OR user_id IS NULL)
+              AND ((thread_id IS NULL AND ? IS NULL) OR thread_id = ?)
+              AND scope = ?
+              AND status IN ('active', 'pending_payment')
+              AND EXISTS (
+                  SELECT 1
+                  FROM json_each(telegram_subscriptions.required_tags_json)
+                  WHERE value = ?
+              );
+            "#,
+        )
+        .bind(chat_id)
+        .bind(user_id)
+        .bind(thread_id)
+        .bind(thread_id)
+        .bind(TelegramEventScope::DefiWatch.as_str())
+        .bind(protocol_tag)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(count > 0)
+    }
+
     pub async fn telegram_subscription_count(&self) -> Result<i64> {
         let count = sqlx::query_scalar::<_, i64>(
             r#"
@@ -7251,6 +7354,9 @@ impl Database {
         sqlx::query("DROP TABLE IF EXISTS temp.firewatch_stale_squads_critical_events;")
             .execute(&mut *transaction)
             .await?;
+        sqlx::query("DROP TABLE IF EXISTS temp.firewatch_project_linked_multisig_critical_events;")
+            .execute(&mut *transaction)
+            .await?;
         sqlx::query("DROP TABLE IF EXISTS temp.firewatch_actor_only_domain_protocol_events;")
             .execute(&mut *transaction)
             .await?;
@@ -7440,6 +7546,97 @@ impl Database {
 
         sqlx::query(
             r#"
+            CREATE TEMP TABLE firewatch_project_linked_multisig_critical_events AS
+            SELECT id
+            FROM events
+            WHERE target_type = 'multisig'
+              AND tags_json LIKE '%"multisig:project_linked"%'
+              AND (
+                  (
+                      kind = 'multisig_config_executed'
+                      AND tags_json LIKE '%"signal:multisig_config_change"%'
+                  )
+                  OR (
+                      kind = 'multisig_vault_executed'
+                      AND (
+                          json_extract(payload_json, '$.decoded_kind') IN (
+                              'program_deployed',
+                              'program_upgraded',
+                              'program_finalized',
+                              'program_migrated_to_loader_v4',
+                              'program_unknown_instruction',
+                              'program_idl_authority_changed',
+                              'program_idl_immutable',
+                              'program_idl_closed'
+                          )
+                          OR json_extract(payload_json, '$.decoded_summary') LIKE 'Critical %'
+                          OR json_extract(payload_json, '$.decoded_summary') LIKE 'High-impact %'
+                      )
+                  )
+              )
+              AND (
+                  tags_json NOT LIKE '%"alert:review_now"%'
+                  OR tags_json NOT LIKE '%"impact:high"%'
+                  OR tags_json NOT LIKE '%"severity:critical"%'
+                  OR tags_json NOT LIKE '%"watch:defi"%'
+                  OR COALESCE(json_extract(payload_json, '$.severity'), '') <> 'critical'
+                  OR COALESCE(json_extract(payload_json, '$.high_impact'), 0) <> 1
+              );
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?;
+
+        let matched_project_linked_multisig_critical_events = sqlx::query(
+            r#"
+            SELECT COUNT(*) AS matched_project_linked_multisig_critical_events
+            FROM firewatch_project_linked_multisig_critical_events;
+            "#,
+        )
+        .fetch_one(&mut *transaction)
+        .await?
+        .try_get::<i64, _>("matched_project_linked_multisig_critical_events")?;
+
+        let promoted_project_linked_multisig_critical_events = sqlx::query(
+            r#"
+            UPDATE events
+            SET
+                tags_json = (
+                    SELECT COALESCE(json_group_array(value), '[]')
+                    FROM (
+                        SELECT value
+                        FROM json_each(events.tags_json)
+                        WHERE value NOT IN (
+                            'severity:high',
+                            'severity:standard'
+                        )
+                        UNION
+                        SELECT 'alert:review_now'
+                        UNION
+                        SELECT 'impact:high'
+                        UNION
+                        SELECT 'sector:defi'
+                        UNION
+                        SELECT 'severity:critical'
+                        UNION
+                        SELECT 'watch:defi'
+                        ORDER BY value
+                    )
+                ),
+                payload_json = json_set(
+                    payload_json,
+                    '$.severity', 'critical',
+                    '$.high_impact', json('true')
+                )
+            WHERE id IN (SELECT id FROM firewatch_project_linked_multisig_critical_events);
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+
+        sqlx::query(
+            r#"
             CREATE TEMP TABLE firewatch_stale_squads_critical_events AS
             SELECT id
             FROM events
@@ -7618,6 +7815,8 @@ impl Database {
             hidden_anchor_idl_staging_events,
             matched_squads_critical_events,
             normalized_squads_events,
+            matched_project_linked_multisig_critical_events,
+            promoted_project_linked_multisig_critical_events,
             matched_actor_only_domain_protocol_events,
             normalized_actor_only_domain_protocol_events,
             deleted_actor_only_domain_telegram_deliveries,
@@ -9508,6 +9707,112 @@ mod tests {
                 .iter()
                 .any(|event| event.id == event_id)
         );
+
+        let _ = std::fs::remove_file(db_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cleanup_promotes_project_linked_multisig_program_upgrades() -> Result<()> {
+        let db_path = std::env::temp_dir().join(format!(
+            "firewatch-promote-project-linked-multisig-critical-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let database_url = format!("sqlite://{}", db_path.display());
+        let db = Database::connect(&database_url, BlobStore::new(None, None)?).await?;
+        db.migrate().await?;
+
+        let multisig = "7qipzLR9j1JcvdxE1XJEFgvoyFmgBpgw5hMdHBMPcJtM";
+        let event_id = "drift-upgrade-test:2:multisig_vault_executed:7qip".to_owned();
+        db.insert_event(&ChainEvent {
+            id: event_id.clone(),
+            signature: "drift-upgrade-test".to_owned(),
+            instruction_path: "2".to_owned(),
+            kind: event_kind::MULTISIG_VAULT_EXECUTED.to_owned(),
+            target_type: target_type::MULTISIG.to_owned(),
+            target_address: multisig.to_owned(),
+            actor: Some("Member111111111111111111111111111111111111".to_owned()),
+            slot: 431_212_131,
+            block_time: Some(1_775_000_000),
+            indexed_at: 1_775_000_000,
+            summary: format!("Squads vault execution on {multisig}"),
+            tags: vec![
+                "multisig:project_linked".to_owned(),
+                "protocol:drift".to_owned(),
+                "protocol:squads".to_owned(),
+                "severity:standard".to_owned(),
+                "signal:multisig".to_owned(),
+                "source:squads".to_owned(),
+                "target:multisig".to_owned(),
+            ],
+            payload: json!({
+                "decoded_kind": "program_upgraded",
+                "decoded_program": "vELoC1aud1111111111111111111111111111111111",
+                "decoded_summary": format!("Program upgraded for vELoC1aud1111111111111111111111111111111111 via Squads multisig {multisig}"),
+                "linked_protocols": [
+                    {
+                        "protocol": "drift",
+                        "protocol_name": "Drift",
+                        "evidence": "Program upgrade authority is Squads vault 0"
+                    }
+                ],
+                "protocol": "squads",
+                "protocol_name": "Squads",
+            }),
+            delivery_attempts: 0,
+            delivered_at: None,
+            last_error: None,
+            next_retry_at: 1_775_000_000,
+        })
+        .await?;
+
+        let report = db.cleanup_stale_critical_noise().await?;
+        assert_eq!(report.matched_project_linked_multisig_critical_events, 1);
+        assert_eq!(report.promoted_project_linked_multisig_critical_events, 1);
+
+        let event = db.event_by_id(&event_id).await?.expect("promoted event");
+        assert!(event.has_tag("alert:review_now"));
+        assert!(event.has_tag("impact:high"));
+        assert!(event.has_tag("severity:critical"));
+        assert!(event.has_tag("watch:defi"));
+        assert!(!event.has_tag("severity:standard"));
+        assert_eq!(
+            event
+                .payload
+                .get("severity")
+                .and_then(|value| value.as_str()),
+            Some("critical")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("high_impact")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+
+        let related_multisigs = Vec::new();
+        let related_governances = Vec::new();
+        let drift_critical = db
+            .list_events_filtered(
+                10,
+                0,
+                EventListFilters {
+                    protocol_slug: Some("drift"),
+                    related_multisigs: &related_multisigs,
+                    related_governances: &related_governances,
+                    target_address: None,
+                    scope: None,
+                    search: None,
+                    severity: Some("critical"),
+                    known_defi_only: false,
+                    tag: None,
+                    from_ts: None,
+                    before_ts: None,
+                },
+            )
+            .await?;
+        assert!(drift_critical.iter().any(|event| event.id == event_id));
 
         let _ = std::fs::remove_file(db_path);
         Ok(())

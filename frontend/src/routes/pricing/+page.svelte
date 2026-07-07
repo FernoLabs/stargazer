@@ -56,7 +56,17 @@
 					{/each}
 				</ul>
 
-				{#if usesTelegramSetup(plan)}
+				{#if plan.id === 'paid'}
+					<div class="plan-actions">
+						<a class="plan-action" href={resolve('/config')}>{plan.ctaLabel}</a>
+						<a class="plan-action secondary" href="https://t.me/fernowatch_bot" rel="noreferrer" target="_blank">
+							Telegram bot
+						</a>
+					</div>
+					<p class="setup-hint">
+						Payment opens after saving a live-alert setup. Monthly and yearly options are in Review and activate.
+					</p>
+				{:else if usesTelegramSetup(plan)}
 					<p class="setup-hint">
 						Add <a href="https://t.me/fernowatch_bot" rel="noreferrer" target="_blank">@fernowatch_bot</a>
 						then send <code>{setupCommand(plan)}</code>.
@@ -189,6 +199,15 @@
 		color: #17202a;
 	}
 
+	.plan-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		align-items: center;
+		padding-top: 0.68rem;
+		border-top: 1px solid rgba(23, 32, 42, 0.08);
+	}
+
 	.plan-action {
 		display: inline-flex;
 		align-items: center;
@@ -203,6 +222,12 @@
 		font-size: 0.84rem;
 		font-weight: 700;
 		text-decoration: none;
+	}
+
+	.plan-action.secondary {
+		border-color: rgba(23, 32, 42, 0.14);
+		background: #fff;
+		color: #5d4c3e;
 	}
 
 	@media (max-width: 980px) {

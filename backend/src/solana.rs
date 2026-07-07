@@ -23,12 +23,12 @@ use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     str::FromStr,
     sync::OnceLock,
     time::Duration,
 };
-use tokio::time::sleep;
+use tokio::time::{MissedTickBehavior, interval, sleep};
 use tracing::{debug, error, info, warn};
 use yellowstone_grpc_client::{ClientTlsConfig, GeyserGrpcClient};
 use yellowstone_grpc_proto::prelude::{
@@ -54,6 +54,7 @@ const KAMINO_LEND_SLUG: &str = "kamino_lend";
 const ORCA_WHIRLPOOLS_SLUG: &str = "orca_whirlpools";
 const BLOCK_TIME_REPAIR_CONCURRENCY: usize = 8;
 const DORMANT_PROGRAM_ACTIVITY_SECONDS: i64 = 30 * 24 * 60 * 60;
+const WALLET_FILTER_REFRESH_SECONDS: u64 = 60;
 const ORCA_OFFICIAL_WHIRLPOOLS_CONFIGS: &[(&str, &str)] = &[
     (
         "2LecshUwdy9xi7meFgHtFJQNSKk4KdTrcpvaB56dP2NQ",
@@ -85,6 +86,12 @@ pub(crate) struct ResolvedInstruction {
 pub(crate) struct ResolvedInnerInstructionSet {
     pub(crate) index: usize,
     pub(crate) instructions: Vec<ResolvedInstruction>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TransactionAccountFilter {
+    accounts: Vec<String>,
+    wallet_count: usize,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -233,6 +240,7 @@ pub(crate) struct IngestTransactionResult {
     pub(crate) program_idl_data_write_count: usize,
     pub(crate) program_version_update_count: usize,
     pub(crate) program_idl_version_update_count: usize,
+    pub(crate) auto_enrolled_protocol_subscription_count: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -392,122 +400,162 @@ async fn connect_and_stream(
 
     let mut client = builder.connect().await?;
     let (mut subscribe_tx, mut stream) = client.subscribe().await?;
+    let mut current_account_filter = transaction_account_filter(&state).await?;
 
     subscribe_tx
-        .send(subscription_request(&state, resume_from_slot)?)
+        .send(subscription_request(
+            current_account_filter.accounts.clone(),
+            resume_from_slot,
+        ))
         .await?;
-    info!(resume_from_slot, "connected to yellowstone gRPC");
+    info!(
+        resume_from_slot,
+        account_filter_count = current_account_filter.accounts.len(),
+        wallet_filter_count = current_account_filter.wallet_count,
+        "connected to yellowstone gRPC",
+    );
 
-    while let Some(message) = stream.next().await {
-        let update = message?;
+    let mut filter_refresh = interval(Duration::from_secs(WALLET_FILTER_REFRESH_SECONDS));
+    filter_refresh.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    filter_refresh.tick().await;
 
-        match update.update_oneof {
-            Some(UpdateOneof::Transaction(tx_update)) => {
-                let slot = tx_update.slot;
-                let block_time = slot_times.get(&slot).copied();
-                let tx_info = tx_update
-                    .transaction
-                    .ok_or_else(|| anyhow!("transaction update missing payload"))?;
-
-                let resolved = decode_transaction(tx_info)?;
-                state
-                    .db
-                    .increment_processed_transaction_count()
-                    .await
-                    .context("increment processed transaction count")?;
-                let ingest_result = ingest_resolved_transaction(
-                    state.clone(),
-                    &resolved,
-                    slot,
-                    block_time,
-                    IngestOptions {
-                        enqueue_deliveries: true,
-                        evaluate_metric_alerts: true,
-                    },
-                )
-                .await?;
-
-                if ingest_result.parsed_event_count > 0 {
+    loop {
+        tokio::select! {
+            _ = filter_refresh.tick() => {
+                let next_filter = transaction_account_filter(&state).await?;
+                if next_filter != current_account_filter {
+                    subscribe_tx
+                        .send(subscription_request(next_filter.accounts.clone(), None))
+                        .await?;
                     info!(
-                        slot,
-                        signature = %resolved.signature,
-                        event_count = ingest_result.parsed_event_count,
-                        primary_signer = resolved.primary_signer.map(|value| value.to_string()),
-                        "parsed matching events from transaction",
+                        account_filter_count = next_filter.accounts.len(),
+                        wallet_filter_count = next_filter.wallet_count,
+                        "refreshed yellowstone account filter",
                     );
+                    current_account_filter = next_filter;
                 }
-
-                if ingest_result.matched {
-                    state
-                        .db
-                        .increment_matched_transaction_count()
-                        .await
-                        .context("increment matched transaction count")?;
-                }
-
-                state
-                    .db
-                    .set_last_processed_slot(slot)
-                    .await
-                    .context("set last processed transaction slot")?;
             }
-            Some(UpdateOneof::BlockMeta(block_meta)) => {
-                if let Some(block_time) = block_meta.block_time.map(|value| value.timestamp) {
-                    slot_times.insert(block_meta.slot, block_time);
-                    trim_slot_times(slot_times);
-                    match state
-                        .db
-                        .update_block_time_for_slot(block_meta.slot, block_time)
-                        .await
-                    {
-                        Ok(report) if report.total() > 0 => {
+            message = stream.next() => {
+                let Some(message) = message else {
+                    break;
+                };
+                let update = message?;
+
+                match update.update_oneof {
+                    Some(UpdateOneof::Transaction(tx_update)) => {
+                        let slot = tx_update.slot;
+                        let block_time = slot_times.get(&slot).copied();
+                        let tx_info = tx_update
+                            .transaction
+                            .ok_or_else(|| anyhow!("transaction update missing payload"))?;
+
+                        let resolved = decode_transaction(tx_info)?;
+                        state
+                            .db
+                            .increment_processed_transaction_count()
+                            .await
+                            .context("increment processed transaction count")?;
+                        let ingest_result = ingest_resolved_transaction(
+                            state.clone(),
+                            &resolved,
+                            slot,
+                            block_time,
+                            IngestOptions {
+                                enqueue_deliveries: true,
+                                evaluate_metric_alerts: true,
+                            },
+                        )
+                        .await?;
+
+                        if ingest_result.parsed_event_count > 0 {
                             info!(
-                                slot = block_meta.slot,
-                                block_time,
-                                updated_rows = report.total(),
-                                "filled missing block time from yellowstone block meta",
+                                slot,
+                                signature = %resolved.signature,
+                                event_count = ingest_result.parsed_event_count,
+                                primary_signer = resolved.primary_signer.map(|value| value.to_string()),
+                                "parsed matching events from transaction",
                             );
                         }
-                        Ok(_) => {}
-                        Err(error) => {
-                            warn!(
-                                slot = block_meta.slot,
-                                block_time,
-                                error = ?error,
-                                "failed to fill missing block time from yellowstone block meta",
-                            );
-                        }
-                    }
-                }
 
-                state
-                    .db
-                    .set_last_processed_slot(block_meta.slot)
-                    .await
-                    .context("set last processed block meta slot")?;
+                        if ingest_result.auto_enrolled_protocol_subscription_count > 0 {
+                            info!(
+                                slot,
+                                signature = %resolved.signature,
+                                auto_enrolled_protocols = ingest_result.auto_enrolled_protocol_subscription_count,
+                                "auto-enrolled protocol watches from wallet transaction",
+                            );
+                        }
+
+                        if ingest_result.matched {
+                            state
+                                .db
+                                .increment_matched_transaction_count()
+                                .await
+                                .context("increment matched transaction count")?;
+                        }
+
+                        state
+                            .db
+                            .set_last_processed_slot(slot)
+                            .await
+                            .context("set last processed transaction slot")?;
+                    }
+                    Some(UpdateOneof::BlockMeta(block_meta)) => {
+                        if let Some(block_time) = block_meta.block_time.map(|value| value.timestamp) {
+                            slot_times.insert(block_meta.slot, block_time);
+                            trim_slot_times(slot_times);
+                            match state
+                                .db
+                                .update_block_time_for_slot(block_meta.slot, block_time)
+                                .await
+                            {
+                                Ok(report) if report.total() > 0 => {
+                                    info!(
+                                        slot = block_meta.slot,
+                                        block_time,
+                                        updated_rows = report.total(),
+                                        "filled missing block time from yellowstone block meta",
+                                    );
+                                }
+                                Ok(_) => {}
+                                Err(error) => {
+                                    warn!(
+                                        slot = block_meta.slot,
+                                        block_time,
+                                        error = ?error,
+                                        "failed to fill missing block time from yellowstone block meta",
+                                    );
+                                }
+                            }
+                        }
+
+                        state
+                            .db
+                            .set_last_processed_slot(block_meta.slot)
+                            .await
+                            .context("set last processed block meta slot")?;
+                    }
+                    Some(UpdateOneof::Ping(_)) => {
+                        subscribe_tx
+                            .send(SubscribeRequest {
+                                ping: Some(SubscribeRequestPing { id: 1 }),
+                                ..Default::default()
+                            })
+                            .await?;
+                    }
+                    Some(UpdateOneof::Pong(_)) => {}
+                    Some(_) => {}
+                    None => error!("yellowstone update without payload"),
+                }
             }
-            Some(UpdateOneof::Ping(_)) => {
-                subscribe_tx
-                    .send(SubscribeRequest {
-                        ping: Some(SubscribeRequestPing { id: 1 }),
-                        ..Default::default()
-                    })
-                    .await?;
-            }
-            Some(UpdateOneof::Pong(_)) => {}
-            Some(_) => {}
-            None => error!("yellowstone update without payload"),
         }
     }
 
     Ok(())
 }
 
-fn subscription_request(
-    state: &SharedState,
-    resume_from_slot: Option<u64>,
-) -> Result<SubscribeRequest> {
-    let mut watched_programs = vec![
+async fn transaction_account_filter(state: &SharedState) -> Result<TransactionAccountFilter> {
+    let mut watched_accounts = vec![
         bpf_loader::ID.to_string(),
         bpf_loader_deprecated::ID.to_string(),
         bpf_loader_upgradeable::ID.to_string(),
@@ -515,42 +563,64 @@ fn subscription_request(
         name_service::program_id().to_string(),
         squads_program_id().to_string(),
     ];
-    watched_programs.extend(
+    watched_accounts.extend(
         protocols::watched_program_ids()
             .into_iter()
             .map(|program_id| program_id.to_string()),
     );
-    watched_programs.extend(
+    watched_accounts.extend(
         protocols::watched_treasury_addresses()
             .into_iter()
             .map(str::to_owned),
     );
-    watched_programs.extend(
+    watched_accounts.extend(
         program_metadata::canonical_idl_metadata_addresses(&protocols::watched_program_ids())
             .into_iter()
             .map(|metadata_account| metadata_account.to_string()),
     );
-    watched_programs.extend(
+    watched_accounts.extend(
         anchor_idl::legacy_idl_addresses(&protocols::watched_program_ids())
             .into_iter()
             .map(|metadata_account| metadata_account.to_string()),
     );
     if let Some(recipient) = state.config.solana_pay_recipient.as_deref() {
         if Pubkey::from_str(recipient).is_ok() {
-            watched_programs.push(recipient.to_owned());
+            watched_accounts.push(recipient.to_owned());
         }
     }
-    watched_programs.sort();
-    watched_programs.dedup();
 
-    Ok(SubscribeRequest {
+    let wallet_addresses = state
+        .db
+        .active_wallet_subscription_addresses()
+        .await
+        .context("load active wallet subscription addresses")?;
+    let wallet_addresses = wallet_addresses
+        .into_iter()
+        .filter(|address| Pubkey::from_str(address).is_ok())
+        .collect::<Vec<_>>();
+    let wallet_count = wallet_addresses.len();
+    watched_accounts.extend(wallet_addresses);
+    watched_accounts.sort();
+    watched_accounts.dedup();
+
+    Ok(TransactionAccountFilter {
+        accounts: watched_accounts,
+        wallet_count,
+    })
+}
+
+fn subscription_request(
+    account_include: Vec<String>,
+    resume_from_slot: Option<u64>,
+) -> SubscribeRequest {
+    SubscribeRequest {
         transactions: HashMap::from([(
             FILTER_LABEL.to_owned(),
             SubscribeRequestFilterTransactions {
                 vote: Some(false),
                 failed: Some(false),
                 signature: None,
-                account_include: watched_programs,
+                account_include,
                 account_exclude: vec![],
                 account_required: vec![],
             },
@@ -562,7 +632,7 @@ fn subscription_request(
         commitment: Some(CommitmentLevel::Finalized as i32),
         from_slot: resume_from_slot,
         ..Default::default()
-    })
+    }
 }
 
 fn extract_last_available_slot(error: &anyhow::Error) -> Option<u64> {
@@ -701,6 +771,16 @@ pub(crate) async fn ingest_resolved_transaction(
         program_idl_data_write_count: parsed.program_idl_data_writes.len(),
         ..Default::default()
     };
+
+    if options.enqueue_deliveries {
+        result.auto_enrolled_protocol_subscription_count =
+            auto_enroll_wallet_protocols_from_transaction(state.clone(), tx, slot, block_time)
+                .await
+                .context("auto-enroll wallet protocol interactions")?;
+        if result.auto_enrolled_protocol_subscription_count > 0 {
+            result.matched = true;
+        }
+    }
 
     for write in parsed.program_data_writes {
         if state
@@ -889,6 +969,83 @@ pub(crate) async fn ingest_resolved_transaction(
     }
 
     Ok(result)
+}
+
+async fn auto_enroll_wallet_protocols_from_transaction(
+    state: SharedState,
+    tx: &ResolvedTransaction,
+    slot: u64,
+    block_time: Option<i64>,
+) -> Result<usize> {
+    let protocol_slugs = transaction_protocol_slugs(tx);
+    if protocol_slugs.is_empty() {
+        return Ok(0);
+    }
+
+    let account_addresses = tx
+        .account_keys
+        .iter()
+        .map(Pubkey::to_string)
+        .collect::<HashSet<_>>();
+    let wallet_subscriptions = state
+        .db
+        .active_wallet_subscriptions_for_addresses(&account_addresses)
+        .await
+        .context("load wallet subscriptions matching transaction accounts")?;
+    if wallet_subscriptions.is_empty() {
+        return Ok(0);
+    }
+
+    let discovery = delivery::WalletProtocolDiscovery {
+        signature: tx.signature.clone(),
+        slot: slot as i64,
+        block_time,
+    };
+    delivery::auto_enroll_paid_wallet_protocol_subscriptions(
+        state,
+        &protocol_slugs,
+        &wallet_subscriptions,
+        Some(&discovery),
+    )
+    .await
+}
+
+fn transaction_protocol_slugs(tx: &ResolvedTransaction) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut slugs = Vec::new();
+    let mut has_squads = false;
+
+    let mut collect = |program_id: Pubkey| {
+        let Some(protocol) = protocols::protocol_for_program(program_id) else {
+            return;
+        };
+        if protocol.slug == protocols::SQUADS_PROTOCOL_SLUG {
+            has_squads = true;
+            return;
+        }
+        if seen.insert(protocol.slug.clone()) {
+            slugs.push(protocol.slug);
+        }
+    };
+
+    for instruction in &tx.top_level_instructions {
+        if let Some(program_id) = program_id(tx, instruction) {
+            collect(program_id);
+        }
+    }
+    for inner_set in &tx.inner_instruction_sets {
+        for instruction in &inner_set.instructions {
+            if let Some(program_id) = program_id(tx, instruction) {
+                collect(program_id);
+            }
+        }
+    }
+
+    if slugs.is_empty() && has_squads {
+        slugs.push(protocols::SQUADS_PROTOCOL_SLUG.to_owned());
+    }
+
+    slugs
 }
 
 async fn parse_transaction_events(
@@ -2766,8 +2923,9 @@ fn idl_update_tags(
     ];
 
     if idl_update_high_impact(parsed.kind) {
-        tags.push("severity:high".to_owned());
+        tags.push("severity:critical".to_owned());
         tags.push("impact:high".to_owned());
+        tags.push("alert:review_now".to_owned());
     }
 
     if parent_context
@@ -2794,7 +2952,7 @@ fn idl_update_payload(
         "protocol_name": target.name,
         "instruction_name": parsed.kind.as_str(),
         "classification": "idl_update",
-        "severity": if idl_update_high_impact(parsed.kind) { "high" } else { "standard" },
+        "severity": if idl_update_high_impact(parsed.kind) { "critical" } else { "standard" },
         "high_impact": idl_update_high_impact(parsed.kind),
         "idl_origin": anchor_idl::PROGRAM_METADATA_IDL_ORIGIN,
         "idl_source_account": metadata_account.to_string(),
@@ -2859,14 +3017,22 @@ fn summary_for_idl_event(
         }
     };
 
-    if let Some(context) = parent_context.and_then(|context| context.squads_execution.as_ref()) {
-        return format!(
+    let mut summary = if let Some(context) =
+        parent_context.and_then(|context| context.squads_execution.as_ref())
+    {
+        format!(
             "{prefix} {surface} via Squads multisig {}",
             context.multisig
-        );
+        )
+    } else {
+        format!("{prefix} {surface}")
+    };
+
+    if idl_update_high_impact(parsed.kind) {
+        summary = format!("Critical {summary}");
     }
 
-    format!("{prefix} {surface}")
+    summary
 }
 
 fn idl_update_high_impact(kind: ProgramMetadataInstructionKind) -> bool {
@@ -2898,8 +3064,9 @@ fn anchor_legacy_idl_tags(
         parsed.kind,
         AnchorIdlInstructionKind::SetAuthority | AnchorIdlInstructionKind::Close
     ) {
-        tags.push("severity:high".to_owned());
+        tags.push("severity:critical".to_owned());
         tags.push("impact:high".to_owned());
+        tags.push("alert:review_now".to_owned());
     }
 
     if parent_context
@@ -2928,7 +3095,7 @@ fn anchor_legacy_idl_payload(
         "protocol_name": target.name,
         "instruction_name": parsed.kind.as_str(),
         "classification": "idl_update",
-        "severity": if matches!(parsed.kind, AnchorIdlInstructionKind::SetAuthority | AnchorIdlInstructionKind::Close) { "high" } else { "standard" },
+        "severity": if matches!(parsed.kind, AnchorIdlInstructionKind::SetAuthority | AnchorIdlInstructionKind::Close) { "critical" } else { "standard" },
         "high_impact": matches!(parsed.kind, AnchorIdlInstructionKind::SetAuthority | AnchorIdlInstructionKind::Close),
         "idl_origin": anchor_idl::LEGACY_ANCHOR_IDL_ORIGIN,
         "idl_source_account": source_account.to_string(),
@@ -2990,14 +3157,25 @@ fn summary_for_anchor_legacy_idl_event(
         }
     };
 
-    if let Some(context) = parent_context.and_then(|context| context.squads_execution.as_ref()) {
-        return format!(
+    let mut summary = if let Some(context) =
+        parent_context.and_then(|context| context.squads_execution.as_ref())
+    {
+        format!(
             "{prefix} {surface} via Squads multisig {}",
             context.multisig
-        );
+        )
+    } else {
+        format!("{prefix} {surface}")
+    };
+
+    if matches!(
+        parsed.kind,
+        AnchorIdlInstructionKind::SetAuthority | AnchorIdlInstructionKind::Close
+    ) {
+        summary = format!("Critical {summary}");
     }
 
-    format!("{prefix} {surface}")
+    summary
 }
 
 fn parent_context_for_instruction(
@@ -3298,7 +3476,7 @@ fn protocol_signal_tags(
     match signal.signal_kind {
         Some(ProtocolSignalKind::Admin) => {
             tags.push("signal:admin_instruction".to_owned());
-            if protocol_signal_is_critical(signal) {
+            if protocol_signal_is_critical(signal, high_impact) {
                 tags.push("severity:critical".to_owned());
                 tags.push("alert:review_now".to_owned());
             } else if high_impact {
@@ -3429,7 +3607,9 @@ fn summary_for_protocol_signal(
         },
     };
 
-    if high_impact {
+    if protocol_signal_is_critical(signal, high_impact) {
+        summary = format!("Critical {summary}");
+    } else if high_impact {
         summary = format!("High-impact {summary}");
     }
 
@@ -3469,7 +3649,7 @@ fn summary_for_spl_governance_signal(
 
     let mut summary = format!("{} {action}", signal.protocol.name);
 
-    if protocol_signal_is_critical(signal) {
+    if protocol_signal_is_critical(signal, high_impact) {
         summary = format!("Critical {summary}");
     } else if high_impact {
         summary = format!("High-impact {summary}");
@@ -3489,9 +3669,12 @@ fn is_spl_governance_signal(signal: &ProtocolInstructionSignal) -> bool {
     )
 }
 
-fn protocol_signal_is_critical(signal: &ProtocolInstructionSignal) -> bool {
-    is_spl_governance_signal(signal)
-        && signal.instruction_name.as_deref() == Some("execute_transaction")
+fn protocol_signal_is_critical(signal: &ProtocolInstructionSignal, high_impact: bool) -> bool {
+    if is_spl_governance_signal(signal) {
+        return signal.instruction_name.as_deref() == Some("execute_transaction");
+    }
+
+    matches!(signal.signal_kind, Some(ProtocolSignalKind::Admin)) && high_impact
 }
 
 fn should_emit_protocol_signal(
@@ -3528,7 +3711,7 @@ fn call_origin_label(
 }
 
 fn protocol_signal_severity(signal: &ProtocolInstructionSignal, high_impact: bool) -> &'static str {
-    if protocol_signal_is_critical(signal) {
+    if protocol_signal_is_critical(signal, high_impact) {
         return "critical";
     }
 
@@ -4245,7 +4428,68 @@ async fn annotate_multisig_project_links(
         payload.insert("linked_protocols".to_owned(), json!(payload_links));
     }
 
+    promote_project_linked_multisig_event_to_critical(event);
+
     Ok(())
+}
+
+fn promote_project_linked_multisig_event_to_critical(event: &mut ChainEvent) {
+    if !project_linked_multisig_event_is_critical(event) {
+        return;
+    }
+
+    add_tags(
+        event,
+        &["severity:critical", "impact:high", "alert:review_now"],
+    );
+
+    if let Some(payload) = event.payload.as_object_mut() {
+        payload.insert("severity".to_owned(), json!("critical"));
+        payload.insert("high_impact".to_owned(), json!(true));
+    }
+}
+
+fn project_linked_multisig_event_is_critical(event: &ChainEvent) -> bool {
+    if event.target_type != target_type::MULTISIG || !event.has_tag("multisig:project_linked") {
+        return false;
+    }
+
+    if event.kind == event_kind::MULTISIG_CONFIG_EXECUTED
+        && event.has_tag("signal:multisig_config_change")
+    {
+        return true;
+    }
+
+    if event.kind != event_kind::MULTISIG_VAULT_EXECUTED {
+        return false;
+    }
+
+    if event
+        .payload
+        .get("decoded_kind")
+        .and_then(|value| value.as_str())
+        .is_some_and(|value| {
+            matches!(
+                value,
+                event_kind::PROGRAM_DEPLOYED
+                    | event_kind::PROGRAM_UPGRADED
+                    | event_kind::PROGRAM_FINALIZED
+                    | event_kind::PROGRAM_MIGRATED_TO_LOADER_V4
+                    | event_kind::PROGRAM_UNKNOWN_INSTRUCTION
+                    | event_kind::PROGRAM_IDL_AUTHORITY_CHANGED
+                    | event_kind::PROGRAM_IDL_IMMUTABLE
+                    | event_kind::PROGRAM_IDL_CLOSED
+            )
+        })
+    {
+        return true;
+    }
+
+    event
+        .payload
+        .get("decoded_summary")
+        .and_then(|value| value.as_str())
+        .is_some_and(|value| value.starts_with("Critical ") || value.starts_with("High-impact "))
 }
 
 async fn annotate_governance_project_links(
@@ -4768,6 +5012,39 @@ mod tests {
             },
             instruction,
         )
+    }
+
+    #[test]
+    fn transaction_protocol_slugs_detects_wallet_protocol_interaction() {
+        let wallet = Pubkey::new_unique();
+        let squads_program = squads_program_id();
+        let meteora_program = meteora_dlmm_program_id();
+        let tx = ResolvedTransaction {
+            signature: "wallet-protocol-test-signature".to_owned(),
+            primary_signer: Some(wallet),
+            account_keys: vec![wallet, squads_program, meteora_program],
+            top_level_instructions: vec![ResolvedInstruction {
+                program_id_index: 1,
+                accounts: vec![0],
+                data: vec![],
+                stack_height: Some(1),
+            }],
+            inner_instruction_sets: vec![ResolvedInnerInstructionSet {
+                index: 0,
+                instructions: vec![ResolvedInstruction {
+                    program_id_index: 2,
+                    accounts: vec![0],
+                    data: vec![],
+                    stack_height: Some(2),
+                }],
+            }],
+            log_messages: vec![],
+        };
+
+        assert_eq!(
+            transaction_protocol_slugs(&tx),
+            vec!["meteora_dlmm".to_owned()]
+        );
     }
 
     #[test]
@@ -5363,15 +5640,16 @@ mod tests {
     }
 
     #[test]
-    fn keeps_orca_config_extension_authority_high_for_official_config() {
+    fn keeps_orca_config_extension_authority_critical_for_official_config() {
         let event = sample_orca_config_extension_authority_event(
             Pubkey::from_str("2LecshUwdy9xi7meFgHtFJQNSKk4KdTrcpvaB56dP2NQ").unwrap(),
             Pubkey::from_str("777H5H3Tp9U11uRVRzFwM8BinfiakbaLT8vQpeuhvEiH").unwrap(),
         );
 
-        assert!(event.summary.starts_with("High-impact "));
-        assert!(event.tags.iter().any(|tag| tag == "severity:high"));
+        assert!(event.summary.starts_with("Critical "));
+        assert!(event.tags.iter().any(|tag| tag == "severity:critical"));
         assert!(event.tags.iter().any(|tag| tag == "impact:high"));
+        assert!(event.tags.iter().any(|tag| tag == "alert:review_now"));
         assert!(TelegramEventScope::DefiWatch.matches_event(&event));
         assert_eq!(
             event
@@ -5454,9 +5732,10 @@ mod tests {
     fn escalates_kamino_liquidation_threshold_update() {
         let event = sample_kamino_reserve_config_event(3, false);
 
-        assert!(event.summary.starts_with("High-impact "));
-        assert!(event.tags.iter().any(|tag| tag == "severity:high"));
+        assert!(event.summary.starts_with("Critical "));
+        assert!(event.tags.iter().any(|tag| tag == "severity:critical"));
         assert!(event.tags.iter().any(|tag| tag == "impact:high"));
+        assert!(event.tags.iter().any(|tag| tag == "alert:review_now"));
         assert!(TelegramEventScope::DefiWatch.matches_event(&event));
         assert_eq!(
             event
@@ -5471,8 +5750,9 @@ mod tests {
     fn escalates_kamino_fee_updates_without_direction_history() {
         let event = sample_kamino_reserve_config_event(5, false);
 
-        assert!(event.tags.iter().any(|tag| tag == "severity:high"));
+        assert!(event.tags.iter().any(|tag| tag == "severity:critical"));
         assert!(event.tags.iter().any(|tag| tag == "impact:high"));
+        assert!(event.tags.iter().any(|tag| tag == "alert:review_now"));
         assert_eq!(
             event
                 .payload
@@ -5486,8 +5766,9 @@ mod tests {
     fn escalates_kamino_reserve_config_skip_validation() {
         let event = sample_kamino_reserve_config_event(10, true);
 
-        assert!(event.tags.iter().any(|tag| tag == "severity:high"));
+        assert!(event.tags.iter().any(|tag| tag == "severity:critical"));
         assert!(event.tags.iter().any(|tag| tag == "impact:high"));
+        assert!(event.tags.iter().any(|tag| tag == "alert:review_now"));
         assert_eq!(
             event
                 .payload

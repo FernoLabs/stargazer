@@ -15,7 +15,12 @@
 		shortAddress
 	} from '$lib/format';
 	import type { PageData } from './$types';
-	import type { MetricAlertPreset, TelegramDeliveryMode, TelegramSubscription } from '$lib/types';
+	import type {
+		MetricAlertPreset,
+		TelegramDeliveryMode,
+		TelegramSubscription,
+		WalletHistoryScanResponse
+	} from '$lib/types';
 
 	let {
 		data,
@@ -47,7 +52,8 @@
 	type SelectableProtocol = PageData['defiProtocols'][number];
 
 	const CURATED_PROTOCOL_LIMIT = 100;
-	const HISTORY_SCAN_RECOMMENDATION_LIMIT = 5;
+	const WALLET_HISTORY_SCAN_LIMIT = 100;
+	const USER_PROTOCOL_PREVIEW_LIMIT = 8;
 	const SELECTED_PROTOCOL_PREVIEW_LIMIT = 12;
 	const PROTOCOL_SOURCE_FILTER_ORDER: ProtocolSource[] = [
 		'history',
@@ -64,6 +70,8 @@
 	const initialBroadDefiWatch = hasBroadDefiSubscription();
 	const initialCuratedProtocolSlugs = initialBroadDefiWatch ? curatedProtocolSlugsFromCatalog() : [];
 	let protocolPickerOpen = $state(false);
+	let clearConfigConfirmOpen = $state(false);
+	let clearAllConfirmed = $state(false);
 	let protocolSearch = $state('');
 	let selectedCustomProtocolSlugs = $state<string[]>(
 		initialSelectedProtocolSlugs.length > 0 ? initialSelectedProtocolSlugs : initialCuratedProtocolSlugs
@@ -82,14 +90,21 @@
 		initialBroadDefiWatch ? 'Curated preset loaded from the existing /watch defi rule.' : null
 	);
 	let metricPresetKeysByTrigger = $state<Record<string, string>>({});
-	let autoLiveDiscoveryEnabled = $state(false);
 	let autoDiscoveryMessage = $state<string | null>(null);
+	let walletScanState = $state<'idle' | 'scanning' | 'error'>('idle');
+	let walletScanError = $state<string | null>(null);
 	let dailyDeliveryEnabled = $state(true);
 	let liveDeliveryEnabled = $state(true);
 
 	const selectableProtocolList = $derived(selectableProtocols());
+	const currentSubscriptionCount = $derived(data.subscriptions?.length ?? 0);
 	const protocolsBySlug = $derived.by(
 		() => new Map(selectableProtocolList.map((protocol) => [protocol.slug, protocol]))
+	);
+	const loadedWalletAddressList = $derived.by(initialWalletAddressesFromSubscriptions);
+	const loadedSolDomainList = $derived.by(initialSolDomainsFromSubscriptions);
+	const loadedWalletConfigKey = $derived(
+		`${loadedWalletAddressList.join('|')}::${loadedSolDomainList.join('|')}`
 	);
 	const indexedProtocols = $derived.by(() => sortedProtocolsByIndex(selectableProtocolList));
 	const curatedProtocols = $derived.by(() => indexedProtocols.slice(0, CURATED_PROTOCOL_LIMIT));
@@ -104,6 +119,20 @@
 			const source = protocolSource(protocol.slug);
 			return source === 'history' || source === 'live';
 		})
+	);
+	const userProtocolPreview = $derived.by(() =>
+		[...selectedProtocols]
+			.sort((left, right) => {
+				const sourceDelta =
+					protocolSourceRank(protocolSource(left.slug)) -
+					protocolSourceRank(protocolSource(right.slug));
+				if (sourceDelta !== 0) return sourceDelta;
+				return left.name.localeCompare(right.name);
+			})
+			.slice(0, USER_PROTOCOL_PREVIEW_LIMIT)
+	);
+	const hiddenUserProtocolCount = $derived(
+		Math.max(0, selectedProtocols.length - userProtocolPreview.length)
 	);
 	const selectedProtocolSourceFilters = $derived.by(() => {
 		const sources = new Set(selectedProtocols.map((protocol) => protocolSource(protocol.slug)));
@@ -302,67 +331,161 @@
 		protocolRuleMessage = `${nextSlugs.length} curated protocol rules selected. You can remove or configure them before saving.`;
 	}
 
+	function addAllProtocols() {
+		const allSlugs = indexedProtocols.map((protocol) => protocol.slug);
+		const selected = new Set(selectedCustomProtocolSlugs);
+		const newSlugs = allSlugs.filter((slug) => !selected.has(slug));
+
+		selectedCustomProtocolSlugs = allSlugs;
+		customProtocolLevels = {
+			...Object.fromEntries(newSlugs.map((slug) => [slug, defaultProtocolLevel])),
+			...customProtocolLevels
+		};
+		protocolSourcesBySlug = {
+			...Object.fromEntries(newSlugs.map((slug) => [slug, 'manual' as ProtocolSource])),
+			...protocolSourcesBySlug
+		};
+		activeProtocolSlug = null;
+		selectedProtocolSearch = '';
+		selectedProtocolSourceFilter = 'all';
+		selectedProtocolListExpanded = false;
+		clearAllConfirmed = false;
+		protocolRuleMessage =
+			newSlugs.length === 0
+				? `${allSlugs.length} protocols are already selected.`
+				: `${newSlugs.length} protocol ${newSlugs.length === 1 ? 'rule' : 'rules'} added. ${allSlugs.length} total selected.`;
+	}
+
+	function openClearConfigConfirm() {
+		clearConfigConfirmOpen = true;
+	}
+
+	function closeClearConfigConfirm() {
+		clearConfigConfirmOpen = false;
+	}
+
+	function clearAllConfig() {
+		selectedCustomProtocolSlugs = [];
+		customProtocolLevels = {};
+		protocolSourcesBySlug = {};
+		protocolProgramIdsBySlug = {};
+		activeProtocolSlug = null;
+		selectedProtocolSearch = '';
+		selectedProtocolSourceFilter = 'all';
+		selectedProtocolListExpanded = false;
+		protocolSearch = '';
+		protocolPickerOpen = false;
+		clearConfigConfirmOpen = false;
+		clearAllConfirmed = true;
+		setWalletAddressList([]);
+		setSolDomainList([]);
+		watchTargetInput = '';
+		walletNamesByAddress = {};
+		walletBundleIdsByAddress = {};
+		walletBundleNames = {
+			[DEFAULT_WALLET_BUNDLE_ID]: DEFAULT_WALLET_BUNDLE_NAME
+		};
+		walletImportError = null;
+		walletImportMessage = null;
+		walletScanState = 'idle';
+		walletScanError = null;
+		autoDiscoveryMessage = null;
+		protocolRuleMessage =
+			currentSubscriptionCount > 0
+				? 'All draft config cleared. Save cleared config to remove current watch rules.'
+				: 'Draft config cleared.';
+	}
+
 	function openProtocolPicker() {
 		protocolPickerOpen = true;
 	}
 
-	function scanWalletHistory() {
+	async function scanWalletHistory() {
 		if (watchTargetCount === 0) {
 			autoDiscoveryMessage = 'Add a wallet or .sol name first.';
+			walletScanError = null;
 			return;
 		}
 
-		const discoveries = historyScanRecommendations();
-		if (discoveries.length === 0) {
-			autoDiscoveryMessage = 'No new protocol recommendations from the current wallet targets.';
+		if (walletPreview.invalid.length > 0 || solDomainPreview.invalid.length > 0) {
+			walletScanState = 'error';
+			walletScanError = 'Fix invalid wallet or .sol entries before scanning.';
+			autoDiscoveryMessage = null;
 			return;
 		}
 
-		const discoveredSlugs = discoveries.map((protocol) => protocol.slug);
-		selectedCustomProtocolSlugs = [
-			...discoveredSlugs,
-			...selectedCustomProtocolSlugs.filter((slug) => !discoveredSlugs.includes(slug))
-		];
-		customProtocolLevels = {
-			...Object.fromEntries(discoveredSlugs.map((slug) => [slug, 'normal' as ProtocolLevel])),
-			...customProtocolLevels
-		};
-		protocolSourcesBySlug = {
-			...protocolSourcesBySlug,
-			...Object.fromEntries(discoveredSlugs.map((slug) => [slug, 'history' as ProtocolSource]))
-		};
-		activeProtocolSlug = discoveredSlugs[0] ?? activeProtocolSlug;
-		selectedProtocolSearch = '';
-		selectedProtocolSourceFilter = 'all';
-		selectedProtocolListExpanded = false;
-		protocolRuleMessage = null;
-		autoDiscoveryMessage = `${discoveries.length} discovered protocol ${discoveries.length === 1 ? 'rule' : 'rules'} added. Review or remove before saving.`;
-	}
+		walletScanState = 'scanning';
+		walletScanError = null;
+		autoDiscoveryMessage = 'Scanning recent wallet activity...';
 
-	function historyScanRecommendations() {
-		const unselected = indexedProtocols.filter(
-			(protocol) => !selectedCustomProtocolSlugs.includes(protocol.slug)
-		);
-		const selectedNotDiscovered = indexedProtocols.filter(
-			(protocol) =>
-				selectedCustomProtocolSlugs.includes(protocol.slug) &&
-				!['history', 'live'].includes(protocolSource(protocol.slug))
-		);
+		try {
+			const response = await fetch(`${window.location.pathname.replace(/\/$/, '')}/scan-wallets`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					wallet_addresses: walletPreview.addresses,
+					sol_domains: solDomainPreview.domains,
+					limit: WALLET_HISTORY_SCAN_LIMIT
+				})
+			});
+			const payload = (await response.json()) as WalletHistoryScanResponse & { error?: string };
+			if (!response.ok) {
+				throw new Error(payload.error ?? 'Wallet scan failed.');
+			}
 
-		return (unselected.length > 0 ? unselected : selectedNotDiscovered).slice(
-			0,
-			HISTORY_SCAN_RECOMMENDATION_LIMIT
-		);
-	}
+			const discoveredProtocols = payload.protocols
+				.map((hit) => protocolsBySlug.get(canonicalProtocolSlug(hit.slug)))
+				.filter((protocol): protocol is SelectableProtocol => Boolean(protocol));
+			const discoveredSlugs = discoveredProtocols.map((protocol) => protocol.slug);
+			const newSlugs = discoveredSlugs.filter((slug) => !selectedCustomProtocolSlugs.includes(slug));
+			if (discoveredSlugs.length === 0) {
+				autoDiscoveryMessage =
+					payload.scanned_wallet_count === 0
+						? 'No protocol recommendations from the current .sol targets.'
+						: `No protocol recommendations from ${payload.transaction_count} scanned transactions.`;
+				walletScanState = 'idle';
+				return;
+			}
 
-	function onAutoDiscoveryChange() {
-		if (watchTargetCount === 0) {
-			autoDiscoveryMessage = 'Add a wallet or .sol name first.';
-			return;
+			if (newSlugs.length === 0) {
+				protocolSourcesBySlug = {
+					...protocolSourcesBySlug,
+					...Object.fromEntries(
+						discoveredSlugs.map((slug) => [
+							slug,
+							protocolSource(slug) === 'current' ? 'current' : ('history' as ProtocolSource)
+						])
+					)
+				};
+				autoDiscoveryMessage = `${discoveredSlugs.length} matched protocol ${discoveredSlugs.length === 1 ? 'is' : 'are'} already in the watchlist.`;
+				walletScanState = 'idle';
+				return;
+			}
+
+			selectedCustomProtocolSlugs = [
+				...newSlugs,
+				...selectedCustomProtocolSlugs.filter((slug) => !newSlugs.includes(slug))
+			];
+			customProtocolLevels = {
+				...Object.fromEntries(newSlugs.map((slug) => [slug, 'normal' as ProtocolLevel])),
+				...customProtocolLevels
+			};
+			protocolSourcesBySlug = {
+				...protocolSourcesBySlug,
+				...Object.fromEntries(discoveredSlugs.map((slug) => [slug, 'history' as ProtocolSource]))
+			};
+			activeProtocolSlug = newSlugs[0] ?? activeProtocolSlug;
+			selectedProtocolSearch = '';
+			selectedProtocolSourceFilter = 'all';
+			selectedProtocolListExpanded = false;
+			protocolRuleMessage = null;
+			autoDiscoveryMessage = `${newSlugs.length} discovered protocol ${newSlugs.length === 1 ? 'rule' : 'rules'} added from ${payload.transaction_count} scanned transactions.`;
+			walletScanState = 'idle';
+		} catch (error) {
+			walletScanState = 'error';
+			walletScanError = error instanceof Error ? error.message : 'Wallet scan failed.';
+			autoDiscoveryMessage = null;
 		}
-		autoDiscoveryMessage = autoLiveDiscoveryEnabled
-			? 'Live discovery will add protocol recommendations as wallet activity is detected.'
-			: null;
 	}
 
 	function toggleCustomProtocol(slug: string) {
@@ -412,6 +535,14 @@
 		if (source === 'history') return 'Discovered';
 		if (source === 'live') return 'Auto-added';
 		return 'Manual';
+	}
+
+	function protocolSourceRank(source: ProtocolSource) {
+		if (source === 'live') return 0;
+		if (source === 'history') return 1;
+		if (source === 'current') return 2;
+		if (source === 'manual') return 3;
+		return 4;
 	}
 
 	function protocolSourceLabel(slug: string) {
@@ -668,6 +799,7 @@
 	function onPageKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape') {
 			closeProtocolPicker();
+			closeClearConfigConfirm();
 		}
 	}
 
@@ -691,6 +823,7 @@
 	}
 
 	function saveButtonLabel() {
+		if (canSaveClearedConfig) return 'Save cleared config';
 		if (!hasDeliveryModeSelected) return 'Choose delivery';
 		if (data.billing?.active) return 'Save configuration';
 		if (needsLiveCheckout) return 'Save and open checkout';
@@ -699,6 +832,7 @@
 	}
 
 	function saveOutcomeLabel() {
+		if (canSaveClearedConfig) return 'Save to remove all current watch rules';
 		if (!hasDeliveryModeSelected) return 'Choose how this chat should receive alerts';
 		if (data.billing?.active) return 'Changes apply to the active watch';
 		if (needsLiveCheckout) return 'Save the setup, then activate live alerts in checkout';
@@ -722,6 +856,7 @@
 	}
 
 	function activationStatusLabel() {
+		if (canSaveClearedConfig) return 'Ready to clear';
 		if (!hasDeliveryModeSelected) return 'Delivery missing';
 		if (data.billing?.active) return 'Ready to save';
 		if (needsLiveCheckout) return 'Checkout required';
@@ -729,6 +864,7 @@
 	}
 
 	function activationStatusHint() {
+		if (canSaveClearedConfig) return 'This will remove the saved watch rules for this chat.';
 		if (!hasDeliveryModeSelected) return 'Select daily summaries, live alerts, or both.';
 		if (data.billing?.active) return 'Live alerts are already active for this Telegram user.';
 		if (needsLiveCheckout) return 'Daily summaries save now. Live alerts activate after payment.';
@@ -751,6 +887,9 @@
 
 	let walletAddressesValue = $state(initialWalletAddressList.join('\n'));
 	let solDomainsValue = $state(initialSolDomainList.join('\n'));
+	let lastSyncedLoadedWalletConfigKey = $state(
+		`${initialWalletAddressList.join('|')}::${initialSolDomainList.join('|')}`
+	);
 	let watchTargetInput = $state('');
 	let walletImportInput = $state<HTMLInputElement | null>(null);
 	let walletImportMessage = $state<string | null>(null);
@@ -827,6 +966,43 @@
 		solDomainsValue = domains.join('\n');
 	}
 
+	function mergeLoadedWalletAddresses() {
+		const { addresses, invalid } = parseWalletAddressLines(walletAddressesValue);
+		if (invalid.length > 0) return;
+		const merged = [...addresses];
+		for (const address of loadedWalletAddressList) {
+			if (!merged.includes(address)) {
+				merged.push(address);
+			}
+		}
+		if (merged.length !== addresses.length) {
+			setWalletAddressList(merged);
+		}
+	}
+
+	function mergeLoadedSolDomains() {
+		const { domains, invalid } = parseSolDomainLines(solDomainsValue);
+		if (invalid.length > 0) return;
+		const merged = [...domains];
+		for (const domain of loadedSolDomainList) {
+			if (!merged.includes(domain)) {
+				merged.push(domain);
+			}
+		}
+		if (merged.length !== domains.length) {
+			setSolDomainList(merged);
+		}
+	}
+
+	$effect(() => {
+		const key = loadedWalletConfigKey;
+		if (key === lastSyncedLoadedWalletConfigKey) return;
+		lastSyncedLoadedWalletConfigKey = key;
+		if (clearAllConfirmed) return;
+		mergeLoadedWalletAddresses();
+		mergeLoadedSolDomains();
+	});
+
 	function addWalletAddress(
 		rawAddress: string,
 		options?: { name?: string | null; bundleIds?: string[] | null }
@@ -845,6 +1021,7 @@
 			addresses.push(normalized);
 			setWalletAddressList(addresses);
 		}
+		clearAllConfirmed = false;
 
 		const nextName = options?.name?.trim();
 		if (nextName) {
@@ -879,6 +1056,7 @@
 			domains.push(normalized);
 			setSolDomainList(domains);
 		}
+		clearAllConfirmed = false;
 	}
 
 	function addWatchTarget(rawValue: string) {
@@ -969,7 +1147,12 @@
 	const selectedConfigCount = $derived(selectedProtocols.length + watchTargetCount);
 	const hasDeliveryModeSelected = $derived(dailyDeliveryEnabled || liveDeliveryEnabled);
 	const needsLiveCheckout = $derived(!data.billing?.active && liveDeliveryEnabled);
-	const canSaveConfig = $derived(selectedConfigCount > 0 && hasDeliveryModeSelected);
+	const canSaveClearedConfig = $derived(
+		clearAllConfirmed && selectedConfigCount === 0 && currentSubscriptionCount > 0
+	);
+	const canSaveConfig = $derived(
+		(selectedConfigCount > 0 && hasDeliveryModeSelected) || canSaveClearedConfig
+	);
 
 	function parseAddressbookJson(raw: string) {
 		const payload = JSON.parse(raw) as unknown;
@@ -1171,6 +1354,9 @@
 		</section>
 
 		<form id="config-form" class="config-form" method="POST" action="?/save_config">
+			{#if clearAllConfirmed}
+				<input type="hidden" name="clear_config" value="true" />
+			{/if}
 			{#each data.subscriptions ?? [] as subscription (subscription.id)}
 				<input type="hidden" name="unsubscribe_ids" value={subscription.id} />
 			{/each}
@@ -1178,20 +1364,11 @@
 				<div class="config-main">
 					<section class="panel field-panel">
 						<div class="section-head">
-							<h2>Wallets and .sol names</h2>
-							<p>Add wallet-specific targets by pasting a public key, typing a .sol name, or connecting a wallet.</p>
+							<h2>Connect or add wallets</h2>
+							<p>Wallet watches drive live protocol discovery. Add a public key, connect your wallet, or include a .sol name.</p>
 						</div>
 						<input type="hidden" name="wallet_addresses" value={walletAddressesValue} />
 						<input type="hidden" name="sol_domains" value={solDomainsValue} />
-						<div class="target-add-row primary-target-row">
-							<input
-								bind:value={watchTargetInput}
-								onkeydown={onWatchTargetKeydown}
-								placeholder="Wallet public key or ferno.sol"
-								type="text"
-							/>
-							<button type="button" onclick={addWatchTargetFromInput}>Add target</button>
-						</div>
 						<div class="wallet-connect-card">
 							<div>
 								<strong>Connect wallet</strong>
@@ -1214,6 +1391,15 @@
 									Add connected wallet
 								</button>
 							</div>
+						</div>
+						<div class="target-add-row primary-target-row">
+							<input
+								bind:value={watchTargetInput}
+								onkeydown={onWatchTargetKeydown}
+								placeholder="Wallet public key or ferno.sol"
+								type="text"
+							/>
+							<button type="button" onclick={addWatchTargetFromInput}>Add target</button>
 						</div>
 
 						{#if walletImportError}
@@ -1269,12 +1455,25 @@
 					<section class="panel protocol-panel">
 						<div class="section-head protocol-head">
 							<div>
-								<h2>Protocol rules</h2>
-								<p>Use wallet activity to discover protocol recommendations, or build a protocol watchlist yourself.</p>
+								<h2>Protocols for this user</h2>
+								<p>Protocol rules are learned from wallet activity first. Manual additions stay available for known coverage.</p>
 							</div>
-							<button class="secondary-button" type="button" onclick={openProtocolPicker}>
-								Add protocol
-							</button>
+							<div class="protocol-head-actions">
+								<button
+									class="secondary-button"
+									type="button"
+									disabled={selectedProtocols.length === selectableProtocolList.length}
+									onclick={addAllProtocols}
+								>
+									Add all
+								</button>
+								<button class="secondary-button" type="button" onclick={openProtocolPicker}>
+									Add protocol
+								</button>
+								<button class="secondary-button danger-button" type="button" onclick={openClearConfigConfirm}>
+									Clear all
+								</button>
+							</div>
 						</div>
 						<div class="discovery-panel">
 							<div class="discovery-head">
@@ -1285,64 +1484,110 @@
 								<small>
 									Use wallet activity to recommend protocol rules. Auto-discovered rules appear in the same list as manual rules.
 								</small>
-								</div>
-								<div class="discovery-options">
-									<div class="discovery-action" class:disabled={watchTargetCount === 0}>
-										<span>
-											<strong>Scan wallet history</strong>
-											<small>Find protocols touched by recent wallet activity.</small>
-										</span>
-										<button
-											class="secondary-button"
-											type="button"
-											disabled={watchTargetCount === 0}
-											onclick={scanWalletHistory}
-										>
-											Scan now
-										</button>
-									</div>
-									<label class="choice-pill" class:disabled={watchTargetCount === 0}>
-										<input
-											bind:checked={autoLiveDiscoveryEnabled}
-										type="checkbox"
-										name="auto_live_discovery"
-										value="1"
-										disabled={watchTargetCount === 0}
-										onchange={onAutoDiscoveryChange}
-									/>
-									<span>Keep discovering live</span>
-									<small>Add recommendations as new wallet activity lands.</small>
-								</label>
 							</div>
-								<div class="auto-rules-summary">
-									<strong>Discovered rules</strong>
+							<div class="discovery-options">
+								<div class="discovery-action" class:disabled={watchTargetCount === 0}>
 									<span>
+										<strong>Scan wallet history</strong>
+										<small>Find protocols touched by recent wallet activity.</small>
+									</span>
+									<button
+										class="secondary-button"
+										type="button"
+										disabled={watchTargetCount === 0 || walletScanState === 'scanning'}
+										onclick={scanWalletHistory}
+									>
+										{walletScanState === 'scanning' ? 'Scanning...' : 'Scan now'}
+									</button>
+								</div>
+								<div class="discovery-action passive" class:disabled={watchTargetCount === 0}>
+									<span>
+										<strong>Live wallet follow</strong>
+										<small>Saved wallet watches auto-add new protocol rules from indexed activity.</small>
+									</span>
+								</div>
+							</div>
+							<div class="auto-rules-summary">
+								<strong>Discovered rules</strong>
+								<span>
+									{#if autoDiscoveredProtocols.length > 0}
+										{autoDiscoveredProtocols.length} in watchlist
+										{#if autoDiscoveredProtocols.length <= 3}
+											· {autoDiscoveredProtocols.map((protocol) => protocol.name).join(', ')}
+										{/if}
+									{:else}
+										Scan a wallet or wait for live wallet follow to add recommendations.
+									{/if}
+								</span>
+							</div>
+						</div>
+						<div class="user-protocols-panel">
+							<div class="user-protocols-head">
+								<div>
+									<strong>User protocol list</strong>
+									<span>
+										{selectedProtocols.length}
+										{selectedProtocols.length === 1 ? 'protocol' : 'protocols'}
 										{#if autoDiscoveredProtocols.length > 0}
-											{autoDiscoveredProtocols.length} in watchlist
-											{#if autoDiscoveredProtocols.length <= 3}
-												· {autoDiscoveredProtocols.map((protocol) => protocol.name).join(', ')}
-											{/if}
-										{:else}
-											Scan a wallet or keep live discovery on to add recommendations.
+											· {autoDiscoveredProtocols.length} learned
 										{/if}
 									</span>
 								</div>
+								<button class="secondary-button" type="button" onclick={openProtocolPicker}>
+									Add manually
+								</button>
+							</div>
+							{#if userProtocolPreview.length > 0}
+								<div class="user-protocol-chip-list">
+									{#each userProtocolPreview as protocol (protocol.slug)}
+										<button
+											class="user-protocol-chip"
+											type="button"
+											onclick={() => openProtocolDetails(protocol.slug)}
+										>
+											<ProtocolIdentity slug={protocol.slug} label={protocol.name} />
+											<small>{protocolSourceLabel(protocol.slug)}</small>
+										</button>
+									{/each}
+									{#if hiddenUserProtocolCount > 0}
+										<span class="user-protocol-more">+{hiddenUserProtocolCount} more</span>
+									{/if}
+								</div>
+							{:else}
+								<p>
+									Add a wallet, then scan recent activity or let live wallet follow learn protocols from new indexed transactions.
+								</p>
+							{/if}
 						</div>
 						<div class="custom-rules-card active">
 							<div>
-								<strong>Protocol watchlist</strong>
+								<strong>Manual coverage</strong>
 								<span>{selectedCustomProtocolSlugs.length} selected</span>
-								<small>Start from curated coverage, hand-pick protocols, or keep auto recommendations.</small>
+								<small>Use curated coverage or hand-pick protocols when the wallet has not touched them yet.</small>
 							</div>
 							<div class="custom-rule-actions">
 								<button class="secondary-button" type="button" onclick={useCuratedPreset}>
 									Use curated preset
 								</button>
+								<button
+									class="secondary-button"
+									type="button"
+									disabled={selectedProtocols.length === selectableProtocolList.length}
+									onclick={addAllProtocols}
+								>
+									Add all protocols
+								</button>
 								<button class="secondary-button" type="button" onclick={openProtocolPicker}>
 									Add protocol
 								</button>
+								<button class="secondary-button danger-button" type="button" onclick={openClearConfigConfirm}>
+									Clear all
+								</button>
 							</div>
 						</div>
+						{#if walletScanError}
+							<p class="wallet-feedback error">{walletScanError}</p>
+						{/if}
 						{#if autoDiscoveryMessage}
 							<p class="wallet-feedback success">{autoDiscoveryMessage}</p>
 						{/if}
@@ -1792,6 +2037,54 @@
 			</div>
 		{/if}
 
+		{#if clearConfigConfirmOpen}
+			<div class="modal-backdrop" role="presentation" onclick={closeClearConfigConfirm}>
+				<div
+					class="confirm-modal"
+					aria-label="Clear current configuration"
+					aria-modal="true"
+					role="dialog"
+					tabindex="-1"
+					onclick={(event) => event.stopPropagation()}
+					onkeydown={(event) => event.stopPropagation()}
+				>
+					<header class="modal-head">
+						<div>
+							<h2>Clear all config?</h2>
+							<p>
+								This removes every selected protocol, wallet, and .sol target from the draft.
+								{currentSubscriptionCount > 0
+									? 'Save the cleared config afterward to remove the current watch rules.'
+									: 'There are no saved watch rules to remove yet.'}
+							</p>
+						</div>
+					</header>
+					<div class="confirm-summary">
+						<div>
+							<span>Protocols</span>
+							<strong>{selectedProtocols.length}</strong>
+						</div>
+						<div>
+							<span>Wallets and .sol</span>
+							<strong>{watchTargetCount}</strong>
+						</div>
+						<div>
+							<span>Saved rules</span>
+							<strong>{currentSubscriptionCount}</strong>
+						</div>
+					</div>
+					<div class="confirm-actions">
+						<button class="secondary-button" type="button" onclick={closeClearConfigConfirm}>
+							Cancel
+						</button>
+						<button class="danger-button" type="button" onclick={clearAllConfig}>
+							Clear all
+						</button>
+					</div>
+				</div>
+			</div>
+		{/if}
+
 		{#if form?.error}
 			<p class="flash error">{form.error}</p>
 		{:else if form?.message}
@@ -1880,6 +2173,16 @@
 		align-self: start;
 	}
 
+	@media (min-width: 841px) {
+		.config-side {
+			position: sticky;
+			top: calc(var(--fw-header-height, 0px) + 0.85rem);
+			max-height: calc(100vh - var(--fw-header-height, 0px) - 1.2rem);
+			overflow: auto;
+			overscroll-behavior: contain;
+		}
+	}
+
 	.program-picker-row {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) auto;
@@ -1906,6 +2209,13 @@
 	.protocol-head {
 		grid-template-columns: minmax(0, 1fr) auto;
 		align-items: start;
+	}
+
+	.protocol-head-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.45rem;
+		justify-content: end;
 	}
 
 	.discovery-panel {
@@ -1959,6 +2269,10 @@
 		opacity: 0.64;
 	}
 
+	.discovery-action.passive {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
 	.discovery-action span {
 		display: grid;
 		gap: 0.08rem;
@@ -1975,6 +2289,72 @@
 	.auto-rules-summary {
 		padding-top: 0.58rem;
 		border-top: 1px solid rgba(23, 32, 42, 0.08);
+	}
+
+	.user-protocols-panel {
+		display: grid;
+		gap: 0.65rem;
+		padding: 0.72rem;
+		border: 1px solid rgba(50, 112, 76, 0.22);
+		border-radius: 8px;
+		background: #f7fbf8;
+	}
+
+	.user-protocols-head {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.user-protocols-head > div {
+		display: grid;
+		gap: 0.14rem;
+		min-width: 0;
+	}
+
+	.user-protocols-head span,
+	.user-protocols-panel p,
+	.user-protocol-chip small,
+	.user-protocol-more {
+		color: #5f6c79;
+		font-size: 0.78rem;
+		font-weight: 700;
+	}
+
+	.user-protocols-panel p {
+		margin: 0;
+		line-height: 1.45;
+	}
+
+	.user-protocol-chip-list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.45rem;
+		align-items: center;
+	}
+
+	.user-protocol-chip {
+		display: inline-grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 0.5rem;
+		max-width: 100%;
+		min-height: 2.35rem;
+		padding: 0.4rem 0.55rem;
+		border: 1px solid rgba(50, 112, 76, 0.18);
+		border-radius: 8px;
+		background: #fff;
+		color: #17202a;
+		text-align: left;
+	}
+
+	.user-protocol-chip small {
+		white-space: nowrap;
+	}
+
+	.user-protocol-more {
+		padding: 0 0.2rem;
 	}
 
 	.custom-rules-card {
@@ -2466,6 +2846,17 @@
 		box-shadow: 0 8px 24px rgba(23, 32, 42, 0.18);
 	}
 
+	.confirm-modal {
+		width: min(28rem, 100%);
+		display: grid;
+		gap: 0.85rem;
+		padding: 1rem;
+		border: 1px solid rgba(23, 32, 42, 0.12);
+		border-radius: 10px;
+		background: #fff;
+		box-shadow: 0 8px 24px rgba(23, 32, 42, 0.18);
+	}
+
 	.modal-head {
 		display: flex;
 		justify-content: space-between;
@@ -2477,6 +2868,35 @@
 		color: #5f6c79;
 		font-size: 0.82rem;
 		font-weight: 700;
+	}
+
+	.confirm-summary {
+		display: grid;
+		gap: 0.45rem;
+	}
+
+	.confirm-summary div {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.58rem 0.65rem;
+		border: 1px solid rgba(23, 32, 42, 0.08);
+		border-radius: 8px;
+		background: #fbfaf8;
+	}
+
+	.confirm-summary span {
+		color: #5f6c79;
+		font-size: 0.82rem;
+		font-weight: 700;
+	}
+
+	.confirm-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		justify-content: end;
 	}
 
 	.program-filters {
@@ -2541,11 +2961,6 @@
 	.billing-row label:has(input:checked) {
 		border-color: rgba(189, 74, 23, 0.4);
 		background: rgba(189, 74, 23, 0.06);
-	}
-
-	.choice-pill.disabled {
-		cursor: not-allowed;
-		opacity: 0.64;
 	}
 
 	.billing-row label span,
@@ -2681,6 +3096,17 @@
 		font-weight: 700;
 	}
 
+	.danger-button {
+		border-color: rgba(156, 57, 41, 0.35);
+		background: rgba(156, 57, 41, 0.08);
+		color: #9c3929;
+	}
+
+	button.danger-button:not(.secondary-button) {
+		background: #9c3929;
+		color: #fff;
+	}
+
 	.list-toggle-button {
 		justify-self: stretch;
 		display: inline-flex;
@@ -2785,6 +3211,12 @@
 			border-width: 0;
 		}
 
+		.confirm-modal {
+			align-self: center;
+			justify-self: center;
+			width: min(28rem, calc(100vw - 1rem));
+		}
+
 		.program-picker-list {
 			overscroll-behavior: contain;
 			-webkit-overflow-scrolling: touch;
@@ -2812,11 +3244,17 @@
 
 		.wallet-connect-actions,
 		.wallet-tools,
+		.protocol-head-actions,
+		.protocol-head-actions .secondary-button,
 		.custom-rule-actions,
 		.custom-rule-actions .secondary-button,
+		.confirm-actions,
+		.confirm-actions button,
 		.target-row button,
 		.protocol-head button,
 		.discovery-action button,
+		.user-protocols-head button,
+		.user-protocol-chip,
 		.program-add-button,
 		.source-filter-row,
 		.source-filter-button {
@@ -2828,6 +3266,11 @@
 			display: grid;
 			grid-template-columns: repeat(2, minmax(0, 1fr));
 		}
+
+		.confirm-actions {
+			display: grid;
+			grid-template-columns: 1fr;
+		}
 	}
 
 	@media (max-width: 680px) {
@@ -2835,12 +3278,17 @@
 		.discovery-options,
 		.custom-rules-card,
 		.protocol-head,
+		.user-protocols-head,
 		.protocol-row,
 		.protocol-row-main {
 			grid-template-columns: 1fr;
 		}
 
 		.custom-rule-actions {
+			justify-content: stretch;
+		}
+
+		.protocol-head-actions {
 			justify-content: stretch;
 		}
 

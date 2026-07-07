@@ -251,6 +251,13 @@ export const actions = {
 		const billing = String(form.get('billing') ?? 'month');
 		const deliveryMode = String(form.get('delivery_mode') ?? 'live');
 		const deliveryModes = form.getAll('delivery_modes').map(String);
+		const clearingOnly =
+			String(form.get('clear_config') ?? '') === 'true' &&
+			form.getAll('protocol_slugs').length === 0 &&
+			form.getAll('protocol_program_ids').length === 0 &&
+			form.getAll('program_ids').length === 0 &&
+			walletAddresses.length === 0 &&
+			solDomains.length === 0;
 
 		const response = await backendOriginRequest(
 			fetch,
@@ -282,6 +289,15 @@ export const actions = {
 		const payload = (await response.json()) as SaveTelegramConfigResponse;
 		if (payload.payment_link) {
 			redirect(303, payload.payment_link.public_url);
+		}
+
+		if (clearingOnly) {
+			return {
+				message:
+					payload.saved_count === 0
+						? 'Configuration already clear.'
+						: `${payload.saved_count} watch ${payload.saved_count === 1 ? 'rule' : 'rules'} cleared.`
+			};
 		}
 
 		return {

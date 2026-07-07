@@ -3,7 +3,7 @@ use crate::{
     context::SharedState,
     models::{
         ChainEvent, PendingTelegramDailySummary, PendingTelegramDelivery, TelegramDeliveryMode,
-        TelegramEventScope, event_kind, now_ts,
+        TelegramEventScope, TelegramSubscription, event_kind, now_ts,
     },
     name_service, protocols,
 };
@@ -20,6 +20,13 @@ use tokio::time::sleep;
 use tracing::{debug, warn};
 
 const TELEGRAM_API_TIMEOUT: Duration = Duration::from_secs(8);
+
+#[derive(Clone, Debug)]
+pub(crate) struct WalletProtocolDiscovery {
+    pub(crate) signature: String,
+    pub(crate) slot: i64,
+    pub(crate) block_time: Option<i64>,
+}
 
 #[derive(Deserialize)]
 struct TelegramApiResponse {
@@ -97,10 +104,17 @@ pub async fn run_daily_summary_loop(state: SharedState) -> Result<()> {
 
 pub async fn enqueue_telegram_deliveries(state: SharedState, event: &ChainEvent) -> Result<()> {
     let mut matching_subscriptions = state.db.matching_telegram_subscriptions(event).await?;
+    let protocol_slugs = supported_protocol_slugs(event);
+    let discovery = WalletProtocolDiscovery {
+        signature: event.signature.clone(),
+        slot: event.slot,
+        block_time: event.block_time,
+    };
     let auto_enrolled = auto_enroll_paid_wallet_protocol_subscriptions(
         state.clone(),
-        event,
+        &protocol_slugs,
         &matching_subscriptions,
+        Some(&discovery),
     )
     .await?;
     if auto_enrolled > 0 {
@@ -135,12 +149,12 @@ pub async fn enqueue_telegram_deliveries(state: SharedState, event: &ChainEvent)
     Ok(())
 }
 
-async fn auto_enroll_paid_wallet_protocol_subscriptions(
+pub(crate) async fn auto_enroll_paid_wallet_protocol_subscriptions(
     state: SharedState,
-    event: &ChainEvent,
-    matching_subscriptions: &[crate::models::TelegramSubscription],
+    protocol_slugs: &[String],
+    matching_subscriptions: &[TelegramSubscription],
+    discovery: Option<&WalletProtocolDiscovery>,
 ) -> Result<usize> {
-    let protocol_slugs = supported_protocol_slugs(event);
     if protocol_slugs.is_empty() {
         return Ok(0);
     }
@@ -174,7 +188,7 @@ async fn auto_enroll_paid_wallet_protocol_subscriptions(
             continue;
         }
 
-        for protocol_slug in &protocol_slugs {
+        for protocol_slug in protocol_slugs {
             let dedupe_key = (
                 subscription.chat_id.clone(),
                 subscription.thread_id,
@@ -187,6 +201,19 @@ async fn auto_enroll_paid_wallet_protocol_subscriptions(
             let Some(protocol) = protocols::curated_protocol_descriptor(protocol_slug) else {
                 continue;
             };
+
+            if state
+                .db
+                .user_protocol_subscription_exists(
+                    user_id,
+                    &subscription.chat_id,
+                    subscription.thread_id,
+                    &protocol.slug,
+                )
+                .await?
+            {
+                continue;
+            }
 
             let (created_subscription, created) = state
                 .db
@@ -204,13 +231,31 @@ async fn auto_enroll_paid_wallet_protocol_subscriptions(
 
             if created {
                 created_count += 1;
+                if let Some(discovery) = discovery {
+                    if let Err(error) = send_wallet_protocol_discovery_notification(
+                        &state,
+                        subscription,
+                        &protocol,
+                        discovery,
+                    )
+                    .await
+                    {
+                        warn!(
+                            error = ?error,
+                            user_id,
+                            chat_id = %subscription.chat_id,
+                            thread_id = ?subscription.thread_id,
+                            protocol = %protocol.slug,
+                            "failed to send wallet protocol discovery notification",
+                        );
+                    }
+                }
                 debug!(
                     subscription_id = %created_subscription.id,
                     user_id,
                     chat_id = %subscription.chat_id,
                     thread_id = ?subscription.thread_id,
                     protocol = %protocol.slug,
-                    event_id = %event.id,
                     "auto-enrolled paid wallet watch into protocol watch",
                 );
             }
@@ -218,6 +263,50 @@ async fn auto_enroll_paid_wallet_protocol_subscriptions(
     }
 
     Ok(created_count)
+}
+
+async fn send_wallet_protocol_discovery_notification(
+    state: &SharedState,
+    subscription: &TelegramSubscription,
+    protocol: &crate::models::DefiProtocolDescriptor,
+    discovery: &WalletProtocolDiscovery,
+) -> Result<()> {
+    let wallet = subscription
+        .target_address
+        .as_deref()
+        .map(|address| compact_identifier(address, 6, 6))
+        .unwrap_or_else(|| "watched wallet".to_owned());
+    let mut lines = vec![
+        "<b>New protocol detected</b>".to_owned(),
+        format!(
+            "Wallet <code>{}</code> interacted with <b>{}</b>.",
+            html_escape(&wallet),
+            html_escape(&protocol.name),
+        ),
+        "I added a live protocol watch for this chat.".to_owned(),
+    ];
+
+    let mut slot_line = format!("Slot: <code>{}</code>", discovery.slot);
+    if let Some(block_time) = format_block_time(discovery.block_time) {
+        slot_line.push_str(" - ");
+        slot_line.push_str(&html_escape(&block_time));
+    }
+    lines.push(slot_line);
+    let tx_url = explorer_tx_url(&state.config, &discovery.signature);
+    lines.push(format!(
+        "Tx: <a href=\"{}\">{}</a>",
+        html_attr_escape(&tx_url),
+        html_escape(&compact_identifier(&discovery.signature, 6, 6)),
+    ));
+
+    send_telegram_html(
+        state,
+        &subscription.chat_id,
+        subscription.thread_id,
+        &lines.join("\n"),
+        &tx_url,
+    )
+    .await
 }
 
 fn supported_protocol_slugs(event: &ChainEvent) -> Vec<String> {

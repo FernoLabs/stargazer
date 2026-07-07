@@ -267,6 +267,22 @@ export interface SaveTelegramConfigResponse {
 	payment_link: PaymentLink | null;
 }
 
+export interface WalletHistoryProtocolHit {
+	slug: string;
+	name: string;
+	wallet_addresses: string[];
+	program_ids: string[];
+	signature_count: number;
+	transaction_count: number;
+}
+
+export interface WalletHistoryScanResponse {
+	scanned_wallet_count: number;
+	signature_count: number;
+	transaction_count: number;
+	protocols: WalletHistoryProtocolHit[];
+}
+
 export type ProtocolCoverage = 'address_only' | 'admin_signals' | 'deep_decode';
 
 export interface ProgramRiskSummary {

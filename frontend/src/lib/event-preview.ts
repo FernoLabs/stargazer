@@ -166,7 +166,7 @@ export function eventKindLabel(event: ChainEvent) {
 		case 'program_metric_alert':
 			return 'Metric anomaly';
 		case 'treasury_token_outflow':
-			return 'Treasury outflow';
+			return 'Token transfer';
 		case 'program_idl_initialized':
 		case 'program_idl_updated':
 		case 'program_idl_authority_changed':
@@ -219,7 +219,7 @@ export function eventTitle(event: ChainEvent, protocols: DefiProtocolDescriptor[
 		const symbol = payloadString(event, 'token_symbol') ?? 'token';
 		const amount = payloadString(event, 'display_amount');
 		const amountLabel = amount ? ` ${amount} ${symbol}` : ` ${symbol}`;
-		return protocol ? `${protocol} treasury outflow:${amountLabel}` : `Treasury outflow:${amountLabel}`;
+		return protocol ? `${protocol} large token transfer:${amountLabel}` : `Large token transfer:${amountLabel}`;
 	}
 	if (event.kind === 'program_idl_updated' && protocol) return `${protocol} IDL updated`;
 	if (event.kind === 'program_idl_initialized' && protocol) return `${protocol} IDL initialized`;

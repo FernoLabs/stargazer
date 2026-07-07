@@ -178,8 +178,79 @@ impl ChainEvent {
     }
 
     pub fn is_critical_signal(&self) -> bool {
-        (self.has_tag("severity:critical") || self.has_tag("signal:unknown_instruction"))
+        self.is_critical_signal_candidate()
             && (!self.is_hidden_signal() || self.is_hidden_anchor_unknown_instruction())
+    }
+
+    fn is_critical_signal_candidate(&self) -> bool {
+        self.has_tag("severity:critical")
+            || self
+                .payload
+                .get("severity")
+                .and_then(|value| value.as_str())
+                .is_some_and(|value| value == "critical")
+            || self.has_tag("signal:unknown_instruction")
+            || self.is_high_impact_admin_instruction()
+            || self.is_high_impact_idl_update()
+            || self.is_project_linked_multisig_critical_path()
+    }
+
+    fn is_high_impact_admin_instruction(&self) -> bool {
+        self.kind == event_kind::PROGRAM_ADMIN_INSTRUCTION
+            && self.has_tag("signal:admin_instruction")
+            && self.has_tag("impact:high")
+            && !self.has_tag("source:spl_governance")
+    }
+
+    fn is_high_impact_idl_update(&self) -> bool {
+        matches!(
+            self.kind.as_str(),
+            event_kind::PROGRAM_IDL_AUTHORITY_CHANGED
+                | event_kind::PROGRAM_IDL_IMMUTABLE
+                | event_kind::PROGRAM_IDL_CLOSED
+        ) && self.has_tag("signal:idl_update")
+            && self.has_tag("impact:high")
+    }
+
+    fn is_project_linked_multisig_critical_path(&self) -> bool {
+        if self.target_type != target_type::MULTISIG || !self.has_tag("multisig:project_linked") {
+            return false;
+        }
+
+        if self.kind == event_kind::MULTISIG_CONFIG_EXECUTED
+            && self.has_tag("signal:multisig_config_change")
+        {
+            return true;
+        }
+
+        if self.kind != event_kind::MULTISIG_VAULT_EXECUTED {
+            return false;
+        }
+
+        let decoded_kind = self
+            .payload
+            .get("decoded_kind")
+            .and_then(|value| value.as_str());
+        if matches!(
+            decoded_kind,
+            Some(event_kind::PROGRAM_DEPLOYED)
+                | Some(event_kind::PROGRAM_UPGRADED)
+                | Some(event_kind::PROGRAM_FINALIZED)
+                | Some(event_kind::PROGRAM_MIGRATED_TO_LOADER_V4)
+                | Some(event_kind::PROGRAM_UNKNOWN_INSTRUCTION)
+                | Some(event_kind::PROGRAM_IDL_AUTHORITY_CHANGED)
+                | Some(event_kind::PROGRAM_IDL_IMMUTABLE)
+                | Some(event_kind::PROGRAM_IDL_CLOSED)
+        ) {
+            return true;
+        }
+
+        self.payload
+            .get("decoded_summary")
+            .and_then(|value| value.as_str())
+            .is_some_and(|value| {
+                value.starts_with("Critical ") || value.starts_with("High-impact ")
+            })
     }
 }
 
@@ -1123,6 +1194,26 @@ mod tests {
         });
 
         assert!(TelegramEventScope::DefiWatch.matches_event(&event));
+    }
+
+    #[test]
+    fn critical_scope_keeps_project_linked_multisig_program_upgrade() {
+        let mut event = sample_multisig_event(
+            event_kind::MULTISIG_VAULT_EXECUTED,
+            &[
+                "protocol:squads",
+                "protocol:drift",
+                "multisig:project_linked",
+                "signal:multisig",
+                "target:multisig",
+            ],
+        );
+        event.payload = serde_json::json!({
+            "decoded_kind": "program_upgraded",
+            "decoded_summary": "Program upgraded for Drift via Squads multisig",
+        });
+
+        assert!(event.is_critical_signal());
     }
 
     #[test]

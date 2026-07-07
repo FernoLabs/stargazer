@@ -25,11 +25,16 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{delete, get},
 };
-use serde::Deserialize;
+use futures::{StreamExt, stream};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use solana_sdk::pubkey::Pubkey;
-use std::{collections::HashSet, str::FromStr, time::Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+    time::Instant,
+};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{debug, warn};
 
@@ -49,6 +54,9 @@ const CACHE_PROGRAM_LISTS: &str =
 const CACHE_IMMUTABLE: &str = "public, max-age=31536000, immutable";
 const CACHE_NO_STORE: &str = "private, no-store";
 const TELEGRAM_CONFIG_REMEMBER_SECONDS: i64 = 30 * 24 * 60 * 60;
+const WALLET_HISTORY_SCAN_MAX_WALLETS: usize = 8;
+const WALLET_HISTORY_SCAN_SIGNATURE_LIMIT: usize = 100;
+const WALLET_HISTORY_SCAN_TRANSACTION_CONCURRENCY: usize = 12;
 
 pub fn router(state: SharedState) -> anyhow::Result<Router> {
     let cors = CorsLayer::new()
@@ -134,6 +142,10 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
         .route(
             "/api/config-sessions/by-token/{token}/remember",
             axum::routing::post(remember_config_session),
+        )
+        .route(
+            "/api/config-sessions/by-token/{token}/scan-wallets",
+            axum::routing::post(scan_config_wallet_history),
         )
         .route(
             "/api/config-sessions/by-token/{token}/save",
@@ -648,12 +660,20 @@ async fn migrate_blobs_and_vacuum(
 async fn cleanup_stale_critical_noise(
     State(state): State<SharedState>,
 ) -> ApiResult<serde_json::Value> {
+    let existing_multisig_events = state
+        .db
+        .annotate_existing_multisig_project_links()
+        .await
+        .map_err(internal_error)?;
     let cleanup = state
         .db
         .cleanup_stale_critical_noise()
         .await
         .map_err(internal_error)?;
-    Ok(Json(json!({ "cleanup": cleanup })))
+    Ok(Json(json!({
+        "existing_multisig_events": existing_multisig_events,
+        "cleanup": cleanup,
+    })))
 }
 
 async fn cleanup_actor_only_domain_links(
@@ -1740,12 +1760,12 @@ async fn solana_rpc_json(
         let body = response.text().await.unwrap_or_default();
         warn!(
             status = %upstream_status,
-            "Solana RPC returned HTTP error while refreshing payment link",
+            "Solana RPC returned HTTP error",
         );
         return Err(error_response(
             StatusCode::BAD_GATEWAY,
             &format!(
-                "Solana RPC returned HTTP {} while checking payment status: {}",
+                "Solana RPC returned HTTP {}: {}",
                 upstream_status.as_u16(),
                 body.chars().take(500).collect::<String>()
             ),
@@ -1759,7 +1779,7 @@ async fn solana_rpc_json(
     if let Some(error) = json.get("error") {
         return Err(error_response(
             StatusCode::BAD_GATEWAY,
-            &format!("Solana RPC error while checking payment status: {}", error),
+            &format!("Solana RPC error: {}", error),
         ));
     }
 
@@ -1995,6 +2015,277 @@ async fn remember_config_session(
         token: remembered_token,
         session: remembered_session,
     }))
+}
+
+#[derive(Debug, Deserialize)]
+struct ScanConfigWalletHistoryRequest {
+    wallet_addresses: Vec<String>,
+    #[serde(default)]
+    sol_domains: Vec<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+struct WalletHistoryScanResponse {
+    scanned_wallet_count: usize,
+    signature_count: usize,
+    transaction_count: usize,
+    protocols: Vec<WalletHistoryProtocolHit>,
+}
+
+#[derive(Debug, Serialize)]
+struct WalletHistoryProtocolHit {
+    slug: String,
+    name: String,
+    wallet_addresses: Vec<String>,
+    program_ids: Vec<String>,
+    signature_count: usize,
+    transaction_count: usize,
+}
+
+#[derive(Default)]
+struct WalletHistoryProtocolAccumulator {
+    name: String,
+    wallet_addresses: HashSet<String>,
+    program_ids: HashSet<String>,
+    signatures: HashSet<String>,
+    transaction_count: usize,
+}
+
+async fn scan_config_wallet_history(
+    State(state): State<SharedState>,
+    Path(token): Path<String>,
+    Json(payload): Json<ScanConfigWalletHistoryRequest>,
+) -> ApiResult<WalletHistoryScanResponse> {
+    ensure_config_session(&state, token.trim()).await?;
+
+    let mut seen_wallets = HashSet::new();
+    let mut wallets = Vec::new();
+    for raw_wallet in payload.wallet_addresses {
+        let wallet = raw_wallet.trim();
+        if wallet.is_empty() {
+            continue;
+        }
+        let normalized = Pubkey::from_str(wallet)
+            .map_err(|_| error_response(StatusCode::BAD_REQUEST, "Wallet address is invalid."))?
+            .to_string();
+        if seen_wallets.insert(normalized.clone()) {
+            wallets.push(normalized);
+        }
+    }
+
+    if wallets.len() > WALLET_HISTORY_SCAN_MAX_WALLETS {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            &format!(
+                "Wallet history scan supports at most {WALLET_HISTORY_SCAN_MAX_WALLETS} wallets at once."
+            ),
+        ));
+    }
+
+    let limit = payload
+        .limit
+        .unwrap_or(WALLET_HISTORY_SCAN_SIGNATURE_LIMIT)
+        .clamp(1, WALLET_HISTORY_SCAN_SIGNATURE_LIMIT);
+    let mut protocol_hits = HashMap::<String, WalletHistoryProtocolAccumulator>::new();
+    let mut signature_count = 0usize;
+    let mut transaction_count = 0usize;
+
+    for raw_domain in payload.sol_domains {
+        let domain = normalize_sol_domain(&raw_domain);
+        if let Some(protocol) = protocols::protocol_for_sol_domain(&domain) {
+            let entry = protocol_hits
+                .entry(protocol.slug.clone())
+                .or_insert_with(|| WalletHistoryProtocolAccumulator {
+                    name: protocol.name.clone(),
+                    ..Default::default()
+                });
+            entry.program_ids.insert(format!("sol_domain:{domain}"));
+        }
+    }
+
+    for wallet in &wallets {
+        let signatures = wallet_history_signatures(&state, wallet, limit).await?;
+        signature_count += signatures.len();
+
+        let mut transactions = stream::iter(signatures.into_iter())
+            .map(|signature| {
+                let state = state.clone();
+                async move {
+                    let transaction = payment_transaction_by_signature(&state, &signature).await;
+                    (signature, transaction)
+                }
+            })
+            .buffer_unordered(WALLET_HISTORY_SCAN_TRANSACTION_CONCURRENCY);
+
+        while let Some((signature, transaction_result)) = transactions.next().await {
+            let Some(transaction) = transaction_result? else {
+                continue;
+            };
+            transaction_count += 1;
+            for program_id in wallet_history_transaction_program_ids(&transaction) {
+                let Ok(program_pubkey) = Pubkey::from_str(&program_id) else {
+                    continue;
+                };
+                let Some(protocol) = protocols::protocol_for_program(program_pubkey) else {
+                    continue;
+                };
+                let entry = protocol_hits
+                    .entry(protocol.slug.clone())
+                    .or_insert_with(|| WalletHistoryProtocolAccumulator {
+                        name: protocol.name.clone(),
+                        ..Default::default()
+                    });
+                entry.wallet_addresses.insert(wallet.clone());
+                entry.program_ids.insert(program_id);
+                entry.signatures.insert(signature.clone());
+                entry.transaction_count += 1;
+            }
+        }
+    }
+
+    let mut protocols = protocol_hits
+        .into_iter()
+        .map(|(slug, hit)| {
+            let mut wallet_addresses = hit.wallet_addresses.into_iter().collect::<Vec<_>>();
+            wallet_addresses.sort();
+            let mut program_ids = hit.program_ids.into_iter().collect::<Vec<_>>();
+            program_ids.sort();
+            WalletHistoryProtocolHit {
+                slug,
+                name: hit.name,
+                wallet_addresses,
+                program_ids,
+                signature_count: hit.signatures.len(),
+                transaction_count: hit.transaction_count,
+            }
+        })
+        .collect::<Vec<_>>();
+    protocols.sort_by(|left, right| {
+        right
+            .transaction_count
+            .cmp(&left.transaction_count)
+            .then_with(|| right.signature_count.cmp(&left.signature_count))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+
+    Ok(Json(WalletHistoryScanResponse {
+        scanned_wallet_count: wallets.len(),
+        signature_count,
+        transaction_count,
+        protocols,
+    }))
+}
+
+async fn ensure_config_session(
+    state: &SharedState,
+    token: &str,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if token.is_empty() {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Config session not found.",
+        ));
+    }
+
+    let token_hash = token_hash(token);
+    let Some((_session, _user)) = state
+        .db
+        .telegram_config_session_by_token_hash(&token_hash, crate::models::now_ts())
+        .await
+        .map_err(internal_error)?
+    else {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Config session not found or expired.",
+        ));
+    };
+
+    Ok(())
+}
+
+async fn wallet_history_signatures(
+    state: &SharedState,
+    wallet: &str,
+    limit: usize,
+) -> Result<Vec<String>, (StatusCode, Json<serde_json::Value>)> {
+    let payload = json!({
+        "jsonrpc": "2.0",
+        "id": "firewatch-wallet-history",
+        "method": "getSignaturesForAddress",
+        "params": [
+            wallet,
+            {
+                "commitment": "finalized",
+                "limit": limit
+            }
+        ]
+    });
+    let response = solana_rpc_json(state, payload).await?;
+    let Some(items) = response.get("result").and_then(serde_json::Value::as_array) else {
+        return Ok(Vec::new());
+    };
+
+    Ok(items
+        .iter()
+        .filter(|item| item.get("err").is_none_or(serde_json::Value::is_null))
+        .filter_map(|item| item.get("signature").and_then(serde_json::Value::as_str))
+        .map(str::to_owned)
+        .collect())
+}
+
+fn wallet_history_transaction_program_ids(transaction: &serde_json::Value) -> HashSet<String> {
+    let account_keys = payment_transaction_account_keys(transaction);
+    let mut program_ids = HashSet::new();
+    if let Some(instructions) = transaction
+        .pointer("/transaction/message/instructions")
+        .and_then(serde_json::Value::as_array)
+    {
+        collect_instruction_program_ids(instructions, &account_keys, &mut program_ids);
+    }
+
+    if let Some(inner_sets) = transaction
+        .pointer("/meta/innerInstructions")
+        .and_then(serde_json::Value::as_array)
+    {
+        for inner_set in inner_sets {
+            if let Some(instructions) = inner_set
+                .get("instructions")
+                .and_then(serde_json::Value::as_array)
+            {
+                collect_instruction_program_ids(instructions, &account_keys, &mut program_ids);
+            }
+        }
+    }
+
+    program_ids
+}
+
+fn collect_instruction_program_ids(
+    instructions: &[serde_json::Value],
+    account_keys: &[String],
+    program_ids: &mut HashSet<String>,
+) {
+    for instruction in instructions {
+        if let Some(program_id) = instruction
+            .get("programId")
+            .and_then(serde_json::Value::as_str)
+        {
+            program_ids.insert(program_id.to_owned());
+            continue;
+        }
+
+        let Some(program_id_index) = instruction
+            .get("programIdIndex")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+        else {
+            continue;
+        };
+        if let Some(program_id) = account_keys.get(program_id_index) {
+            program_ids.insert(program_id.clone());
+        }
+    }
 }
 
 const BILLING_MONTH_SECONDS: i64 = 30 * 24 * 60 * 60;

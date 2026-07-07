@@ -1,10 +1,26 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
+
 	type IncidentOutcome = 'caught' | 'missed_then_improved' | 'planned';
 
 	type TimelineLink = {
 		label: string;
 		href: string;
 	};
+
+	type AnchorReportLink = {
+		label: string;
+		href: `#${string}`;
+		external?: false;
+	};
+
+	type ExternalReportLink = {
+		label: string;
+		href: `http${string}`;
+		external: true;
+	};
+
+	type ReportLink = AnchorReportLink | ExternalReportLink;
 
 	type IncidentReport = {
 		id: string;
@@ -15,13 +31,13 @@
 		detection: string;
 		nextStep: string;
 		timelineLinks: TimelineLink[];
-		reportLinks: TimelineLink[];
+		reportLinks: ReportLink[];
 	};
 
 	const incidents: IncidentReport[] = [
 		{
 			id: 'drift',
-			title: 'Drift alert review',
+			title: 'Drift hack alert review',
 			date: 'Historical incident',
 			outcome: 'caught',
 			summary:
@@ -74,11 +90,13 @@
 			reportLinks: [
 				{
 					label: 'Raydium public note',
-					href: 'https://x.com/0xINFRA/status/2064738005697384476'
+					href: 'https://x.com/0xINFRA/status/2064738005697384476',
+					external: true
 				},
 				{
 					label: 'Incident summary',
-					href: 'https://www.ccn.com/news/crypto/raydium-exploit-legacy-pools-solana/'
+					href: 'https://www.ccn.com/news/crypto/raydium-exploit-legacy-pools-solana/',
+					external: true
 				}
 			]
 		}
@@ -100,6 +118,7 @@
 		if (outcome === 'missed_then_improved') return 'outcome-improving';
 		return 'outcome-planned';
 	}
+
 </script>
 
 <svelte:head>
@@ -117,7 +136,7 @@
 				<h2>Incident Log</h2>
 				<nav>
 					{#each pageIndex as item (item.href)}
-						<a href={item.href}>{item.label}</a>
+						<a href={resolve(`/incidents${item.href}` as any)}>{item.label}</a>
 					{/each}
 				</nav>
 			</div>
@@ -135,18 +154,34 @@
 
 			<section class="doc-section">
 				<h2>Coverage Table</h2>
-				<div class="incident-table" role="list" aria-label="Incident coverage table">
-					{#each incidents as incident (incident.id)}
-						<div class="incident-row" role="listitem">
-							<div>
-								<a class="incident-title" href={`#${incident.id}`}>{incident.title}</a>
-								<p>{incident.date}</p>
-							</div>
-							<strong class={outcomeClass(incident.outcome)}>{outcomeLabel(incident.outcome)}</strong>
-							<div class="row-links">
-								<a href={incident.timelineLinks[0].href}>{incident.timelineLinks[0].label}</a>
-								<a href={incident.reportLinks[0].href}>{incident.reportLinks[0].label}</a>
-							</div>
+					<div class="incident-table" role="list" aria-label="Incident coverage table">
+						{#each incidents as incident (incident.id)}
+							{@const rowReportLink = incident.reportLinks[0]}
+							<div class="incident-row" role="listitem">
+								<div>
+									<a
+										class="incident-title"
+										href={resolve(`/incidents#${incident.id}` as any)}
+									>
+										{incident.title}
+									</a>
+									<p>{incident.date}</p>
+								</div>
+								<strong class={outcomeClass(incident.outcome)}>{outcomeLabel(incident.outcome)}</strong>
+								<div class="row-links">
+									<a href={resolve(incident.timelineLinks[0].href as any)}>
+										{incident.timelineLinks[0].label}
+									</a>
+									{#if rowReportLink.external}
+										<a href={rowReportLink.href} rel="noreferrer" target="_blank">
+											{rowReportLink.label}
+										</a>
+									{:else}
+										<a href={resolve(`/incidents${rowReportLink.href}` as any)}>
+											{rowReportLink.label}
+										</a>
+									{/if}
+								</div>
 						</div>
 					{/each}
 				</div>
@@ -182,7 +217,7 @@
 							<h3>Alert Timeline</h3>
 							<div class="actions">
 								{#each incident.timelineLinks as link (link.href)}
-									<a href={link.href}>{link.label}</a>
+									<a href={resolve(link.href as any)}>{link.label}</a>
 								{/each}
 							</div>
 						</div>
@@ -190,13 +225,15 @@
 							<h3>Report Links</h3>
 							<div class="actions">
 								{#each incident.reportLinks as link (link.href)}
-									<a
-										href={link.href}
-										rel={link.href.startsWith('http') ? 'noreferrer' : undefined}
-										target={link.href.startsWith('http') ? '_blank' : undefined}
-									>
-										{link.label}
-									</a>
+									{#if link.external}
+										<a href={link.href} rel="noreferrer" target="_blank">
+											{link.label}
+										</a>
+									{:else}
+										<a href={resolve(`/incidents${link.href}` as any)}>
+											{link.label}
+										</a>
+									{/if}
 								{/each}
 							</div>
 						</div>

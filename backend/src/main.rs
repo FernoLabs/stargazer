@@ -1271,7 +1271,7 @@ async fn insert_known_bonk_dao_treasury_outflow_event(
             block_time: Some(BONK_DAO_INCIDENT_BLOCK_TIME),
             indexed_at,
             summary: format!(
-                "Critical Bonk DAO treasury outflow: {} {} sent",
+                "Critical Bonk DAO large token transfer: {} {} sent",
                 BONK_DAO_INCIDENT_DISPLAY_AMOUNT,
                 protocols::BONK_TOKEN_SYMBOL
             ),
