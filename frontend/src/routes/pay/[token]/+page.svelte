@@ -609,21 +609,33 @@
 					</button>
 				{/if}
 				<button
-					class="secondary-button"
+					aria-busy={statusRefreshState === 'checking' ? 'true' : 'false'}
+					aria-label={
+						statusRefreshState === 'checking' ? 'Checking payment status' : 'Refresh payment status'
+					}
+					class:checking={statusRefreshState === 'checking'}
+					class="secondary-button refresh-button"
 					type="button"
+					title={
+						statusRefreshState === 'checking' ? 'Checking payment status' : 'Refresh payment status'
+					}
 					onclick={() => refreshPaymentStatus()}
 					disabled={statusRefreshState === 'checking'}
-					>
-						{statusRefreshState === 'checking' ? 'Checking...' : 'Refresh status'}
-					</button>
-					<button
-						class="secondary-button"
-						type="button"
-						onclick={() => copyText('debug', paymentDebugText())}
-					>
-						{copyButtonLabel('debug', 'Copy debug')}
-					</button>
-				</div>
+				>
+					<svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+						<path
+							d="M16.45 6.15A7 7 0 0 0 3 8.8m.55 5.05A7 7 0 0 0 17 11.2M3 5.5v3.3h3.3M17 14.5v-3.3h-3.3"
+						/>
+					</svg>
+				</button>
+				<button
+					class="secondary-button"
+					type="button"
+					onclick={() => copyText('debug', paymentDebugText())}
+				>
+					{copyButtonLabel('debug', 'Copy debug')}
+				</button>
+			</div>
 			{#if statusRefreshMessage}
 				<p class="status-note error">{statusRefreshMessage}</p>
 			{/if}
@@ -931,6 +943,33 @@
 		text-decoration: none;
 	}
 
+	.refresh-button {
+		width: 2.3rem;
+		flex: 0 0 2.3rem;
+		padding: 0;
+		text-transform: none;
+	}
+
+	.refresh-button svg {
+		width: 1rem;
+		height: 1rem;
+		stroke: currentColor;
+		stroke-width: 1.8;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+		fill: none;
+	}
+
+	.refresh-button.checking svg {
+		animation: refresh-spin 0.8s linear infinite;
+	}
+
+	@keyframes refresh-spin {
+		to {
+			transform: rotate(1turn);
+		}
+	}
+
 	.action-row {
 		display: flex;
 		flex-wrap: wrap;
@@ -1077,6 +1116,11 @@
 		.pay-button,
 		.secondary-button {
 			width: 100%;
+		}
+
+		.secondary-button.refresh-button {
+			width: 2.3rem;
+			justify-self: start;
 		}
 
 		.action-row {
