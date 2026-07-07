@@ -1288,6 +1288,7 @@ const RAYDIUM_CPMM_INSTRUCTIONS: &[&str] = &[
     "create_amm_config",
     "deposit",
     "initialize",
+    "initialize_with_permission",
     "swap_base_input",
     "swap_base_output",
     "update_amm_config",
@@ -1301,12 +1302,14 @@ const RAYDIUM_CPMM_ADMIN_INSTRUCTIONS: &[&str] = &[
     "collect_protocol_fee",
     "create_amm_config",
     "initialize",
+    "initialize_with_permission",
     "update_amm_config",
     "update_pool_status",
 ];
 
 const RAYDIUM_CPMM_HIGH_IMPACT_INSTRUCTIONS: &[&str] = &[
     "create_amm_config",
+    "initialize_with_permission",
     "update_amm_config",
     "update_pool_status",
 ];
@@ -1420,6 +1423,7 @@ const METEORA_DLMM_INSTRUCTIONS: &[&str] = &[
     "cancel_limit_order",
     "claim_fee",
     "claim_fee2",
+    "claim_protocol_fee2",
     "claim_reward",
     "claim_reward2",
     "close_bin_array",
@@ -1495,6 +1499,7 @@ const METEORA_DLMM_INSTRUCTIONS: &[&str] = &[
 
 const METEORA_DLMM_ADMIN_INSTRUCTIONS: &[&str] = &[
     "close_claim_protocol_fee_operator",
+    "claim_protocol_fee2",
     "create_claim_protocol_fee_operator",
     "create_operator_account",
     "fund_reward",
@@ -2949,10 +2954,8 @@ fn amount_trigger_descriptors(slug: &str) -> Vec<AmountTriggerDescriptor> {
             description: "Proposed: alert when a watched Ferno-controlled wallet sends at least 70% of tracked SOL or token value, or at least 25k USD equivalent, within 10 minutes to new recipients across 3 or more outbound transfers.".to_owned(),
         }],
         BONK_DAO_PROTOCOL_SLUG => vec![AmountTriggerDescriptor {
-            label: "Treasury outflow".to_owned(),
-            description:
-                "Critical alert when the Bonk DAO treasury sends at least 1T BONK in one transfer."
-                    .to_owned(),
+            label: "Large token transfer".to_owned(),
+            description: "Critical alert when a monitored treasury or watched wallet sends a large token transfer.".to_owned(),
         }],
         _ => Vec::new(),
     }
@@ -3078,6 +3081,100 @@ pub fn resolve_protocol_instruction(
     None
 }
 
+pub fn resolve_logged_protocol_instruction(
+    program_id: Pubkey,
+    logged_instruction_name: &str,
+    discriminator: &[u8],
+) -> Option<ProtocolInstructionSignal> {
+    let definition = definitions()
+        .iter()
+        .find(|definition| definition.program_id == program_id)?;
+    let instruction_name = canonical_logged_instruction_name(logged_instruction_name)?;
+    let admin_instruction = instruction_name_matches(
+        definition.admin_instructions,
+        definition.instruction_name_style,
+        &instruction_name,
+    );
+    let catalog_instruction = instruction_name_in_catalog(definition, &instruction_name);
+    let inferred_admin_instruction = !admin_instruction
+        && !catalog_instruction
+        && !is_logged_idl_staging_instruction(&instruction_name)
+        && is_admin_like_logged_instruction_name(&instruction_name);
+    let signal_kind =
+        (admin_instruction || inferred_admin_instruction).then_some(ProtocolSignalKind::Admin);
+    let high_impact = if inferred_admin_instruction {
+        true
+    } else {
+        signal_kind.is_some()
+            && instruction_name_matches(
+                definition.high_impact_instructions,
+                definition.instruction_name_style,
+                &instruction_name,
+            )
+    };
+
+    Some(build_named_signal_with_high_impact(
+        definition,
+        instruction_name,
+        signal_kind,
+        discriminator,
+        high_impact,
+    ))
+}
+
+fn instruction_name_in_catalog(definition: &ProtocolDefinition, instruction_name: &str) -> bool {
+    definition
+        .instruction_catalog
+        .as_ref()
+        .is_some_and(|catalog| {
+            catalog.values().any(|candidate| {
+                canonical_instruction_name(candidate, definition.instruction_name_style)
+                    == instruction_name
+            })
+        })
+}
+
+fn is_logged_idl_staging_instruction(instruction_name: &str) -> bool {
+    matches!(instruction_name, "idl_create_buffer" | "idl_close_account")
+}
+
+fn is_admin_like_logged_instruction_name(instruction_name: &str) -> bool {
+    const ADMIN_LIKE_PREFIXES: &[&str] = &[
+        "admin_",
+        "set_",
+        "update_",
+        "migrate_",
+        "pause_",
+        "resume_",
+        "freeze_",
+        "unfreeze_",
+        "enable_",
+        "disable_",
+        "toggle_",
+    ];
+    const ADMIN_LIKE_TERMS: &[&str] = &[
+        "admin",
+        "authority",
+        "config",
+        "operator",
+        "owner",
+        "permission",
+        "protocol_fee",
+        "status",
+        "funder",
+    ];
+
+    ADMIN_LIKE_PREFIXES
+        .iter()
+        .any(|prefix| instruction_name.starts_with(prefix))
+        || ADMIN_LIKE_TERMS
+            .iter()
+            .any(|term| instruction_name.contains(term))
+        || instruction_name.starts_with("withdraw_protocol")
+        || instruction_name.starts_with("collect_protocol")
+        || instruction_name.starts_with("fund_reward")
+}
+
 fn parse_spl_governance_instruction(data: &[u8]) -> Option<(&'static str, &'static [u8])> {
     let tag = data.first()?;
     SPL_GOVERNANCE_SIGNAL_INSTRUCTIONS
@@ -3201,6 +3298,27 @@ fn build_signal_with_high_impact(
             program_label: definition.program_label.clone(),
         },
         instruction_name,
+        signal_kind,
+        high_impact,
+        discriminator_hex: hex::encode(discriminator),
+    }
+}
+
+fn build_named_signal_with_high_impact(
+    definition: &ProtocolDefinition,
+    instruction_name: String,
+    signal_kind: Option<ProtocolSignalKind>,
+    discriminator: &[u8],
+    high_impact: bool,
+) -> ProtocolInstructionSignal {
+    ProtocolInstructionSignal {
+        protocol: DefiProtocolMatch {
+            slug: definition.slug.clone(),
+            name: definition.name.clone(),
+            program_id: definition.program_id,
+            program_label: definition.program_label.clone(),
+        },
+        instruction_name: Some(instruction_name),
         signal_kind,
         high_impact,
         discriminator_hex: hex::encode(discriminator),
@@ -3437,6 +3555,57 @@ fn canonical_instruction_name(name: &str, style: InstructionNameStyle) -> String
     }
 }
 
+fn canonical_logged_instruction_name(name: &str) -> Option<String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return None;
+    }
+
+    let mut output = String::with_capacity(name.len() + 8);
+    let chars = name.chars().collect::<Vec<_>>();
+    for (index, character) in chars.iter().copied().enumerate() {
+        if !character.is_ascii_alphanumeric() {
+            if !output.is_empty() && !output.ends_with('_') {
+                output.push('_');
+            }
+            continue;
+        }
+
+        if character.is_ascii_uppercase() {
+            let previous = index.checked_sub(1).and_then(|idx| chars.get(idx)).copied();
+            let next = chars.get(index + 1).copied();
+            let should_separate = !output.is_empty()
+                && !output.ends_with('_')
+                && (previous
+                    .is_some_and(|value| value.is_ascii_lowercase() || value.is_ascii_digit())
+                    || (previous.is_some_and(|value| value.is_ascii_uppercase())
+                        && next.is_some_and(|value| value.is_ascii_lowercase())));
+            if should_separate {
+                output.push('_');
+            }
+            output.push(character.to_ascii_lowercase());
+        } else {
+            output.push(character.to_ascii_lowercase());
+        }
+    }
+
+    while output.ends_with('_') {
+        output.pop();
+    }
+
+    (!output.is_empty()).then_some(output)
+}
+
+fn instruction_name_matches(
+    candidates: &[&str],
+    style: InstructionNameStyle,
+    instruction_name: &str,
+) -> bool {
+    candidates
+        .iter()
+        .any(|candidate| canonical_instruction_name(candidate, style) == instruction_name)
+}
+
 fn camel_to_snake_case(value: &str) -> String {
     let mut output = String::with_capacity(value.len() + 8);
 
@@ -3657,6 +3826,27 @@ mod tests {
             Some("collect_protocol_fee")
         );
         assert!(!signal.high_impact);
+    }
+
+    #[test]
+    fn classifies_raydium_cpmm_initialize_with_permission_as_high_impact_admin() {
+        let program_id = Pubkey::from_str("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C").unwrap();
+        let signal = resolve_protocol_instruction(
+            program_id,
+            &discriminator_for_name(
+                "initialize_with_permission",
+                InstructionNameStyle::SnakeCase,
+            ),
+        )
+        .expect("known Raydium CPMM permissioned initialize");
+
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("initialize_with_permission")
+        );
+        assert!(signal.high_impact);
+        assert_eq!(signal.discriminator_hex, "3f37fe4131b25979");
     }
 
     #[test]
@@ -3992,6 +4182,98 @@ mod tests {
     }
 
     #[test]
+    fn resolves_logged_meteora_instruction_name_as_non_signal() {
+        let program_id = Pubkey::from_str("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo").unwrap();
+        let signal = resolve_logged_protocol_instruction(
+            program_id,
+            "PlaceLimitOrder",
+            &[9, 9, 9, 9, 9, 9, 9, 9],
+        )
+        .expect("logged Meteora DLMM instruction");
+
+        assert!(signal.signal_kind.is_none());
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("place_limit_order")
+        );
+        assert!(!signal.high_impact);
+        assert_eq!(signal.discriminator_hex, "0909090909090909");
+    }
+
+    #[test]
+    fn resolves_logged_kamino_topup_as_non_signal() {
+        let program_id = Pubkey::from_str("KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD").unwrap();
+        let signal = resolve_logged_protocol_instruction(
+            program_id,
+            "TopupReserveRewards",
+            &[0x3f, 0xff, 0x82, 0xd3, 0x6e, 0xd8, 0x58, 0xad],
+        )
+        .expect("logged Kamino rewards topup instruction");
+
+        assert!(signal.signal_kind.is_none());
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("topup_reserve_rewards")
+        );
+        assert!(!signal.high_impact);
+    }
+
+    #[test]
+    fn suppresses_logged_anchor_idl_staging_instruction() {
+        let program_id = Pubkey::from_str("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo").unwrap();
+        let signal = resolve_logged_protocol_instruction(
+            program_id,
+            "IdlCloseAccount",
+            &[0x40, 0xf4, 0xbc, 0x78, 0xa7, 0xe9, 0x69, 0x0a],
+        )
+        .expect("logged Anchor IDL staging instruction");
+
+        assert!(signal.signal_kind.is_none());
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("idl_close_account")
+        );
+        assert!(!signal.high_impact);
+    }
+
+    #[test]
+    fn escalates_uncataloged_admin_like_logged_instruction() {
+        let program_id = Pubkey::from_str("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo").unwrap();
+        let signal = resolve_logged_protocol_instruction(
+            program_id,
+            "SetEmergencyConfig",
+            &[1, 2, 3, 4, 5, 6, 7, 8],
+        )
+        .expect("logged admin-like instruction");
+
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("set_emergency_config")
+        );
+        assert!(signal.high_impact);
+    }
+
+    #[test]
+    fn classifies_logged_meteora_admin_instruction() {
+        let program_id = Pubkey::from_str("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo").unwrap();
+        let signal = resolve_logged_protocol_instruction(
+            program_id,
+            "SetPermissionlessOperationBits",
+            &[8, 7, 6, 5, 4, 3, 2, 1],
+        )
+        .expect("logged Meteora DLMM admin instruction");
+
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("set_permissionless_operation_bits")
+        );
+        assert!(signal.high_impact);
+        assert_eq!(signal.discriminator_hex, "0807060504030201");
+    }
+
+    #[test]
     fn classifies_meteora_permissionless_bits_as_admin() {
         let program_id = Pubkey::from_str("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo").unwrap();
         let signal = resolve_protocol_instruction(
@@ -4026,6 +4308,24 @@ mod tests {
             Some("withdraw_protocol_fee")
         );
         assert!(!signal.high_impact);
+    }
+
+    #[test]
+    fn keeps_meteora_protocol_fee_claim_as_non_high_impact_admin() {
+        let program_id = Pubkey::from_str("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo").unwrap();
+        let signal = resolve_protocol_instruction(
+            program_id,
+            &discriminator_for_name("claim_protocol_fee2", InstructionNameStyle::SnakeCase),
+        )
+        .expect("known Meteora DLMM protocol fee claim");
+
+        assert_eq!(signal.signal_kind, Some(ProtocolSignalKind::Admin));
+        assert_eq!(
+            signal.instruction_name.as_deref(),
+            Some("claim_protocol_fee2")
+        );
+        assert!(!signal.high_impact);
+        assert_eq!(signal.discriminator_hex, "ebc23645410aec70");
     }
 
     #[test]

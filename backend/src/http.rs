@@ -156,6 +156,10 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
             "/api/admin/storage/migrate-blobs",
             axum::routing::post(migrate_blobs_and_vacuum),
         )
+        .route(
+            "/api/admin/cleanup/stale-critical-noise",
+            axum::routing::post(cleanup_stale_critical_noise),
+        )
         .with_state(state.clone())
         .layer(from_fn(apply_cache_control))
         .layer(from_fn_with_state(state.clone(), require_origin_token));
@@ -619,6 +623,17 @@ async fn migrate_blobs_and_vacuum(
         "before": before,
         "after": after,
     })))
+}
+
+async fn cleanup_stale_critical_noise(
+    State(state): State<SharedState>,
+) -> ApiResult<serde_json::Value> {
+    let cleanup = state
+        .db
+        .cleanup_stale_critical_noise()
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(json!({ "cleanup": cleanup })))
 }
 
 async fn list_protocols(

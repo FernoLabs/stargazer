@@ -235,6 +235,23 @@ impl BlockTimeUpdateReport {
     }
 }
 
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct CriticalNoiseCleanupReport {
+    pub meteora_dlmm_claim_protocol_fee2_events: i64,
+    pub raydium_cpmm_known_instruction_events: i64,
+    pub raydium_clmm_known_instruction_events: i64,
+    pub raydium_amm_v4_known_tag_events: i64,
+    pub kamino_topup_reserve_rewards_events: i64,
+    pub matched_hidden_anchor_idl_staging_events: i64,
+    pub hidden_anchor_idl_staging_events: u64,
+    pub matched_squads_critical_events: i64,
+    pub normalized_squads_events: u64,
+    pub deleted_telegram_deliveries: u64,
+    pub deleted_events: u64,
+    pub remaining_critical_stale_unknown_events: i64,
+    pub remaining_squads_critical_events: i64,
+}
+
 impl Database {
     pub async fn connect(database_url: &str, blob_store: BlobStore) -> Result<Self> {
         let connect_options = SqliteConnectOptions::from_str(database_url)?
@@ -7112,6 +7129,370 @@ impl Database {
                 .and_then(|value| value.parse::<i64>().ok())
                 .unwrap_or(0),
         })
+    }
+
+    pub async fn cleanup_stale_critical_noise(&self) -> Result<CriticalNoiseCleanupReport> {
+        let mut transaction = self.pool.begin().await?;
+
+        sqlx::query("DROP TABLE IF EXISTS temp.firewatch_stale_unknown_instruction_events;")
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("DROP TABLE IF EXISTS temp.firewatch_hidden_anchor_idl_unknown_events;")
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("DROP TABLE IF EXISTS temp.firewatch_stale_squads_critical_events;")
+            .execute(&mut *transaction)
+            .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TEMP TABLE firewatch_stale_unknown_instruction_events (
+                id TEXT PRIMARY KEY,
+                reason TEXT NOT NULL
+            );
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            r#"
+            CREATE TEMP TABLE firewatch_hidden_anchor_idl_unknown_events (
+                id TEXT PRIMARY KEY,
+                reason TEXT NOT NULL
+            );
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO firewatch_stale_unknown_instruction_events (id, reason)
+            SELECT id, 'meteora_dlmm_claim_protocol_fee2'
+            FROM events
+            WHERE kind = 'program_unknown_instruction'
+              AND target_address = 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo'
+              AND json_extract(payload_json, '$.discriminator') = 'ebc23645410aec70';
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO firewatch_stale_unknown_instruction_events (id, reason)
+            SELECT id, 'raydium_cpmm_known_instruction'
+            FROM events
+            WHERE kind = 'program_unknown_instruction'
+              AND target_address = 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C'
+              AND json_extract(payload_json, '$.discriminator') IN (
+                  '1416567bc61cdb84',
+                  '3f37fe4131b25979'
+              );
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO firewatch_stale_unknown_instruction_events (id, reason)
+            SELECT id, 'raydium_clmm_known_instruction'
+            FROM events
+            WHERE kind = 'program_unknown_instruction'
+              AND target_address = 'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK'
+              AND json_extract(payload_json, '$.discriminator') IN (
+                  '2b44d4a7592fa401',
+                  '4c7c800fd55725fa',
+                  '759d3c674231a300',
+                  '9d20dab7471d1293',
+                  'cd4e74215c691a60'
+              );
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO firewatch_stale_unknown_instruction_events (id, reason)
+            SELECT id, 'raydium_amm_v4_known_tag'
+            FROM events
+            WHERE kind = 'program_unknown_instruction'
+              AND target_address = '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8'
+              AND lower(substr(json_extract(payload_json, '$.discriminator'), 1, 2)) IN (
+                  '07',
+                  '09',
+                  '0b',
+                  '10',
+                  '11'
+              );
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO firewatch_stale_unknown_instruction_events (id, reason)
+            SELECT id, 'kamino_topup_reserve_rewards'
+            FROM events
+            WHERE kind = 'program_unknown_instruction'
+              AND target_address = 'KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD'
+              AND json_extract(payload_json, '$.discriminator') = '3fff82d36ed858ad';
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO firewatch_hidden_anchor_idl_unknown_events (id, reason)
+            SELECT id, 'legacy_anchor_idl_staging'
+            FROM events
+            WHERE kind = 'program_unknown_instruction'
+              AND target_address IN (
+                  'KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD',
+                  'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo',
+                  'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc'
+              )
+              AND json_extract(payload_json, '$.discriminator') = '40f4bc78a7e9690a';
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?;
+
+        let stale_counts = sqlx::query(
+            r#"
+            SELECT
+                COALESCE(SUM(CASE WHEN reason = 'meteora_dlmm_claim_protocol_fee2' THEN 1 ELSE 0 END), 0) AS meteora_dlmm_claim_protocol_fee2_events,
+                COALESCE(SUM(CASE WHEN reason = 'raydium_cpmm_known_instruction' THEN 1 ELSE 0 END), 0) AS raydium_cpmm_known_instruction_events,
+                COALESCE(SUM(CASE WHEN reason = 'raydium_clmm_known_instruction' THEN 1 ELSE 0 END), 0) AS raydium_clmm_known_instruction_events,
+                COALESCE(SUM(CASE WHEN reason = 'raydium_amm_v4_known_tag' THEN 1 ELSE 0 END), 0) AS raydium_amm_v4_known_tag_events,
+                COALESCE(SUM(CASE WHEN reason = 'kamino_topup_reserve_rewards' THEN 1 ELSE 0 END), 0) AS kamino_topup_reserve_rewards_events
+            FROM firewatch_stale_unknown_instruction_events;
+            "#,
+        )
+        .fetch_one(&mut *transaction)
+        .await?;
+        let matched_hidden_anchor_idl_staging_events = sqlx::query(
+            r#"
+            SELECT COUNT(*) AS matched_hidden_anchor_idl_staging_events
+            FROM firewatch_hidden_anchor_idl_unknown_events;
+            "#,
+        )
+        .fetch_one(&mut *transaction)
+        .await?
+        .try_get::<i64, _>("matched_hidden_anchor_idl_staging_events")?;
+
+        let hidden_anchor_idl_staging_events = sqlx::query(
+            r#"
+            UPDATE events
+            SET
+                summary = 'Hidden legacy Anchor IDL staging on ' || target_address,
+                tags_json = (
+                    SELECT COALESCE(json_group_array(value), '[]')
+                    FROM (
+                        SELECT value
+                        FROM json_each(events.tags_json)
+                        WHERE value NOT IN (
+                            'alert:review_now',
+                            'impact:high',
+                            'sector:defi',
+                            'severity:critical',
+                            'signal:unknown_instruction',
+                            'watch:defi'
+                        )
+                        ORDER BY key
+                    )
+                ),
+                payload_json = json_set(
+                    payload_json,
+                    '$.classification', 'hidden',
+                    '$.high_impact', json('false'),
+                    '$.instruction_name', 'legacy_anchor_idl_staging',
+                    '$.severity', 'hidden'
+                )
+            WHERE id IN (SELECT id FROM firewatch_hidden_anchor_idl_unknown_events);
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+
+        sqlx::query(
+            r#"
+            CREATE TEMP TABLE firewatch_stale_squads_critical_events AS
+            SELECT id
+            FROM events
+            WHERE kind = 'multisig_config_executed'
+              AND tags_json LIKE '%"severity:critical"%'
+              AND tags_json LIKE '%"protocol:squads"%'
+              AND tags_json LIKE '%"signal:multisig_config_change"%'
+              AND tags_json NOT LIKE '%"multisig:project_linked"%';
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?;
+
+        let matched_squads_critical_events = sqlx::query(
+            "SELECT COUNT(*) AS matched_squads_critical_events FROM firewatch_stale_squads_critical_events;",
+        )
+        .fetch_one(&mut *transaction)
+        .await?
+        .try_get::<i64, _>("matched_squads_critical_events")?;
+
+        let normalized_squads_events = sqlx::query(
+            r#"
+            UPDATE events
+            SET tags_json = (
+                SELECT COALESCE(json_group_array(value), '[]')
+                FROM (
+                    SELECT value
+                    FROM json_each(events.tags_json)
+                    WHERE value NOT IN (
+                        'alert:review_now',
+                        'impact:high',
+                        'sector:defi',
+                        'severity:critical',
+                        'signal:admin_instruction',
+                        'watch:defi'
+                    )
+                    ORDER BY key
+                )
+            )
+            WHERE id IN (SELECT id FROM firewatch_stale_squads_critical_events);
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+
+        let deleted_telegram_deliveries = sqlx::query(
+            r#"
+            DELETE FROM telegram_deliveries
+            WHERE event_id IN (SELECT id FROM firewatch_stale_unknown_instruction_events);
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+
+        let deleted_events = sqlx::query(
+            r#"
+            DELETE FROM events
+            WHERE id IN (SELECT id FROM firewatch_stale_unknown_instruction_events);
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+
+        transaction.commit().await?;
+
+        let remaining_critical_stale_unknown_events =
+            self.remaining_critical_stale_unknown_events().await?;
+        let remaining_squads_critical_events = self.remaining_squads_critical_events().await?;
+
+        Ok(CriticalNoiseCleanupReport {
+            meteora_dlmm_claim_protocol_fee2_events: stale_counts
+                .try_get::<i64, _>("meteora_dlmm_claim_protocol_fee2_events")?,
+            raydium_cpmm_known_instruction_events: stale_counts
+                .try_get::<i64, _>("raydium_cpmm_known_instruction_events")?,
+            raydium_clmm_known_instruction_events: stale_counts
+                .try_get::<i64, _>("raydium_clmm_known_instruction_events")?,
+            raydium_amm_v4_known_tag_events: stale_counts
+                .try_get::<i64, _>("raydium_amm_v4_known_tag_events")?,
+            kamino_topup_reserve_rewards_events: stale_counts
+                .try_get::<i64, _>("kamino_topup_reserve_rewards_events")?,
+            matched_hidden_anchor_idl_staging_events,
+            hidden_anchor_idl_staging_events,
+            matched_squads_critical_events,
+            normalized_squads_events,
+            deleted_telegram_deliveries,
+            deleted_events,
+            remaining_critical_stale_unknown_events,
+            remaining_squads_critical_events,
+        })
+    }
+
+    async fn remaining_critical_stale_unknown_events(&self) -> Result<i64> {
+        let row = sqlx::query(
+            r#"
+            SELECT COUNT(*) AS remaining_critical_stale_unknown_events
+            FROM events
+            WHERE kind = 'program_unknown_instruction'
+              AND (
+                  tags_json LIKE '%"severity:critical"%'
+                  OR tags_json LIKE '%"signal:unknown_instruction"%'
+              )
+              AND (
+                  (
+                      target_address = 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo'
+                      AND json_extract(payload_json, '$.discriminator') IN (
+                          '40f4bc78a7e9690a',
+                          'ebc23645410aec70'
+                      )
+                  )
+                  OR (
+                      target_address = 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C'
+                      AND json_extract(payload_json, '$.discriminator') IN (
+                          '1416567bc61cdb84',
+                          '3f37fe4131b25979'
+                      )
+                  )
+                  OR (
+                      target_address = 'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK'
+                      AND json_extract(payload_json, '$.discriminator') IN (
+                          '2b44d4a7592fa401',
+                          '4c7c800fd55725fa',
+                          '759d3c674231a300',
+                          '9d20dab7471d1293',
+                          'cd4e74215c691a60'
+                      )
+                  )
+                  OR (
+                      target_address = '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8'
+                      AND lower(substr(json_extract(payload_json, '$.discriminator'), 1, 2)) IN (
+                          '07',
+                          '09',
+                          '0b',
+                          '10',
+                          '11'
+                      )
+                  )
+                  OR (
+                      target_address = 'KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD'
+                      AND json_extract(payload_json, '$.discriminator') IN (
+                          '3fff82d36ed858ad',
+                          '40f4bc78a7e9690a'
+                      )
+                  )
+                  OR (
+                      target_address = 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc'
+                      AND json_extract(payload_json, '$.discriminator') = '40f4bc78a7e9690a'
+                  )
+              );
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row.try_get("remaining_critical_stale_unknown_events")?)
+    }
+
+    async fn remaining_squads_critical_events(&self) -> Result<i64> {
+        let row = sqlx::query(
+            r#"
+            SELECT COUNT(*) AS remaining_squads_critical_events
+            FROM events
+            WHERE kind = 'multisig_config_executed'
+              AND tags_json LIKE '%"severity:critical"%'
+              AND tags_json LIKE '%"protocol:squads"%'
+              AND tags_json LIKE '%"signal:multisig_config_change"%'
+              AND tags_json NOT LIKE '%"multisig:project_linked"%';
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row.try_get("remaining_squads_critical_events")?)
     }
 
     async fn app_state_value(&self, key: &str) -> Result<Option<String>> {

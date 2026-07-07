@@ -141,6 +141,20 @@ struct ProtocolInstructionDetails {
     payload_fields: Vec<(&'static str, String)>,
 }
 
+#[derive(Clone, Debug)]
+struct TransactionInstructionInvocation {
+    path: String,
+    program_id: Pubkey,
+    stack_height: Option<u32>,
+}
+
+#[derive(Clone, Debug)]
+struct LoggedInstructionInvocation {
+    program_id: Pubkey,
+    stack_height: Option<u32>,
+    instruction_name: Option<String>,
+}
+
 struct KaminoReserveConfigUpdate {
     mode: u8,
     mode_name: &'static str,
@@ -1183,7 +1197,7 @@ fn parse_treasury_token_outflow_event(
         watch.token_decimals as usize,
     );
     let summary = format!(
-        "Critical {} treasury outflow: {} {} sent",
+        "Critical {} large token transfer: {} {} sent",
         watch.protocol_name, display_amount, watch.token_symbol
     );
     let token_tag = watch.token_symbol.to_ascii_lowercase();
@@ -2469,6 +2483,139 @@ fn anchor_legacy_idl_authority(
         .map(|value| value.to_string())
 }
 
+fn logged_instruction_name_for_path(
+    tx: &ResolvedTransaction,
+    instruction_path: &str,
+) -> Option<String> {
+    let invocations = transaction_instruction_invocations(tx);
+    let logs = logged_instruction_invocations(tx);
+    let target_index = invocations
+        .iter()
+        .position(|invocation| invocation.path == instruction_path)?;
+    let mut log_index = 0;
+
+    for (invocation_index, invocation) in invocations.iter().enumerate() {
+        while log_index < logs.len() {
+            let log = &logs[log_index];
+            log_index += 1;
+
+            if log.program_id != invocation.program_id {
+                continue;
+            }
+
+            if !stack_height_matches(invocation.stack_height, log.stack_height) {
+                continue;
+            }
+
+            if invocation_index == target_index {
+                return log.instruction_name.clone();
+            }
+
+            break;
+        }
+    }
+
+    None
+}
+
+fn transaction_instruction_invocations(
+    tx: &ResolvedTransaction,
+) -> Vec<TransactionInstructionInvocation> {
+    let mut invocations = Vec::new();
+
+    for (index, instruction) in tx.top_level_instructions.iter().enumerate() {
+        let Some(top_level_program_id) = program_id(tx, instruction) else {
+            continue;
+        };
+        invocations.push(TransactionInstructionInvocation {
+            path: index.to_string(),
+            program_id: top_level_program_id,
+            stack_height: instruction.stack_height.or(Some(1)),
+        });
+
+        let Some(inner_set) = tx
+            .inner_instruction_sets
+            .iter()
+            .find(|set| set.index == index)
+        else {
+            continue;
+        };
+
+        for (inner_index, inner_instruction) in inner_set.instructions.iter().enumerate() {
+            let Some(inner_program_id) = program_id(tx, inner_instruction) else {
+                continue;
+            };
+            invocations.push(TransactionInstructionInvocation {
+                path: format!("{index}.{inner_index}"),
+                program_id: inner_program_id,
+                stack_height: inner_instruction.stack_height,
+            });
+        }
+    }
+
+    invocations
+}
+
+fn logged_instruction_invocations(tx: &ResolvedTransaction) -> Vec<LoggedInstructionInvocation> {
+    let mut invocations = Vec::new();
+    let mut stack = Vec::<usize>::new();
+
+    for line in &tx.log_messages {
+        if let Some((program_id, stack_height)) = parse_program_invoke_log(line) {
+            invocations.push(LoggedInstructionInvocation {
+                program_id,
+                stack_height: Some(stack_height),
+                instruction_name: None,
+            });
+            stack.push(invocations.len() - 1);
+            continue;
+        }
+
+        if let Some(instruction_name) = parse_program_instruction_log(line) {
+            if let Some(current_index) = stack.last().copied() {
+                if invocations[current_index].instruction_name.is_none() {
+                    invocations[current_index].instruction_name = Some(instruction_name);
+                }
+            }
+            continue;
+        }
+
+        if parse_program_completion_log(line).is_some() {
+            stack.pop();
+        }
+    }
+
+    invocations
+}
+
+fn parse_program_invoke_log(line: &str) -> Option<(Pubkey, u32)> {
+    let rest = line.strip_prefix("Program ")?;
+    let (program_id, rest) = rest.split_once(" invoke [")?;
+    let stack_height = rest.strip_suffix(']')?.parse().ok()?;
+    Some((Pubkey::from_str(program_id).ok()?, stack_height))
+}
+
+fn parse_program_instruction_log(line: &str) -> Option<String> {
+    let instruction_name = line.strip_prefix("Program log: Instruction: ")?.trim();
+    (!instruction_name.is_empty()).then(|| instruction_name.to_owned())
+}
+
+fn parse_program_completion_log(line: &str) -> Option<Pubkey> {
+    let rest = line.strip_prefix("Program ")?;
+    let (program_id, status) = rest.split_once(' ')?;
+    if status == "success" || status.starts_with("failed:") {
+        Pubkey::from_str(program_id).ok()
+    } else {
+        None
+    }
+}
+
+fn stack_height_matches(expected: Option<u32>, logged: Option<u32>) -> bool {
+    expected
+        .zip(logged)
+        .is_none_or(|(expected, logged)| expected == logged)
+}
+
 fn parse_protocol_instruction_event(
     tx: &ResolvedTransaction,
     instruction: &ResolvedInstruction,
@@ -2484,6 +2631,31 @@ fn parse_protocol_instruction_event(
             Some(signal) => signal,
             None => return Ok((None, Vec::new())),
         };
+    let mut instruction_name_source = None;
+    if matches!(signal.signal_kind, Some(ProtocolSignalKind::Unknown)) {
+        let discriminator_len = instruction.data.len().min(8);
+        if let Some(recovered_signal) = logged_instruction_name_for_path(tx, instruction_path)
+            .and_then(|instruction_name| {
+                protocols::resolve_logged_protocol_instruction(
+                    target_program,
+                    &instruction_name,
+                    &instruction.data[..discriminator_len],
+                )
+            })
+        {
+            debug!(
+                signature = %tx.signature,
+                slot,
+                instruction_path,
+                protocol = recovered_signal.protocol.slug,
+                instruction_name = recovered_signal.instruction_name.as_deref().unwrap_or("unknown"),
+                discriminator = %recovered_signal.discriminator_hex,
+                "recovered protocol instruction name from transaction logs",
+            );
+            signal = recovered_signal;
+            instruction_name_source = Some("transaction_log");
+        }
+    }
     let metric_observations = decode_protocol_metric_observations(
         tx,
         instruction,
@@ -2494,6 +2666,17 @@ fn parse_protocol_instruction_event(
     );
 
     let Some(signal_kind) = signal.signal_kind else {
+        if instruction_name_source.is_some() {
+            debug!(
+                signature = %tx.signature,
+                slot,
+                instruction_path,
+                protocol = signal.protocol.slug,
+                instruction_name = signal.instruction_name.as_deref().unwrap_or("unknown"),
+                discriminator = %signal.discriminator_hex,
+                "suppressed protocol unknown after transaction log name recovery",
+            );
+        }
         return Ok((None, metric_observations));
     };
 
@@ -2552,6 +2735,7 @@ fn parse_protocol_instruction_event(
                 parent_context,
                 high_impact,
                 &instruction_details,
+                instruction_name_source,
             ),
         )),
         metric_observations,
@@ -3151,6 +3335,7 @@ fn protocol_signal_payload(
     parent_context: Option<&ParentInstructionContext>,
     high_impact: bool,
     instruction_details: &ProtocolInstructionDetails,
+    instruction_name_source: Option<&str>,
 ) -> serde_json::Value {
     let target_program = signal.protocol.program_id;
     let mut payload = json!({
@@ -3193,6 +3378,9 @@ fn protocol_signal_payload(
     });
 
     if let Some(object) = payload.as_object_mut() {
+        if let Some(source) = instruction_name_source {
+            object.insert("instruction_name_source".to_owned(), json!(source));
+        }
         for (key, value) in &instruction_details.payload_fields {
             object.insert((*key).to_owned(), json!(value));
         }
@@ -4540,6 +4728,170 @@ mod tests {
         )
     }
 
+    fn meteora_dlmm_program_id() -> Pubkey {
+        Pubkey::from_str("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo").unwrap()
+    }
+
+    fn unknown_meteora_instruction() -> ResolvedInstruction {
+        ResolvedInstruction {
+            program_id_index: 0,
+            accounts: vec![],
+            data: vec![9, 9, 9, 9, 9, 9, 9, 9],
+            stack_height: Some(1),
+        }
+    }
+
+    fn meteora_log_transaction(
+        instruction_name: &str,
+    ) -> (ResolvedTransaction, ResolvedInstruction) {
+        let meteora_program = meteora_dlmm_program_id();
+        let instruction = unknown_meteora_instruction();
+        (
+            ResolvedTransaction {
+                signature: "meteora-log-test-signature".to_owned(),
+                primary_signer: None,
+                account_keys: vec![meteora_program],
+                top_level_instructions: vec![instruction.clone()],
+                inner_instruction_sets: vec![],
+                log_messages: vec![
+                    format!("Program {meteora_program} invoke [1]"),
+                    format!("Program log: Instruction: {instruction_name}"),
+                    format!("Program {meteora_program} success"),
+                ],
+            },
+            instruction,
+        )
+    }
+
+    #[test]
+    fn maps_transaction_log_instruction_name_to_inner_path() {
+        let route_program = Pubkey::new_unique();
+        let helper_program = Pubkey::new_unique();
+        let meteora_program = meteora_dlmm_program_id();
+        let tx = ResolvedTransaction {
+            signature: "log-path-test-signature".to_owned(),
+            primary_signer: None,
+            account_keys: vec![route_program, helper_program, meteora_program],
+            top_level_instructions: vec![ResolvedInstruction {
+                program_id_index: 0,
+                accounts: vec![],
+                data: vec![],
+                stack_height: Some(1),
+            }],
+            inner_instruction_sets: vec![ResolvedInnerInstructionSet {
+                index: 0,
+                instructions: vec![
+                    ResolvedInstruction {
+                        program_id_index: 1,
+                        accounts: vec![],
+                        data: vec![],
+                        stack_height: Some(2),
+                    },
+                    ResolvedInstruction {
+                        program_id_index: 2,
+                        accounts: vec![],
+                        data: vec![],
+                        stack_height: Some(3),
+                    },
+                ],
+            }],
+            log_messages: vec![
+                format!("Program {route_program} invoke [1]"),
+                "Program log: Instruction: Route".to_owned(),
+                format!("Program {helper_program} invoke [2]"),
+                format!("Program {meteora_program} invoke [3]"),
+                "Program log: Instruction: Swap".to_owned(),
+                format!("Program {meteora_program} success"),
+                format!("Program {helper_program} success"),
+                format!("Program {route_program} success"),
+            ],
+        };
+
+        assert_eq!(
+            logged_instruction_name_for_path(&tx, "0").as_deref(),
+            Some("Route")
+        );
+        assert_eq!(logged_instruction_name_for_path(&tx, "0.0"), None);
+        assert_eq!(
+            logged_instruction_name_for_path(&tx, "0.1").as_deref(),
+            Some("Swap")
+        );
+    }
+
+    #[test]
+    fn suppresses_meteora_unknown_when_transaction_log_names_non_admin_instruction() {
+        let (tx, instruction) = meteora_log_transaction("Swap");
+        let (event, metric_observations) =
+            parse_protocol_instruction_event(&tx, &instruction, 1, None, "0", None).unwrap();
+
+        assert!(event.is_none());
+        assert!(metric_observations.is_empty());
+    }
+
+    #[test]
+    fn keeps_meteora_unknown_when_transaction_log_has_no_instruction_name() {
+        let meteora_program = meteora_dlmm_program_id();
+        let instruction = unknown_meteora_instruction();
+        let tx = ResolvedTransaction {
+            signature: "meteora-unknown-test-signature".to_owned(),
+            primary_signer: None,
+            account_keys: vec![meteora_program],
+            top_level_instructions: vec![instruction.clone()],
+            inner_instruction_sets: vec![],
+            log_messages: vec![
+                format!("Program {meteora_program} invoke [1]"),
+                format!("Program {meteora_program} success"),
+            ],
+        };
+        let (event, _) =
+            parse_protocol_instruction_event(&tx, &instruction, 1, None, "0", None).unwrap();
+        let event = event.expect("unnamed unknown instruction should still emit");
+
+        assert_eq!(event.kind, event_kind::PROGRAM_UNKNOWN_INSTRUCTION);
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "signal:unknown_instruction")
+        );
+    }
+
+    #[test]
+    fn emits_meteora_admin_when_transaction_log_names_admin_instruction() {
+        let (tx, instruction) = meteora_log_transaction("SetPermissionlessOperationBits");
+        let (event, _) =
+            parse_protocol_instruction_event(&tx, &instruction, 1, None, "0", None).unwrap();
+        let event = event.expect("logged admin instruction should emit");
+
+        assert_eq!(event.kind, event_kind::PROGRAM_ADMIN_INSTRUCTION);
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "signal:admin_instruction")
+        );
+        assert!(
+            !event
+                .tags
+                .iter()
+                .any(|tag| tag == "signal:unknown_instruction")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("instruction_name")
+                .and_then(|value| value.as_str()),
+            Some("set_permissionless_operation_bits")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("instruction_name_source")
+                .and_then(|value| value.as_str()),
+            Some("transaction_log")
+        );
+    }
+
     fn sample_orca_config_extension_authority_event(
         whirlpools_config: Pubkey,
         whirlpools_config_extension: Pubkey,
@@ -4921,7 +5273,7 @@ mod tests {
         assert_eq!(event.target_address, protocols::BONK_DAO_TREASURY_WALLET);
         assert_eq!(
             event.summary,
-            "Critical Bonk DAO treasury outflow: 4426104450305.966 BONK sent"
+            "Critical Bonk DAO large token transfer: 4426104450305.966 BONK sent"
         );
         assert!(event.tags.iter().any(|tag| tag == "protocol:bonk_dao"));
         assert!(
