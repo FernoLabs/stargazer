@@ -248,6 +248,8 @@ pub struct CriticalNoiseCleanupReport {
     pub normalized_squads_events: u64,
     pub matched_project_linked_multisig_critical_events: i64,
     pub promoted_project_linked_multisig_critical_events: u64,
+    pub matched_high_impact_admin_critical_events: i64,
+    pub promoted_high_impact_admin_critical_events: u64,
     pub matched_actor_only_domain_protocol_events: i64,
     pub normalized_actor_only_domain_protocol_events: u64,
     pub deleted_actor_only_domain_telegram_deliveries: u64,
@@ -7357,6 +7359,9 @@ impl Database {
         sqlx::query("DROP TABLE IF EXISTS temp.firewatch_project_linked_multisig_critical_events;")
             .execute(&mut *transaction)
             .await?;
+        sqlx::query("DROP TABLE IF EXISTS temp.firewatch_high_impact_admin_critical_events;")
+            .execute(&mut *transaction)
+            .await?;
         sqlx::query("DROP TABLE IF EXISTS temp.firewatch_actor_only_domain_protocol_events;")
             .execute(&mut *transaction)
             .await?;
@@ -7637,6 +7642,81 @@ impl Database {
 
         sqlx::query(
             r#"
+            CREATE TEMP TABLE firewatch_high_impact_admin_critical_events AS
+            SELECT id
+            FROM events
+            WHERE kind = 'program_admin_instruction'
+              AND tags_json LIKE '%"signal:admin_instruction"%'
+              AND tags_json NOT LIKE '%"source:spl_governance"%'
+              AND COALESCE(json_extract(payload_json, '$.classification'), '') <> 'hidden'
+              AND (
+                  tags_json LIKE '%"impact:high"%'
+                  OR COALESCE(json_extract(payload_json, '$.high_impact'), 0) = 1
+              )
+              AND (
+                  tags_json NOT LIKE '%"alert:review_now"%'
+                  OR tags_json NOT LIKE '%"impact:high"%'
+                  OR tags_json NOT LIKE '%"severity:critical"%'
+                  OR tags_json LIKE '%"severity:high"%'
+                  OR tags_json LIKE '%"severity:standard"%'
+                  OR COALESCE(json_extract(payload_json, '$.severity'), '') <> 'critical'
+                  OR COALESCE(json_extract(payload_json, '$.high_impact'), 0) <> 1
+              );
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?;
+
+        let matched_high_impact_admin_critical_events = sqlx::query(
+            r#"
+            SELECT COUNT(*) AS matched_high_impact_admin_critical_events
+            FROM firewatch_high_impact_admin_critical_events;
+            "#,
+        )
+        .fetch_one(&mut *transaction)
+        .await?
+        .try_get::<i64, _>("matched_high_impact_admin_critical_events")?;
+
+        let promoted_high_impact_admin_critical_events = sqlx::query(
+            r#"
+            UPDATE events
+            SET
+                summary = CASE
+                    WHEN summary LIKE 'High-impact %' THEN 'Critical ' || substr(summary, 13)
+                    ELSE summary
+                END,
+                tags_json = (
+                    SELECT COALESCE(json_group_array(value), '[]')
+                    FROM (
+                        SELECT value
+                        FROM json_each(events.tags_json)
+                        WHERE value NOT IN (
+                            'severity:high',
+                            'severity:standard'
+                        )
+                        UNION
+                        SELECT 'alert:review_now'
+                        UNION
+                        SELECT 'impact:high'
+                        UNION
+                        SELECT 'severity:critical'
+                        ORDER BY value
+                    )
+                ),
+                payload_json = json_set(
+                    payload_json,
+                    '$.severity', 'critical',
+                    '$.high_impact', json('true')
+                )
+            WHERE id IN (SELECT id FROM firewatch_high_impact_admin_critical_events);
+            "#,
+        )
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+
+        sqlx::query(
+            r#"
             CREATE TEMP TABLE firewatch_stale_squads_critical_events AS
             SELECT id
             FROM events
@@ -7817,6 +7897,8 @@ impl Database {
             normalized_squads_events,
             matched_project_linked_multisig_critical_events,
             promoted_project_linked_multisig_critical_events,
+            matched_high_impact_admin_critical_events,
+            promoted_high_impact_admin_critical_events,
             matched_actor_only_domain_protocol_events,
             normalized_actor_only_domain_protocol_events,
             deleted_actor_only_domain_telegram_deliveries,
@@ -9813,6 +9895,130 @@ mod tests {
             )
             .await?;
         assert!(drift_critical.iter().any(|event| event.id == event_id));
+
+        let _ = std::fs::remove_file(db_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cleanup_promotes_stale_high_impact_admin_rows() -> Result<()> {
+        let db_path = std::env::temp_dir().join(format!(
+            "firewatch-promote-high-impact-admin-critical-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let database_url = format!("sqlite://{}", db_path.display());
+        let db = Database::connect(&database_url, BlobStore::new(None, None)?).await?;
+        db.migrate().await?;
+
+        let drift_program = "dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH";
+        let event_id = "drift-update-admin-test:2.0:program_admin_instruction:dRifty".to_owned();
+        db.insert_event(&ChainEvent {
+            id: event_id.clone(),
+            signature: "drift-update-admin-test".to_owned(),
+            instruction_path: "2.0".to_owned(),
+            kind: event_kind::PROGRAM_ADMIN_INSTRUCTION.to_owned(),
+            target_type: target_type::PROGRAM.to_owned(),
+            target_address: drift_program.to_owned(),
+            actor: Some("6UJbu9ut5VAsFYQFgPEa5xPfoyF5bB5oi4EknFPvu924".to_owned()),
+            slot: 410_344_009,
+            block_time: Some(1_775_059_519),
+            indexed_at: 1_779_133_023,
+            summary: "High-impact Drift admin instruction update_admin via Squads multisig 2LW6PSEjp81xSEttWwXDB6Etb1eKdhYPbFEojYbyhx88".to_owned(),
+            tags: vec![
+                "impact:high".to_owned(),
+                "instruction:update_admin".to_owned(),
+                "protocol:drift".to_owned(),
+                "sector:defi".to_owned(),
+                "severity:high".to_owned(),
+                "signal:admin_instruction".to_owned(),
+                "source:squads".to_owned(),
+                "target:program".to_owned(),
+                "watch:defi".to_owned(),
+            ],
+            payload: json!({
+                "call_origin": "squads_execution",
+                "classification": "admin",
+                "high_impact": true,
+                "instruction_name": "update_admin",
+                "multisig": "2LW6PSEjp81xSEttWwXDB6Etb1eKdhYPbFEojYbyhx88",
+                "program": drift_program,
+                "protocol": "drift",
+                "protocol_name": "Drift",
+                "severity": "high",
+                "via_multisig": true
+            }),
+            delivery_attempts: 0,
+            delivered_at: None,
+            last_error: None,
+            next_retry_at: 1_779_133_023,
+        })
+        .await?;
+
+        let report = db.cleanup_stale_critical_noise().await?;
+        assert_eq!(report.matched_high_impact_admin_critical_events, 1);
+        assert_eq!(report.promoted_high_impact_admin_critical_events, 1);
+
+        let event = db.event_by_id(&event_id).await?.expect("promoted event");
+        assert!(
+            event
+                .summary
+                .starts_with("Critical Drift admin instruction update_admin")
+        );
+        assert!(event.has_tag("alert:review_now"));
+        assert!(event.has_tag("impact:high"));
+        assert!(event.has_tag("severity:critical"));
+        assert!(!event.has_tag("severity:high"));
+        assert_eq!(
+            event
+                .payload
+                .get("severity")
+                .and_then(|value| value.as_str()),
+            Some("critical")
+        );
+
+        let related_multisigs = Vec::new();
+        let related_governances = Vec::new();
+        let drift_critical = db
+            .list_events_filtered(
+                10,
+                0,
+                EventListFilters {
+                    protocol_slug: Some("drift"),
+                    related_multisigs: &related_multisigs,
+                    related_governances: &related_governances,
+                    target_address: None,
+                    scope: None,
+                    search: None,
+                    severity: Some("critical"),
+                    known_defi_only: false,
+                    tag: None,
+                    from_ts: None,
+                    before_ts: None,
+                },
+            )
+            .await?;
+        assert!(drift_critical.iter().any(|event| event.id == event_id));
+
+        let drift_high = db
+            .list_events_filtered(
+                10,
+                0,
+                EventListFilters {
+                    protocol_slug: Some("drift"),
+                    related_multisigs: &related_multisigs,
+                    related_governances: &related_governances,
+                    target_address: None,
+                    scope: None,
+                    search: None,
+                    severity: Some("high"),
+                    known_defi_only: false,
+                    tag: None,
+                    from_ts: None,
+                    before_ts: None,
+                },
+            )
+            .await?;
+        assert!(!drift_high.iter().any(|event| event.id == event_id));
 
         let _ = std::fs::remove_file(db_path);
         Ok(())
