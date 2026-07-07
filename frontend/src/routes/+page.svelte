@@ -488,8 +488,14 @@
 	function eventSeverity(event: ChainEvent): AlertSeverity {
 		const payloadSeverity = payloadString(event, 'severity');
 		const isHidden = payloadSeverity === 'hidden' || payloadString(event, 'classification') === 'hidden';
+		const isHiddenAnchorUnknown =
+			event.kind === 'program_unknown_instruction' &&
+			event.tags.includes('signal:unknown_instruction') &&
+			isHidden &&
+			payloadString(event, 'instruction_name') === 'legacy_anchor_idl_staging' &&
+			payloadString(event, 'discriminator') === '40f4bc78a7e9690a';
 		if (
-			!isHidden &&
+			(!isHidden || isHiddenAnchorUnknown) &&
 			(payloadSeverity === 'critical' ||
 				event.tags.includes('severity:critical') ||
 				event.tags.includes('signal:unknown_instruction'))
