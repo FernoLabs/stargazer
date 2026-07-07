@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import ProtocolIdentity from '$lib/components/ProtocolIdentity.svelte';
 	import { WalletButton, wallet } from '@fernolab/wallet-adapter-svelte';
@@ -17,6 +18,7 @@
 	import type { PageData } from './$types';
 	import type {
 		MetricAlertPreset,
+		PaymentLink,
 		TelegramDeliveryMode,
 		TelegramSubscription,
 		WalletHistoryScanResponse
@@ -52,6 +54,7 @@
 	type SelectableProtocol = PageData['defiProtocols'][number];
 
 	const CURATED_PROTOCOL_LIMIT = 100;
+	const PAYMENT_LINK_PREVIEW_LIMIT = 3;
 	const WALLET_HISTORY_SCAN_LIMIT = 100;
 	const USER_PROTOCOL_PREVIEW_LIMIT = 8;
 	const SELECTED_PROTOCOL_PREVIEW_LIMIT = 12;
@@ -822,6 +825,70 @@
 		return `${amount} ${pricingToken()}`;
 	}
 
+	function paymentLinks() {
+		return [...(data.billing?.payment_links ?? [])].sort((left, right) => right.created_at - left.created_at);
+	}
+
+	function activePaymentLinks() {
+		const now = Math.floor(Date.now() / 1000);
+		return paymentLinks()
+			.filter((link) => link.status === 'pending' && link.expires_at > now)
+			.slice(0, PAYMENT_LINK_PREVIEW_LIMIT);
+	}
+
+	function visiblePaymentLinks() {
+		const pending = activePaymentLinks();
+		return pending.length > 0 ? pending : paymentLinks().slice(0, PAYMENT_LINK_PREVIEW_LIMIT);
+	}
+
+	function primaryPaymentLink() {
+		return activePaymentLinks()[0] ?? null;
+	}
+
+	function paymentLinkToken(link: PaymentLink) {
+		return link.spl_token ? pricingToken() : 'SOL';
+	}
+
+	function paymentLinkAmountLine(link: PaymentLink) {
+		return `${link.amount} ${paymentLinkToken(link)}`;
+	}
+
+	function paymentLinkStatusLabel(link: PaymentLink) {
+		if (link.status === 'pending' && link.expires_at <= Math.floor(Date.now() / 1000)) {
+			return 'expired';
+		}
+		return link.status.replaceAll('_', ' ');
+	}
+
+	function paymentLinkDetail(link: PaymentLink) {
+		const status = paymentLinkStatusLabel(link);
+		if (status === 'paid' && link.paid_at) return `Paid ${formatTimestamp(link.paid_at)}`;
+		if (status === 'expired') return `Expired ${formatTimestamp(link.expires_at)}`;
+		return `${status} · expires ${formatTimestamp(link.expires_at)}`;
+	}
+
+	function paymentLinkCheckoutToken(link: PaymentLink) {
+		try {
+			const pathname = new URL(link.public_url).pathname;
+			return pathname.split('/pay/')[1]?.split('/')[0] ?? '';
+		} catch {
+			return link.public_url.split('/pay/')[1]?.split('/')[0] ?? '';
+		}
+	}
+
+	function billingStatusLine() {
+		if (data.billing?.active) return 'Live alerts active';
+		if (activePaymentLinks().length > 0) return 'Payment link ready';
+		return 'Checkout not opened yet';
+	}
+
+	function billingPlanLine() {
+		const month = billingAmountLine('month');
+		const year = billingAmountLine('year');
+		if (month && year) return `${month} monthly · ${year} yearly`;
+		return month ?? year ?? 'Configured at checkout';
+	}
+
 	function saveButtonLabel() {
 		if (canSaveClearedConfig) return 'Save cleared config';
 		if (!hasDeliveryModeSelected) return 'Choose delivery';
@@ -1360,6 +1427,29 @@
 			{#each data.subscriptions ?? [] as subscription (subscription.id)}
 				<input type="hidden" name="unsubscribe_ids" value={subscription.id} />
 			{/each}
+			<div class="panel mobile-payment-strip">
+				<div>
+					<strong>Payment</strong>
+					<span>{billingStatusLine()}</span>
+				</div>
+				<p>{data.billing?.active ? 'Live alerts are active.' : billingPlanLine()}</p>
+				{#if primaryPaymentLink()}
+					{#each activePaymentLinks().slice(0, 1) as mobilePaymentLink (mobilePaymentLink.id)}
+						<a href={resolve('/pay/[token]', { token: paymentLinkCheckoutToken(mobilePaymentLink) })}>
+							Pay {paymentLinkAmountLine(mobilePaymentLink)}
+						</a>
+					{/each}
+				{:else if !data.billing?.active}
+					<button
+						class="secondary-button"
+						type="submit"
+						formaction="?/create_checkout"
+						formmethod="POST"
+					>
+						Create checkout link
+					</button>
+				{/if}
+			</div>
 			<div class="config-layout">
 				<div class="config-main">
 					<section class="panel field-panel">
@@ -1905,6 +1995,83 @@
 								<strong>{deliverySummaryLabel()}</strong>
 							</div>
 						</div>
+
+						<div class="review-group payment-group">
+							<div class="review-group-head">
+								<strong>Payment</strong>
+								<span>{data.billing?.active ? 'Current access' : 'Checkout'}</span>
+							</div>
+							<div class="payment-summary">
+								<div>
+									<span>Status</span>
+									<strong>{billingStatusLine()}</strong>
+								</div>
+								{#if data.billing?.active}
+									<div>
+										<span>Credit</span>
+										<strong>{data.billing.balance_months} mo</strong>
+									</div>
+									{#if data.billing.next_payment_due_at}
+										<div>
+											<span>Next due</span>
+											<strong>{formatTimestamp(data.billing.next_payment_due_at)}</strong>
+										</div>
+									{/if}
+								{:else}
+									<div>
+										<span>Plan</span>
+										<strong>{billingPlanLine()}</strong>
+									</div>
+								{/if}
+							</div>
+							{#if !data.billing?.active}
+								<div class="billing-row compact">
+									<label>
+										<input type="radio" name="billing" value="month" checked />
+										<span>Monthly</span>
+										{#if billingAmountLine('month')}
+											<small>{billingAmountLine('month')}</small>
+										{/if}
+									</label>
+									<label>
+										<input type="radio" name="billing" value="year" />
+										<span>Yearly</span>
+										{#if billingAmountLine('year')}
+											<small>{billingAmountLine('year')}</small>
+										{/if}
+									</label>
+								</div>
+							{/if}
+							{#if visiblePaymentLinks().length > 0}
+								<div class="payment-link-list">
+									{#each visiblePaymentLinks() as link (link.id)}
+										<div class="payment-link-row">
+											<div>
+												<strong>{paymentLinkAmountLine(link)}</strong>
+												<span>{paymentLinkDetail(link)}</span>
+											</div>
+											<a href={resolve('/pay/[token]', { token: paymentLinkCheckoutToken(link) })}>
+												{link.status === 'pending' ? 'Pay' : 'Open'}
+											</a>
+										</div>
+									{/each}
+								</div>
+							{/if}
+							{#if !data.billing?.active}
+								<div class="payment-action-row">
+									<button
+										class="secondary-button payment-create-button"
+										type="submit"
+										formaction="?/create_checkout"
+										formmethod="POST"
+									>
+										Create checkout link
+									</button>
+									<span>Opens a Solana Pay checkout for the selected billing period.</span>
+								</div>
+							{/if}
+						</div>
+
 						<div class="review-group">
 							<div class="review-group-head">
 								<strong>Delivery</strong>
@@ -1933,30 +2100,6 @@
 								</label>
 							</div>
 						</div>
-						{#if needsLiveCheckout}
-							<div class="review-group">
-								<div class="review-group-head">
-									<strong>Checkout</strong>
-									<span>Required for live alerts</span>
-								</div>
-								<div class="billing-row compact">
-									<label>
-										<input type="radio" name="billing" value="month" checked />
-										<span>Monthly</span>
-										{#if billingAmountLine('month')}
-											<small>{billingAmountLine('month')}</small>
-										{/if}
-									</label>
-									<label>
-										<input type="radio" name="billing" value="year" />
-										<span>Yearly</span>
-										{#if billingAmountLine('year')}
-											<small>{billingAmountLine('year')}</small>
-										{/if}
-									</label>
-								</div>
-							</div>
-						{/if}
 						{#if data.billing?.active && liveDeliveryEnabled}
 							<p class="review-note success">Live alerts are active for this Telegram user.</p>
 						{:else if dailyDeliveryEnabled && !liveDeliveryEnabled}
@@ -2114,6 +2257,10 @@
 		background: #fff;
 		border: 1px solid rgba(23, 32, 42, 0.08);
 		border-radius: 10px;
+	}
+
+	.mobile-payment-strip {
+		display: none;
 	}
 
 	.setup-intro {
@@ -3049,6 +3196,121 @@
 		text-align: right;
 	}
 
+	.payment-summary,
+	.payment-link-list,
+	.payment-action-row {
+		display: grid;
+		gap: 0.5rem;
+		min-width: 0;
+	}
+
+	.payment-summary div,
+	.payment-link-row {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: baseline;
+		gap: 0.75rem;
+		padding: 0.62rem 0;
+		border-bottom: 1px solid rgba(23, 32, 42, 0.08);
+		min-width: 0;
+	}
+
+	.payment-summary div:last-child {
+		border-bottom: 0;
+	}
+
+	.payment-summary span,
+	.payment-link-row span,
+	.payment-action-row span {
+		color: #5f6c79;
+		font-size: 0.82rem;
+		font-weight: 700;
+		line-height: 1.35;
+	}
+
+	.payment-summary strong,
+	.payment-link-row strong {
+		text-align: right;
+		overflow-wrap: anywhere;
+	}
+
+	.payment-link-list {
+		padding: 0.12rem 0;
+	}
+
+	.payment-link-row {
+		align-items: center;
+		padding: 0.58rem 0;
+	}
+
+	.payment-link-row div {
+		display: grid;
+		gap: 0.12rem;
+		min-width: 0;
+	}
+
+	.payment-link-row div strong,
+	.payment-link-row div span {
+		text-align: left;
+	}
+
+	.payment-link-row a {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 2rem;
+		padding: 0 0.68rem;
+		border: 1px solid rgba(189, 74, 23, 0.3);
+		border-radius: 8px;
+		background: rgba(189, 74, 23, 0.06);
+		color: #8f3a16;
+		font-size: 0.8rem;
+		font-weight: 850;
+		text-decoration: none;
+	}
+
+	.payment-create-button {
+		justify-self: stretch;
+	}
+
+	.mobile-payment-strip div {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: baseline;
+		gap: 0.75rem;
+		min-width: 0;
+	}
+
+	.mobile-payment-strip p {
+		margin: 0;
+		color: #5f6c79;
+		font-size: 0.82rem;
+		font-weight: 700;
+		line-height: 1.35;
+	}
+
+	.mobile-payment-strip span {
+		color: #5f6c79;
+		font-size: 0.78rem;
+		font-weight: 750;
+		text-align: right;
+	}
+
+	.mobile-payment-strip a {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 2.35rem;
+		padding: 0 0.88rem;
+		border: 1px solid #bd4a17;
+		border-radius: 8px;
+		background: #bd4a17;
+		color: #fff;
+		font-size: 0.84rem;
+		font-weight: 850;
+		text-decoration: none;
+	}
+
 	.review-note {
 		margin: 0;
 		padding: 0.62rem 0.7rem;
@@ -3157,6 +3419,11 @@
 		.config-layout,
 		.program-filters {
 			grid-template-columns: 1fr;
+		}
+
+		.mobile-payment-strip {
+			display: grid;
+			gap: 0.55rem;
 		}
 
 		.setup-intro {
