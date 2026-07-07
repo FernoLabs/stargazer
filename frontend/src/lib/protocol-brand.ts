@@ -30,6 +30,11 @@ const EXPLICIT_LOGO_IDS: Record<string, string> = {
 	wasabi: 'wasabi'
 };
 
+const EXPLICIT_LOGO_URLS: Record<string, string> = {
+	bonk_dao:
+		'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/6dhTynDkYsVM7cbF7TKfC9DWB636TcEM935fq7JzL2ES/logo.png'
+};
+
 export function protocolLogoId(slug: string | null) {
 	if (!slug) return null;
 	if (slug === 'ferno') return null;
@@ -37,6 +42,9 @@ export function protocolLogoId(slug: string | null) {
 }
 
 export function protocolLogoUrl(slug: string | null, failed: Record<string, true> = {}) {
+	if (slug && failed[slug]) return null;
+	if (slug && EXPLICIT_LOGO_URLS[slug]) return EXPLICIT_LOGO_URLS[slug];
+
 	const logoId = protocolLogoId(slug);
 	if (!logoId || failed[logoId]) return null;
 	return `https://raw.githubusercontent.com/jup-ag/platform-list/main/img/${logoId}.webp`;
