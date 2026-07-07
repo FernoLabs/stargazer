@@ -263,6 +263,13 @@ pub struct ActorOnlyDomainProtocolCleanupReport {
     pub remaining: i64,
 }
 
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct MultisigProjectLinkAnnotationReport {
+    pub matched_unlinked_events: i64,
+    pub updated_events: u64,
+    pub remaining_unlinked_events: i64,
+}
+
 impl Database {
     pub async fn connect(database_url: &str, blob_store: BlobStore) -> Result<Self> {
         let connect_options = SqliteConnectOptions::from_str(database_url)?
@@ -7712,6 +7719,116 @@ impl Database {
         Ok(row.try_get("count")?)
     }
 
+    pub async fn annotate_existing_multisig_project_links(
+        &self,
+    ) -> Result<MultisigProjectLinkAnnotationReport> {
+        let matched_unlinked_events = self.unlinked_protocol_multisig_event_count().await?;
+        let mut protocol_names = protocols::curated_protocol_descriptors()
+            .into_iter()
+            .map(|descriptor| (descriptor.slug, descriptor.name))
+            .collect::<Vec<_>>();
+        protocol_names.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            r#"
+            WITH protocol_names(protocol_slug, protocol_name) AS (
+            "#,
+        );
+        builder.push_values(protocol_names.iter(), |mut row, (slug, name)| {
+            row.push_bind(slug).push_bind(name);
+        });
+        builder.push(
+            r#"
+            ),
+            link_groups AS (
+                SELECT
+                    links.multisig,
+                    json_group_array(
+                        json_object(
+                            'protocol', links.protocol_slug,
+                            'protocol_name', COALESCE(protocol_names.protocol_name, links.protocol_slug),
+                            'evidence', links.evidence
+                        )
+                    ) AS linked_protocols_json
+                FROM (
+                    SELECT DISTINCT
+                        multisig,
+                        protocol_slug,
+                        evidence
+                    FROM protocol_multisig_links
+                    ORDER BY multisig ASC, protocol_slug ASC, evidence ASC
+                ) AS links
+                LEFT JOIN protocol_names ON protocol_names.protocol_slug = links.protocol_slug
+                GROUP BY links.multisig
+            )
+            UPDATE events
+            SET
+                tags_json = (
+                    SELECT COALESCE(json_group_array(value), '[]')
+                    FROM (
+                        SELECT value
+                        FROM json_each(events.tags_json)
+                        UNION
+                        SELECT 'sector:defi'
+                        UNION
+                        SELECT 'watch:defi'
+                        UNION
+                        SELECT 'multisig:project_linked'
+                        UNION
+                        SELECT 'protocol:' || protocol_slug
+                        FROM protocol_multisig_links
+                        WHERE protocol_multisig_links.multisig = events.target_address
+                        ORDER BY value
+                    )
+                ),
+                payload_json = json_set(
+                    payload_json,
+                    '$.linked_protocols',
+                    json((
+                        SELECT linked_protocols_json
+                        FROM link_groups
+                        WHERE link_groups.multisig = events.target_address
+                    ))
+                )
+            WHERE target_type = 'multisig'
+              AND tags_json NOT LIKE '%"multisig:project_linked"%'
+              AND EXISTS (
+                  SELECT 1
+                  FROM protocol_multisig_links
+                  WHERE protocol_multisig_links.multisig = events.target_address
+              );
+            "#,
+        );
+        let updated_events = builder.build().execute(&self.pool).await?.rows_affected();
+        let remaining_unlinked_events = self.unlinked_protocol_multisig_event_count().await?;
+
+        Ok(MultisigProjectLinkAnnotationReport {
+            matched_unlinked_events,
+            updated_events,
+            remaining_unlinked_events,
+        })
+    }
+
+    async fn unlinked_protocol_multisig_event_count(&self) -> Result<i64> {
+        let row = sqlx::query(
+            r#"
+            SELECT COUNT(*) AS count
+            FROM events
+            WHERE target_type = 'multisig'
+              AND tags_json NOT LIKE '%"multisig:project_linked"%'
+              AND EXISTS (
+                  SELECT 1
+                  FROM protocol_multisig_links
+                  WHERE protocol_multisig_links.multisig = events.target_address
+              );
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row.try_get("count")?)
+    }
+
     async fn app_state_value(&self, key: &str) -> Result<Option<String>> {
         let row = sqlx::query(
             r#"
@@ -9133,6 +9250,89 @@ mod tests {
         assert_eq!(
             versions[0].previous_program_sha256.as_deref(),
             Some(sha256_hex(b"old").as_str())
+        );
+
+        let _ = std::fs::remove_file(db_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn annotates_existing_multisig_events_from_protocol_links() -> Result<()> {
+        let db_path = std::env::temp_dir().join(format!(
+            "firewatch-annotate-existing-multisig-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let database_url = format!("sqlite://{}", db_path.display());
+        let db = Database::connect(&database_url, BlobStore::new(None, None)?).await?;
+        db.migrate().await?;
+
+        let multisig = "Multisig111111111111111111111111111111111111".to_owned();
+        let event_id = "sig:0:multisig_proposal_approved:multisig".to_owned();
+        db.insert_event(&ChainEvent {
+            id: event_id.clone(),
+            signature: "sig".to_owned(),
+            instruction_path: "0".to_owned(),
+            kind: event_kind::MULTISIG_PROPOSAL_APPROVED.to_owned(),
+            target_type: target_type::MULTISIG.to_owned(),
+            target_address: multisig.clone(),
+            actor: Some("Member111111111111111111111111111111111111".to_owned()),
+            slot: 42,
+            block_time: Some(100),
+            indexed_at: 100,
+            summary: "Squads approval".to_owned(),
+            tags: vec![
+                "protocol:squads".to_owned(),
+                "signal:multisig".to_owned(),
+                "source:squads".to_owned(),
+                "target:multisig".to_owned(),
+            ],
+            payload: json!({
+                "protocol": "squads",
+                "protocol_name": "Squads",
+                "multisig": multisig.clone(),
+            }),
+            delivery_attempts: 0,
+            delivered_at: None,
+            last_error: None,
+            next_retry_at: 100,
+        })
+        .await?;
+
+        db.replace_protocol_multisig_links(
+            "test",
+            &[ProtocolMultisigLinkWrite {
+                protocol_slug: "meteora_dlmm".to_owned(),
+                multisig: multisig.clone(),
+                authority: "Vault11111111111111111111111111111111111111".to_owned(),
+                program_id: "Program111111111111111111111111111111111111".to_owned(),
+                program_label: "DLMM".to_owned(),
+                evidence: "Program upgrade authority is Squads vault 0".to_owned(),
+                source: "test".to_owned(),
+                vault_index: Some(0),
+            }],
+        )
+        .await?;
+
+        let report = db.annotate_existing_multisig_project_links().await?;
+        assert_eq!(report.matched_unlinked_events, 1);
+        assert_eq!(report.updated_events, 1);
+        assert_eq!(report.remaining_unlinked_events, 0);
+
+        let event = db.event_by_id(&event_id).await?.expect("updated event");
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "multisig:project_linked")
+        );
+        assert!(event.tags.iter().any(|tag| tag == "watch:defi"));
+        assert!(event.tags.iter().any(|tag| tag == "protocol:meteora_dlmm"));
+        assert!(
+            event
+                .payload
+                .get("linked_protocols")
+                .and_then(|value| value.as_array())
+                .is_some_and(|items| !items.is_empty())
         );
 
         let _ = std::fs::remove_file(db_path);

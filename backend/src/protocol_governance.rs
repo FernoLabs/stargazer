@@ -1,7 +1,7 @@
 use crate::{context::SharedState, database::ProtocolGovernanceLinkWrite, protocols};
 use anyhow::{Context, Result, anyhow, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use solana_sdk::pubkey::Pubkey;
 use std::{
@@ -37,7 +37,7 @@ struct GovernanceAccount {
     governed_account: String,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct ProtocolGovernanceSyncReport {
     pub governance_program_count: usize,
     pub realm_count: usize,

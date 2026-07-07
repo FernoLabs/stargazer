@@ -5,7 +5,7 @@ use crate::{
 };
 use anyhow::{Context, Result, anyhow, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use solana_sdk::pubkey::Pubkey;
@@ -42,7 +42,7 @@ struct SquadsAuthorityLink {
     vault_index: Option<i64>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct ProtocolAuthoritySyncReport {
     pub program_count: usize,
     pub upgradeable_program_count: usize,

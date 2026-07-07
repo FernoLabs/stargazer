@@ -15,7 +15,7 @@ use crate::{
         TelegramDeliveryMode, TelegramSubscription, TelegramSubscriptionSummaryResponse,
         TelegramSubscriptionsResponse, UpsertFirewatchUserRequest,
     },
-    name_service, protocols, telegram,
+    name_service, program_authority, protocol_governance, protocols, telegram,
 };
 use axum::{
     Json, Router,
@@ -164,6 +164,10 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
             "/api/admin/cleanup/actor-only-domain-links",
             axum::routing::post(cleanup_actor_only_domain_links),
         )
+        .route(
+            "/api/admin/sync/protocol-links",
+            axum::routing::post(sync_protocol_links),
+        )
         .with_state(state.clone())
         .layer(from_fn(apply_cache_control))
         .layer(from_fn_with_state(state.clone(), require_origin_token));
@@ -307,6 +311,14 @@ struct EventsQuery {
 #[serde(deny_unknown_fields)]
 struct ProtocolsQuery {
     include: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SyncProtocolLinksQuery {
+    vault_index_count: Option<u8>,
+    discover_all_squads: Option<bool>,
+    include_governance: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -649,6 +661,47 @@ async fn cleanup_actor_only_domain_links(
         .await
         .map_err(internal_error)?;
     Ok(Json(json!({ "cleanup": cleanup })))
+}
+
+async fn sync_protocol_links(
+    State(state): State<SharedState>,
+    Query(query): Query<SyncProtocolLinksQuery>,
+) -> ApiResult<serde_json::Value> {
+    let vault_index_count = query.vault_index_count.unwrap_or(8);
+    if vault_index_count == 0 {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "vault_index_count must be greater than zero.",
+        ));
+    }
+
+    let program_authorities = program_authority::sync_protocol_upgrade_authority_multisigs(
+        state.clone(),
+        vault_index_count,
+        query.discover_all_squads.unwrap_or(false),
+    )
+    .await
+    .map_err(internal_error)?;
+    let governance = if query.include_governance.unwrap_or(false) {
+        Some(
+            protocol_governance::sync_protocol_governance_realms(state.clone())
+                .await
+                .map_err(internal_error)?,
+        )
+    } else {
+        None
+    };
+    let existing_multisig_events = state
+        .db
+        .annotate_existing_multisig_project_links()
+        .await
+        .map_err(internal_error)?;
+
+    Ok(Json(json!({
+        "program_authorities": program_authorities,
+        "governance": governance,
+        "existing_multisig_events": existing_multisig_events,
+    })))
 }
 
 async fn list_protocols(
