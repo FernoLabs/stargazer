@@ -4169,8 +4169,20 @@ impl Database {
             SELECT
                 COUNT(*) AS all_count,
                 COALESCE(SUM(CASE WHEN
-                    COALESCE(json_extract(payload_json, '$.classification'), '') <> 'hidden'
-                    AND COALESCE(json_extract(payload_json, '$.severity'), '') <> 'hidden'
+                    (
+                        (
+                            COALESCE(json_extract(payload_json, '$.classification'), '') <> 'hidden'
+                            AND COALESCE(json_extract(payload_json, '$.severity'), '') <> 'hidden'
+                        )
+                        OR (
+                            kind = 'program_unknown_instruction'
+                            AND tags_json LIKE '%"signal:unknown_instruction"%'
+                            AND COALESCE(json_extract(payload_json, '$.classification'), '') = 'hidden'
+                            AND COALESCE(json_extract(payload_json, '$.severity'), '') = 'hidden'
+                            AND json_extract(payload_json, '$.instruction_name') = 'legacy_anchor_idl_staging'
+                            AND json_extract(payload_json, '$.discriminator') = '40f4bc78a7e9690a'
+                        )
+                    )
                     AND (
                         tags_json LIKE '%"severity:critical"%'
                         OR tags_json LIKE '%"signal:unknown_instruction"%'
@@ -4227,8 +4239,20 @@ impl Database {
                 substr(protocol_tag.value, length('protocol:') + 1) AS slug,
                 COUNT(*) AS total_count,
                 COALESCE(SUM(CASE WHEN
-                    COALESCE(json_extract(events.payload_json, '$.classification'), '') <> 'hidden'
-                    AND COALESCE(json_extract(events.payload_json, '$.severity'), '') <> 'hidden'
+                    (
+                        (
+                            COALESCE(json_extract(events.payload_json, '$.classification'), '') <> 'hidden'
+                            AND COALESCE(json_extract(events.payload_json, '$.severity'), '') <> 'hidden'
+                        )
+                        OR (
+                            events.kind = 'program_unknown_instruction'
+                            AND events.tags_json LIKE '%"signal:unknown_instruction"%'
+                            AND COALESCE(json_extract(events.payload_json, '$.classification'), '') = 'hidden'
+                            AND COALESCE(json_extract(events.payload_json, '$.severity'), '') = 'hidden'
+                            AND json_extract(events.payload_json, '$.instruction_name') = 'legacy_anchor_idl_staging'
+                            AND json_extract(events.payload_json, '$.discriminator') = '40f4bc78a7e9690a'
+                        )
+                    )
                     AND (
                         events.tags_json LIKE '%"severity:critical"%'
                         OR events.tags_json LIKE '%"signal:unknown_instruction"%'
@@ -6623,8 +6647,20 @@ impl Database {
                 d.summary_day,
                 COUNT(*) AS event_count,
                 COALESCE(SUM(CASE
-                    WHEN COALESCE(json_extract(e.payload_json, '$.classification'), '') <> 'hidden'
-                      AND COALESCE(json_extract(e.payload_json, '$.severity'), '') <> 'hidden'
+                    WHEN (
+                        (
+                          COALESCE(json_extract(e.payload_json, '$.classification'), '') <> 'hidden'
+                          AND COALESCE(json_extract(e.payload_json, '$.severity'), '') <> 'hidden'
+                        )
+                        OR (
+                          e.kind = 'program_unknown_instruction'
+                          AND e.tags_json LIKE '%"signal:unknown_instruction"%'
+                          AND COALESCE(json_extract(e.payload_json, '$.classification'), '') = 'hidden'
+                          AND COALESCE(json_extract(e.payload_json, '$.severity'), '') = 'hidden'
+                          AND json_extract(e.payload_json, '$.instruction_name') = 'legacy_anchor_idl_staging'
+                          AND json_extract(e.payload_json, '$.discriminator') = '40f4bc78a7e9690a'
+                        )
+                      )
                       AND (
                         e.tags_json LIKE '%"severity:critical"%'
                         OR e.tags_json LIKE '%"signal:unknown_instruction"%'
@@ -6632,8 +6668,20 @@ impl Database {
                     THEN 1 ELSE 0 END), 0) AS critical_count,
                 COALESCE(SUM(CASE
                     WHEN NOT (
-                        COALESCE(json_extract(e.payload_json, '$.classification'), '') <> 'hidden'
-                        AND COALESCE(json_extract(e.payload_json, '$.severity'), '') <> 'hidden'
+                        (
+                          (
+                            COALESCE(json_extract(e.payload_json, '$.classification'), '') <> 'hidden'
+                            AND COALESCE(json_extract(e.payload_json, '$.severity'), '') <> 'hidden'
+                          )
+                          OR (
+                            e.kind = 'program_unknown_instruction'
+                            AND e.tags_json LIKE '%"signal:unknown_instruction"%'
+                            AND COALESCE(json_extract(e.payload_json, '$.classification'), '') = 'hidden'
+                            AND COALESCE(json_extract(e.payload_json, '$.severity'), '') = 'hidden'
+                            AND json_extract(e.payload_json, '$.instruction_name') = 'legacy_anchor_idl_staging'
+                            AND json_extract(e.payload_json, '$.discriminator') = '40f4bc78a7e9690a'
+                          )
+                        )
                         AND (
                           e.tags_json LIKE '%"severity:critical"%'
                           OR e.tags_json LIKE '%"signal:unknown_instruction"%'
@@ -6712,8 +6760,20 @@ impl Database {
                   AND d.delivered_at IS NULL
                 ORDER BY
                     CASE
-                        WHEN COALESCE(json_extract(e.payload_json, '$.classification'), '') <> 'hidden'
-                          AND COALESCE(json_extract(e.payload_json, '$.severity'), '') <> 'hidden'
+                        WHEN (
+                            (
+                              COALESCE(json_extract(e.payload_json, '$.classification'), '') <> 'hidden'
+                              AND COALESCE(json_extract(e.payload_json, '$.severity'), '') <> 'hidden'
+                            )
+                            OR (
+                              e.kind = 'program_unknown_instruction'
+                              AND e.tags_json LIKE '%"signal:unknown_instruction"%'
+                              AND COALESCE(json_extract(e.payload_json, '$.classification'), '') = 'hidden'
+                              AND COALESCE(json_extract(e.payload_json, '$.severity'), '') = 'hidden'
+                              AND json_extract(e.payload_json, '$.instruction_name') = 'legacy_anchor_idl_staging'
+                              AND json_extract(e.payload_json, '$.discriminator') = '40f4bc78a7e9690a'
+                            )
+                          )
                           AND (
                             e.tags_json LIKE '%"severity:critical"%'
                             OR e.tags_json LIKE '%"signal:unknown_instruction"%'
@@ -9353,7 +9413,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cleanup_keeps_hidden_anchor_idl_unknown_signal_without_critical_scope() -> Result<()> {
+    async fn cleanup_keeps_hidden_anchor_idl_unknown_signal_in_critical_scope() -> Result<()> {
         let db_path = std::env::temp_dir().join(format!(
             "firewatch-hidden-anchor-unknown-signal-{}.db",
             uuid::Uuid::new_v4()
@@ -9421,7 +9481,8 @@ mod tests {
             Some("hidden")
         );
         assert!(event.is_hidden_signal());
-        assert!(!event.is_critical_signal());
+        assert!(event.is_hidden_anchor_unknown_instruction());
+        assert!(event.is_critical_signal());
 
         let related_multisigs = Vec::new();
         let related_governances = Vec::new();
@@ -9440,11 +9501,12 @@ mod tests {
         };
         let counts = db.event_scope_counts(filters(None)).await?;
         assert_eq!(counts.all, 1);
-        assert_eq!(counts.critical, 0);
+        assert_eq!(counts.critical, 1);
         assert!(
             db.list_events_filtered(10, 0, filters(Some("critical")))
                 .await?
-                .is_empty()
+                .iter()
+                .any(|event| event.id == event_id)
         );
 
         let _ = std::fs::remove_file(db_path);
@@ -9505,7 +9567,8 @@ mod tests {
         let event = db.event_by_id(&event_id).await?.expect("hidden event");
         assert!(event.has_tag("signal:unknown_instruction"));
         assert!(event.is_hidden_signal());
-        assert!(!event.is_critical_signal());
+        assert!(event.is_hidden_anchor_unknown_instruction());
+        assert!(event.is_critical_signal());
 
         let related_multisigs = Vec::new();
         let related_governances = Vec::new();
@@ -9525,7 +9588,7 @@ mod tests {
             })
             .await?;
         assert_eq!(counts.all, 1);
-        assert_eq!(counts.critical, 0);
+        assert_eq!(counts.critical, 1);
 
         let _ = std::fs::remove_file(db_path);
         Ok(())
@@ -10258,7 +10321,7 @@ fn push_severity_filter(
 
 fn push_critical_condition(builder: &mut QueryBuilder<'_, Sqlite>) {
     builder.push("(");
-    push_not_hidden_signal_condition(builder);
+    push_critical_signal_eligibility_condition(builder);
     builder.push(" AND (");
     builder
         .push("tags_json LIKE ")
@@ -10275,12 +10338,37 @@ fn push_not_critical_condition(builder: &mut QueryBuilder<'_, Sqlite>) {
     push_critical_condition(builder);
 }
 
+fn push_critical_signal_eligibility_condition(builder: &mut QueryBuilder<'_, Sqlite>) {
+    builder.push("(");
+    push_not_hidden_signal_condition(builder);
+    builder.push(" OR ");
+    push_hidden_anchor_unknown_instruction_condition(builder);
+    builder.push(")");
+}
+
 fn push_not_hidden_signal_condition(builder: &mut QueryBuilder<'_, Sqlite>) {
     builder.push("(");
     builder.push("COALESCE(json_extract(payload_json, '$.classification'), '') <> ");
     builder.push_bind("hidden");
     builder.push(" AND COALESCE(json_extract(payload_json, '$.severity'), '') <> ");
     builder.push_bind("hidden");
+    builder.push(")");
+}
+
+fn push_hidden_anchor_unknown_instruction_condition(builder: &mut QueryBuilder<'_, Sqlite>) {
+    builder.push("(");
+    builder.push("kind = ");
+    builder.push_bind(event_kind::PROGRAM_UNKNOWN_INSTRUCTION);
+    builder.push(" AND tags_json LIKE ");
+    builder.push_bind("%\"signal:unknown_instruction\"%".to_owned());
+    builder.push(" AND COALESCE(json_extract(payload_json, '$.classification'), '') = ");
+    builder.push_bind("hidden");
+    builder.push(" AND COALESCE(json_extract(payload_json, '$.severity'), '') = ");
+    builder.push_bind("hidden");
+    builder.push(" AND json_extract(payload_json, '$.instruction_name') = ");
+    builder.push_bind("legacy_anchor_idl_staging");
+    builder.push(" AND json_extract(payload_json, '$.discriminator') = ");
+    builder.push_bind("40f4bc78a7e9690a");
     builder.push(")");
 }
 

@@ -161,9 +161,25 @@ impl ChainEvent {
                 .is_some_and(|value| value == "hidden")
     }
 
+    pub fn is_hidden_anchor_unknown_instruction(&self) -> bool {
+        self.kind == event_kind::PROGRAM_UNKNOWN_INSTRUCTION
+            && self.has_tag("signal:unknown_instruction")
+            && self.is_hidden_signal()
+            && self
+                .payload
+                .get("instruction_name")
+                .and_then(|value| value.as_str())
+                .is_some_and(|value| value == "legacy_anchor_idl_staging")
+            && self
+                .payload
+                .get("discriminator")
+                .and_then(|value| value.as_str())
+                .is_some_and(|value| value == "40f4bc78a7e9690a")
+    }
+
     pub fn is_critical_signal(&self) -> bool {
-        !self.is_hidden_signal()
-            && (self.has_tag("severity:critical") || self.has_tag("signal:unknown_instruction"))
+        (self.has_tag("severity:critical") || self.has_tag("signal:unknown_instruction"))
+            && (!self.is_hidden_signal() || self.is_hidden_anchor_unknown_instruction())
     }
 }
 

@@ -19,10 +19,20 @@ export function eventIsHidden(event: ChainEvent) {
 	return event.payload.classification === 'hidden' || event.payload.severity === 'hidden';
 }
 
+export function eventIsHiddenAnchorUnknown(event: ChainEvent) {
+	return (
+		event.kind === 'program_unknown_instruction' &&
+		event.tags.includes('signal:unknown_instruction') &&
+		eventIsHidden(event) &&
+		event.payload.instruction_name === 'legacy_anchor_idl_staging' &&
+		event.payload.discriminator === '40f4bc78a7e9690a'
+	);
+}
+
 export function eventIsCritical(event: ChainEvent) {
 	return (
-		!eventIsHidden(event) &&
-		(event.tags.includes('severity:critical') || event.tags.includes('signal:unknown_instruction'))
+		(event.tags.includes('severity:critical') || event.tags.includes('signal:unknown_instruction')) &&
+		(!eventIsHidden(event) || eventIsHiddenAnchorUnknown(event))
 	);
 }
 

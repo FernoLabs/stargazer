@@ -344,9 +344,15 @@
 	}
 
 	function isCriticalEvent(event: ChainEvent) {
+		const isHidden = event.payload.classification === 'hidden' || event.payload.severity === 'hidden';
+		const isHiddenAnchorUnknown =
+			event.kind === 'program_unknown_instruction' &&
+			event.tags.includes('signal:unknown_instruction') &&
+			isHidden &&
+			event.payload.instruction_name === 'legacy_anchor_idl_staging' &&
+			event.payload.discriminator === '40f4bc78a7e9690a';
 		return (
-			event.payload.classification !== 'hidden' &&
-			event.payload.severity !== 'hidden' &&
+			(!isHidden || isHiddenAnchorUnknown) &&
 			(event.tags.includes('severity:critical') || event.tags.includes('signal:unknown_instruction'))
 		);
 	}
