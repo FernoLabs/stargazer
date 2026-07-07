@@ -4651,6 +4651,47 @@ mod tests {
             .expect("realms execute transaction event")
     }
 
+    fn sample_realms_create_proposal_event() -> ChainEvent {
+        let realm = Pubkey::from_str(protocols::BONK_DAO_REALM_ADDRESS).unwrap();
+        let proposal = Pubkey::from_str("6wR1jdhhJ31bbdRNXva8MxqsgsNLKTxargcdAyZ7FcRj").unwrap();
+        let governance = Pubkey::from_str(protocols::BONK_DAO_GOVERNANCE_ADDRESS).unwrap();
+        let token_owner_record =
+            Pubkey::from_str("7wxcqy3es8nk276atyWPwrw6BsgLspRcvzmKGp2XYULh").unwrap();
+        let governing_token_mint =
+            Pubkey::from_str(protocols::BONK_DAO_COMMUNITY_MINT_ADDRESS).unwrap();
+        let signer = Pubkey::from_str("8xxRdtzsw1CJWfEahViqNjZwh5dYJAdSbBctWwcbycVo").unwrap();
+        let system_program = Pubkey::from_str("11111111111111111111111111111111").unwrap();
+        let realms_program = Pubkey::from_str(protocols::BONK_DAO_GOVERNANCE_PROGRAM_ID).unwrap();
+        let tx = ResolvedTransaction {
+            signature: "realms-create-proposal-test".to_owned(),
+            primary_signer: Some(signer),
+            account_keys: vec![
+                realm,
+                proposal,
+                governance,
+                token_owner_record,
+                governing_token_mint,
+                signer,
+                system_program,
+                realms_program,
+            ],
+            top_level_instructions: vec![],
+            inner_instruction_sets: vec![],
+            log_messages: vec![],
+        };
+        let instruction = ResolvedInstruction {
+            program_id_index: 7,
+            accounts: vec![0, 1, 2, 3, 4, 5, 5, 6],
+            data: vec![6],
+            stack_height: Some(1),
+        };
+
+        parse_protocol_instruction_event(&tx, &instruction, 429842335, Some(1782807924), "3", None)
+            .unwrap()
+            .0
+            .expect("realms create proposal event")
+    }
+
     fn sample_bonk_dao_treasury_transfer_event(raw_amount: u64) -> Option<ChainEvent> {
         let source = Pubkey::from_str("F8FqZuUKfoy58aHLW6bfeEhfW9sTtJyqFTqnxVmGZ6dU").unwrap();
         let mint = Pubkey::from_str(protocols::BONK_DAO_COMMUNITY_MINT_ADDRESS).unwrap();
@@ -4813,6 +4854,60 @@ mod tests {
                 .get("proposal_transaction")
                 .and_then(|value| value.as_str()),
             Some("5y9dZT4nELdqrpQY4Zfm3ZUXgeANr5tABB8vphkKv2u7")
+        );
+    }
+
+    #[test]
+    fn routes_bonk_dao_realms_create_proposal_as_high_defi_signal() {
+        let event = sample_realms_create_proposal_event();
+
+        assert_eq!(event.kind, event_kind::PROGRAM_ADMIN_INSTRUCTION);
+        assert_eq!(event.target_type, target_type::PROGRAM);
+        assert_eq!(
+            event.summary,
+            "High-impact Bonk DAO governance proposal created"
+        );
+        assert!(event.tags.iter().any(|tag| tag == "protocol:bonk_dao"));
+        assert!(event.tags.iter().any(|tag| tag == "source:realms"));
+        assert!(event.tags.iter().any(|tag| tag == "source:spl_governance"));
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "instruction:create_proposal")
+        );
+        assert!(event.tags.iter().any(|tag| tag == "severity:high"));
+        assert!(event.tags.iter().any(|tag| tag == "impact:high"));
+        assert!(!event.tags.iter().any(|tag| tag == "severity:critical"));
+        assert!(!event.tags.iter().any(|tag| tag == "alert:review_now"));
+        assert!(TelegramEventScope::DefiWatch.matches_event(&event));
+        assert_eq!(
+            event
+                .payload
+                .get("severity")
+                .and_then(|value| value.as_str()),
+            Some("high")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("instruction_name")
+                .and_then(|value| value.as_str()),
+            Some("create_proposal")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("source_protocol")
+                .and_then(|value| value.as_str()),
+            Some("realms")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("proposal")
+                .and_then(|value| value.as_str()),
+            Some("6wR1jdhhJ31bbdRNXva8MxqsgsNLKTxargcdAyZ7FcRj")
         );
     }
 
