@@ -177,6 +177,10 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
             axum::routing::post(cleanup_actor_only_domain_links),
         )
         .route(
+            "/api/admin/cleanup/high-impact-admin-critical",
+            axum::routing::post(cleanup_high_impact_admin_critical),
+        )
+        .route(
             "/api/admin/cleanup/hidden-anchor-unknown-signals",
             axum::routing::post(cleanup_hidden_anchor_unknown_signals),
         )
@@ -682,6 +686,17 @@ async fn cleanup_actor_only_domain_links(
     let cleanup = state
         .db
         .cleanup_actor_only_domain_protocol_links()
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(json!({ "cleanup": cleanup })))
+}
+
+async fn cleanup_high_impact_admin_critical(
+    State(state): State<SharedState>,
+) -> ApiResult<serde_json::Value> {
+    let cleanup = state
+        .db
+        .promote_stale_high_impact_admin_critical_events()
         .await
         .map_err(internal_error)?;
     Ok(Json(json!({ "cleanup": cleanup })))

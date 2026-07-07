@@ -268,6 +268,13 @@ pub struct ActorOnlyDomainProtocolCleanupReport {
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct HighImpactAdminCriticalPromotionReport {
+    pub matched_before: i64,
+    pub promoted_events: u64,
+    pub remaining: i64,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct MultisigProjectLinkAnnotationReport {
     pub matched_unlinked_events: i64,
     pub updated_events: u64,
@@ -8090,6 +8097,102 @@ impl Database {
         .await?;
 
         Ok(row.try_get("count")?)
+    }
+
+    pub async fn promote_stale_high_impact_admin_critical_events(
+        &self,
+    ) -> Result<HighImpactAdminCriticalPromotionReport> {
+        let matched_before = self.stale_high_impact_admin_critical_event_count().await?;
+        let promoted_events = sqlx::query(
+            r#"
+            UPDATE events
+            SET
+                summary = CASE
+                    WHEN summary LIKE 'High-impact %' THEN 'Critical ' || substr(summary, 13)
+                    ELSE summary
+                END,
+                tags_json = (
+                    SELECT COALESCE(json_group_array(value), '[]')
+                    FROM (
+                        SELECT value
+                        FROM json_each(events.tags_json)
+                        WHERE value NOT IN (
+                            'severity:high',
+                            'severity:standard'
+                        )
+                        UNION
+                        SELECT 'alert:review_now'
+                        UNION
+                        SELECT 'impact:high'
+                        UNION
+                        SELECT 'severity:critical'
+                        ORDER BY value
+                    )
+                ),
+                payload_json = json_set(
+                    payload_json,
+                    '$.severity', 'critical',
+                    '$.high_impact', json('true')
+                )
+            WHERE kind = 'program_admin_instruction'
+              AND tags_json LIKE '%"signal:admin_instruction"%'
+              AND tags_json NOT LIKE '%"source:spl_governance"%'
+              AND COALESCE(json_extract(payload_json, '$.classification'), '') <> 'hidden'
+              AND (
+                  tags_json LIKE '%"impact:high"%'
+                  OR COALESCE(json_extract(payload_json, '$.high_impact'), 0) = 1
+              )
+              AND (
+                  tags_json NOT LIKE '%"alert:review_now"%'
+                  OR tags_json NOT LIKE '%"impact:high"%'
+                  OR tags_json NOT LIKE '%"severity:critical"%'
+                  OR tags_json LIKE '%"severity:high"%'
+                  OR tags_json LIKE '%"severity:standard"%'
+                  OR COALESCE(json_extract(payload_json, '$.severity'), '') <> 'critical'
+                  OR COALESCE(json_extract(payload_json, '$.high_impact'), 0) <> 1
+              );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        let remaining = self.stale_high_impact_admin_critical_event_count().await?;
+
+        Ok(HighImpactAdminCriticalPromotionReport {
+            matched_before,
+            promoted_events,
+            remaining,
+        })
+    }
+
+    async fn stale_high_impact_admin_critical_event_count(&self) -> Result<i64> {
+        let row = sqlx::query(
+            r#"
+            SELECT COUNT(*) AS matched
+            FROM events
+            WHERE kind = 'program_admin_instruction'
+              AND tags_json LIKE '%"signal:admin_instruction"%'
+              AND tags_json NOT LIKE '%"source:spl_governance"%'
+              AND COALESCE(json_extract(payload_json, '$.classification'), '') <> 'hidden'
+              AND (
+                  tags_json LIKE '%"impact:high"%'
+                  OR COALESCE(json_extract(payload_json, '$.high_impact'), 0) = 1
+              )
+              AND (
+                  tags_json NOT LIKE '%"alert:review_now"%'
+                  OR tags_json NOT LIKE '%"impact:high"%'
+                  OR tags_json NOT LIKE '%"severity:critical"%'
+                  OR tags_json LIKE '%"severity:high"%'
+                  OR tags_json LIKE '%"severity:standard"%'
+                  OR COALESCE(json_extract(payload_json, '$.severity'), '') <> 'critical'
+                  OR COALESCE(json_extract(payload_json, '$.high_impact'), 0) <> 1
+              );
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row.try_get("matched")?)
     }
 
     pub async fn restore_hidden_anchor_unknown_instruction_signals(
