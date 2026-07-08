@@ -1,7 +1,7 @@
 import { dev } from '$app/environment';
 import { fail, redirect } from '@sveltejs/kit';
 import { backendOriginRequest, readBackendError } from '$lib/server/backend';
-import { customPlanAmountForBilling, customPlanPricing } from '$lib/server/custom-plan-pricing';
+import { customPlanPricing } from '$lib/server/custom-plan-pricing';
 import type {
 	MetricAlertsResponse,
 	PaymentLink,
@@ -370,24 +370,11 @@ export const actions = {
 		const form = await request.formData();
 		const billing = String(form.get('billing') ?? 'month');
 
-		const sessionResponse = await backendOriginRequest(
-			fetch,
-			`/api/config-sessions/by-token/${token}`
-		);
-		if (!sessionResponse.ok) {
-			return fail(sessionResponse.status, {
-				error: await readBackendError(sessionResponse)
-			});
-		}
-
-		const sessionPayload = (await sessionResponse.json()) as TelegramConfigSessionResponse;
-		const response = await backendOriginRequest(fetch, '/api/payment-links', {
+		const response = await backendOriginRequest(fetch, `/api/config-sessions/by-token/${token}/checkout`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({
-				user_id: sessionPayload.user.id,
-				plan_id: billing === 'year' ? 'paid-year' : 'paid',
-				amount: customPlanAmountForBilling(billing)
+				billing
 			})
 		});
 

@@ -575,6 +575,12 @@ pub struct SaveTelegramConfigResponse {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateConfigSessionCheckoutRequest {
+    pub billing: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CreateTelegramSubscriptionRequest {
     pub label: String,
     pub chat_id: String,

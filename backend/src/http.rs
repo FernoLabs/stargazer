@@ -4,17 +4,18 @@ use crate::{
     database::{EventListFilters, ProgramVersionByteSide},
     link_preview,
     models::{
-        AdminUsersResponse, ChainEvent, CreateMetricAlertRuleRequest, CreatePaymentLinkRequest,
-        CreatePromoCodeRequest, CreateTelegramSubscriptionRequest, DefiProtocolDescriptor,
-        DefiProtocolsIncluded, DefiProtocolsResponse, EventScopeCounts, EventsResponse,
-        EventsSummary, FirewatchUser, GrantUserEntitlementRequest, LiveStatusResponse,
-        MetricAlertRule, MetricAlertsResponse, PaymentLink, PaymentLinkCheckoutResponse,
-        ProgramDisassemblyResponse, ProgramIdlVersionsResponse, ProgramSignerStatsResponse,
-        ProgramVersionCatalogSummary, ProgramVersionSummariesResponse, ProgramVersionsResponse,
-        PromoCode, PromoCodesResponse, RememberTelegramConfigSessionResponse,
-        SaveTelegramConfigRequest, SaveTelegramConfigResponse, TelegramConfigSessionResponse,
-        TelegramDeliveryMode, TelegramSubscription, TelegramSubscriptionSummaryResponse,
-        TelegramSubscriptionsResponse, UpsertFirewatchUserRequest, UserEntitlement, now_ts,
+        AdminUsersResponse, ChainEvent, CreateConfigSessionCheckoutRequest,
+        CreateMetricAlertRuleRequest, CreatePaymentLinkRequest, CreatePromoCodeRequest,
+        CreateTelegramSubscriptionRequest, DefiProtocolDescriptor, DefiProtocolsIncluded,
+        DefiProtocolsResponse, EventScopeCounts, EventsResponse, EventsSummary, FirewatchUser,
+        GrantUserEntitlementRequest, LiveStatusResponse, MetricAlertRule, MetricAlertsResponse,
+        PaymentLink, PaymentLinkCheckoutResponse, ProgramDisassemblyResponse,
+        ProgramIdlVersionsResponse, ProgramSignerStatsResponse, ProgramVersionCatalogSummary,
+        ProgramVersionSummariesResponse, ProgramVersionsResponse, PromoCode, PromoCodesResponse,
+        RememberTelegramConfigSessionResponse, SaveTelegramConfigRequest,
+        SaveTelegramConfigResponse, TelegramConfigSessionResponse, TelegramDeliveryMode,
+        TelegramSubscription, TelegramSubscriptionSummaryResponse, TelegramSubscriptionsResponse,
+        UpsertFirewatchUserRequest, UserEntitlement, now_ts,
     },
     name_service, program_authority, protocol_governance, protocols, telegram,
 };
@@ -145,6 +146,10 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
         .route(
             "/api/config-sessions/by-token/{token}/remember",
             axum::routing::post(remember_config_session),
+        )
+        .route(
+            "/api/config-sessions/by-token/{token}/checkout",
+            axum::routing::post(create_config_session_checkout),
         )
         .route(
             "/api/config-sessions/by-token/{token}/scan-wallets",
@@ -2240,6 +2245,37 @@ async fn remember_config_session(
     }))
 }
 
+async fn create_config_session_checkout(
+    State(state): State<SharedState>,
+    Path(token): Path<String>,
+    Json(payload): Json<CreateConfigSessionCheckoutRequest>,
+) -> ApiResult<PaymentLink> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Config session not found.",
+        ));
+    }
+
+    let token_hash = token_hash(token);
+    let Some((_session, user)) = state
+        .db
+        .telegram_config_session_by_token_hash(&token_hash, crate::models::now_ts())
+        .await
+        .map_err(internal_error)?
+    else {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Config session not found or expired.",
+        ));
+    };
+
+    let plan_id = payment_plan_id_for_billing(payload.billing.as_deref())?;
+    let payment_link = create_solana_payment_link_for_user(&state, &user, plan_id).await?;
+    Ok(Json(payment_link))
+}
+
 #[derive(Debug, Deserialize)]
 struct ScanConfigWalletHistoryRequest {
     wallet_addresses: Vec<String>,
@@ -2694,11 +2730,7 @@ async fn save_config_session(
         "active"
     };
     let payment_link = if needs_checkout {
-        let plan_id = if payload.billing.as_deref() == Some("year") {
-            "paid-year"
-        } else {
-            "paid"
-        };
+        let plan_id = payment_plan_id_for_billing(payload.billing.as_deref())?;
         Some(create_solana_payment_link_for_user(&state, &user, plan_id).await?)
     } else {
         None
@@ -2723,6 +2755,19 @@ async fn save_config_session(
         status: response_status.to_owned(),
         payment_link,
     }))
+}
+
+fn payment_plan_id_for_billing(
+    billing: Option<&str>,
+) -> Result<&'static str, (StatusCode, Json<serde_json::Value>)> {
+    match billing.unwrap_or("month").trim() {
+        "" | "month" => Ok("paid"),
+        "year" => Ok("paid-year"),
+        _ => Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Billing must be month or year.",
+        )),
+    }
 }
 
 fn delivery_modes_from_request(payload: &SaveTelegramConfigRequest) -> Vec<TelegramDeliveryMode> {
@@ -3514,4 +3559,35 @@ fn internal_error(error: impl std::fmt::Display) -> (StatusCode, Json<serde_json
         StatusCode::INTERNAL_SERVER_ERROR,
         &format!("internal server error: {error}"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_session_checkout_rejects_user_id_payloads() {
+        let error =
+            serde_json::from_value::<CreateConfigSessionCheckoutRequest>(serde_json::json!({
+                "billing": "month",
+                "user_id": "other-user"
+            }))
+            .expect_err("checkout payload must not accept a caller-provided user id");
+
+        assert!(error.to_string().contains("unknown field `user_id`"));
+    }
+
+    #[test]
+    fn billing_values_map_to_known_payment_plans() {
+        assert_eq!(payment_plan_id_for_billing(None).unwrap(), "paid");
+        assert_eq!(payment_plan_id_for_billing(Some("")).unwrap(), "paid");
+        assert_eq!(payment_plan_id_for_billing(Some("month")).unwrap(), "paid");
+        assert_eq!(
+            payment_plan_id_for_billing(Some("year")).unwrap(),
+            "paid-year"
+        );
+
+        let error = payment_plan_id_for_billing(Some("lifetime")).unwrap_err();
+        assert_eq!(error.0, StatusCode::BAD_REQUEST);
+    }
 }
