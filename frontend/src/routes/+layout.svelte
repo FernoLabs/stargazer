@@ -175,7 +175,7 @@
 	<meta name="twitter:image" content={previewImageUrl()} />
 </svelte:head>
 
-<WalletProvider rpcEndpoint="https://api.mainnet-beta.solana.com">
+<WalletProvider autoConnectWalletBrowser rpcEndpoint="https://api.mainnet-beta.solana.com">
 	<div class="shell">
 		<header class="topbar">
 			<div class="topbar-row">

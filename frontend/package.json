@@ -25,7 +25,7 @@
 		"@codemirror/merge": "^6.12.1",
 		"@codemirror/state": "^6.6.0",
 		"@codemirror/view": "^6.43.0",
-		"@fernolab/wallet-adapter-svelte": "^0.1.0",
+		"@fernolab/wallet-adapter-svelte": "^0.1.3",
 		"@solana-program/memo": "^0.11.1",
 		"@solana-program/system": "^0.12.2",
 		"@solana-program/token": "^0.13.0",
