@@ -8,6 +8,7 @@ const DEFAULT_SOLANA_PAY_AMOUNT: &str = "5";
 const DEFAULT_SOLANA_PAY_YEARLY_AMOUNT: &str = "50";
 const DEFAULT_SOLANA_PAY_SPL_TOKEN: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const DEFAULT_SOLANA_PAY_RPC_HTTP_URL: &str = "https://jenifer-6iwpyb-fast-mainnet.helius-rpc.com";
+const DEFAULT_ADMIN_USERNAME: &str = "admin";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -25,6 +26,8 @@ pub struct Config {
     pub telegram_api_base: String,
     pub firewatch_web_base_url: String,
     pub origin_api_token: Option<String>,
+    pub admin_username: String,
+    pub admin_password: Option<String>,
     pub cors_allowed_origin: String,
     pub delivery_poll_seconds: u64,
     pub telegram_daily_summary_poll_seconds: u64,
@@ -98,6 +101,15 @@ impl Config {
             origin_api_token: env::var("ORIGIN_API_TOKEN")
                 .ok()
                 .filter(|value| !value.trim().is_empty()),
+            admin_username: env::var("ADMIN_USERNAME")
+                .ok()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_owned()),
+            admin_password: env::var("ADMIN_PASSWORD")
+                .ok()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty()),
             cors_allowed_origin: env::var("CORS_ALLOWED_ORIGIN")
                 .unwrap_or_else(|_| "http://127.0.0.1:5173".to_owned()),
             delivery_poll_seconds: env_u64("DELIVERY_POLL_SECONDS", 5),

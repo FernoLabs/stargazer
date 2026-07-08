@@ -2,17 +2,138 @@
 	import { explorerAddressUrl, explorerIdlUrl } from '$lib/explorer';
 	import { formatMetricValue, formatTimestamp, readableInstructionName, shortAddress } from '$lib/format';
 	import type { ActionData, PageData } from './$types';
-	import type { DefiProtocolDescriptor, FirewatchUser, MetricAlertPreset } from '$lib/types';
+	import type { DefiProtocolDescriptor, FirewatchUser, MetricAlertPreset, PaymentLink } from '$lib/types';
 
 	let { data, form }: { data: PageData; form?: ActionData } = $props();
 
-	let activeTab = $state<'builder' | 'rules' | 'users' | 'promos' | 'catalog'>('builder');
+	let activeTab = $state<'dashboard' | 'builder' | 'rules' | 'users' | 'promos' | 'catalog'>('dashboard');
 	let telegramScope = $state<'defi_watch' | 'program_updates' | 'multisig_activity' | 'wallet_activity'>('defi_watch');
 	let telegramProtocolSlug = $state('');
 	let telegramKnownProgramId = $state('');
 	let telegramTargetAddress = $state('');
 	let telegramKnownDefiOnly = $state(false);
 	let selectedMetricPresetKey = $state('');
+
+	const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+	const BILLING_MONTH_SECONDS = 30 * 24 * 60 * 60;
+
+	type TokenTotals = Record<string, number>;
+
+	let paymentDashboard = $derived.by(() => {
+		const now = currentSeconds();
+		const paidLinks = data.paymentLinks.filter((link) => link.status === 'paid');
+		const livePendingLinks = data.paymentLinks.filter((link) => link.status === 'pending' && link.expires_at > now);
+		const expiredPendingLinks = data.paymentLinks.filter((link) => link.status === 'pending' && link.expires_at <= now);
+		const activeEntitlements = data.userEntitlements.filter(
+			(entitlement) =>
+				entitlement.status === 'active' &&
+				entitlement.starts_at <= now &&
+				(entitlement.expires_at === null || entitlement.expires_at > now)
+		);
+		const futureEntitlements = data.userEntitlements.filter(
+			(entitlement) => entitlement.status === 'active' && entitlement.starts_at > now
+		);
+		const expiringEntitlements = activeEntitlements.filter(
+			(entitlement) => entitlement.expires_at !== null && entitlement.expires_at <= now + 7 * 24 * 60 * 60
+		);
+
+		return {
+			paidLinks,
+			livePendingLinks: [...livePendingLinks].sort((left, right) => left.expires_at - right.expires_at),
+			expiredPendingLinks,
+			activeEntitlements,
+			futureEntitlements,
+			expiringEntitlements,
+			allTimeTotals: tokenTotalsFor(paidLinks),
+			last30DayTotals: tokenTotalsFor(paidLinks.filter((link) => (link.paid_at ?? link.created_at) >= now - BILLING_MONTH_SECONDS)),
+			pendingTotals: tokenTotalsFor(livePendingLinks),
+			paidUserCount: new Set(paidLinks.map((link) => link.user_id)).size,
+			recentPaidLinks: [...paidLinks]
+				.sort((left, right) => (right.paid_at ?? right.created_at) - (left.paid_at ?? left.created_at))
+				.slice(0, 8),
+			pendingReviewLinks: [...livePendingLinks].sort((left, right) => left.expires_at - right.expires_at).slice(0, 8),
+			anomalyGroups: paidTimestampAnomalyGroups(paidLinks)
+		};
+	});
+
+	function currentSeconds() {
+		return Math.floor(Date.now() / 1000);
+	}
+
+	function numericAmount(amount: string) {
+		const parsed = Number(amount);
+		return Number.isFinite(parsed) ? parsed : 0;
+	}
+
+	function paymentToken(link: PaymentLink) {
+		if (!link.spl_token) return 'SOL';
+		if (link.spl_token === USDC_MINT) return 'USDC';
+		return 'SPL';
+	}
+
+	function addTokenTotal(totals: TokenTotals, link: PaymentLink) {
+		const token = paymentToken(link);
+		totals[token] = (totals[token] ?? 0) + numericAmount(link.amount);
+	}
+
+	function tokenTotalsFor(links: PaymentLink[]) {
+		const totals: TokenTotals = {};
+		for (const link of links) {
+			addTokenTotal(totals, link);
+		}
+		return totals;
+	}
+
+	function formatTokenNumber(value: number, token: string) {
+		return new Intl.NumberFormat('en-US', {
+			minimumFractionDigits: token === 'USDC' && value > 0 ? 2 : 0,
+			maximumFractionDigits: token === 'USDC' ? 2 : 4
+		}).format(value);
+	}
+
+	function sortedTokenTotals(totals: TokenTotals) {
+		const tokenOrder = ['USDC', 'SOL', 'SPL'];
+		return Object.entries(totals)
+			.filter(([, value]) => value > 0)
+			.sort(([left], [right]) => tokenOrder.indexOf(left) - tokenOrder.indexOf(right));
+	}
+
+	function formatTokenTotals(totals: TokenTotals) {
+		const entries = sortedTokenTotals(totals);
+		if (entries.length === 0) return '0';
+		return entries.map(([token, value]) => `${formatTokenNumber(value, token)} ${token}`).join(' · ');
+	}
+
+	function formatPaymentAmount(link: PaymentLink) {
+		const token = paymentToken(link);
+		return `${formatTokenNumber(numericAmount(link.amount), token)} ${token}`;
+	}
+
+	function paidTimestampAnomalyGroups(links: PaymentLink[]) {
+		const groups: Record<string, { user_id: string; paid_at: number; links: PaymentLink[] }> = {};
+		for (const link of links) {
+			if (!link.paid_at) continue;
+			const key = `${link.user_id}:${link.paid_at}`;
+			const group = groups[key] ?? { user_id: link.user_id, paid_at: link.paid_at, links: [] };
+			group.links.push(link);
+			groups[key] = group;
+		}
+
+		return Object.values(groups)
+			.filter((group) => group.links.length > 1)
+			.map((group) => ({ ...group, totals: tokenTotalsFor(group.links) }))
+			.sort((left, right) => right.links.length - left.links.length || right.paid_at - left.paid_at);
+	}
+
+	function userLabel(userId: string) {
+		const user = data.firewatchUsers.find((candidate) => candidate.id === userId);
+		return user ? userDisplay(user) : userId.slice(0, 8);
+	}
+
+	function paymentStatusLabel(link: PaymentLink) {
+		if (link.status === 'pending' && link.expires_at <= currentSeconds()) return 'expired';
+		return link.status.replaceAll('_', ' ');
+	}
 
 	function protocolBySlug(slug: string) {
 		return data.defiProtocols.find((protocol) => protocol.slug === slug) ?? null;
@@ -132,14 +253,13 @@
 	<title>FireWatch Alerts</title>
 </svelte:head>
 
-<div class="page-shell">
-		<section class="hero">
-			<div class="hero-copy">
-				<h1>Build lean Telegram alerts around the protocols you actually use.</h1>
-			<p class="lede">
-				Start with one DeFi protocol rule. Add program update, IDL-only, multisig, or metric guards
-				when a user has Custom Plan access. Ferno members are included; Superteam promos cover 12 months.
-			</p>
+	<div class="page-shell">
+			<section class="hero">
+				<div class="hero-copy">
+					<h1>FireWatch admin</h1>
+				<p class="lede">
+					Track revenue, payment links, user access, Telegram rules, and protocol coverage from one console.
+				</p>
 
 			{#if form?.message}
 				<p class="flash success">{form.message}</p>
@@ -155,31 +275,34 @@
 			{/if}
 		</div>
 
-		<div class="hero-stats">
-			<article class="stat-card">
-				<span>Active rules</span>
-				<strong>{data.telegramSubscriptions.length}</strong>
-			</article>
-			<article class="stat-card">
-				<span>Metric rules</span>
-				<strong>{data.metricAlertRules.length}</strong>
-			</article>
-			<article class="stat-card">
-				<span>Users</span>
-				<strong>{data.firewatchUsers.length}</strong>
-			</article>
-			<article class="stat-card">
-				<span>Promo codes</span>
-				<strong>{data.promoCodes.length}</strong>
-			</article>
-		</div>
-	</section>
+			<div class="hero-stats">
+				<article class="stat-card">
+					<span>All time paid</span>
+					<strong>{formatTokenTotals(paymentDashboard.allTimeTotals)}</strong>
+				</article>
+				<article class="stat-card">
+					<span>Pending links</span>
+					<strong>{paymentDashboard.livePendingLinks.length}</strong>
+				</article>
+				<article class="stat-card">
+					<span>Active access</span>
+					<strong>{paymentDashboard.activeEntitlements.length}</strong>
+				</article>
+				<article class="stat-card">
+					<span>Payment anomalies</span>
+					<strong>{paymentDashboard.anomalyGroups.length}</strong>
+				</article>
+			</div>
+		</section>
 
-	<section class="panel tabs-panel">
-		<div class="tab-row" role="tablist" aria-label="Alert sections">
-			<button class:active={activeTab === 'builder'} class="tab-button" type="button" onclick={() => (activeTab = 'builder')}>
-				Create rule
-			</button>
+		<section class="panel tabs-panel">
+			<div class="tab-row" role="tablist" aria-label="Alert sections">
+				<button class:active={activeTab === 'dashboard'} class="tab-button" type="button" onclick={() => (activeTab = 'dashboard')}>
+					Dashboard
+				</button>
+				<button class:active={activeTab === 'builder'} class="tab-button" type="button" onclick={() => (activeTab = 'builder')}>
+					Create rule
+				</button>
 			<button class:active={activeTab === 'rules'} class="tab-button" type="button" onclick={() => (activeTab = 'rules')}>
 				Current rules
 			</button>
@@ -192,11 +315,191 @@
 			<button class:active={activeTab === 'catalog'} class="tab-button" type="button" onclick={() => (activeTab = 'catalog')}>
 				Catalog
 			</button>
-		</div>
-	</section>
+			</div>
+		</section>
 
-	{#if activeTab === 'builder'}
-		<section class="builder-grid">
+		{#if activeTab === 'dashboard'}
+			<section class="dashboard-grid">
+				<article class="panel">
+					<div class="panel-head">
+						<h2>Revenue</h2>
+						<p>Paid checkout links only. Pending and expired links stay out of revenue totals.</p>
+					</div>
+
+					<div class="ledger-grid">
+						<div class="ledger-stat">
+							<span>All time</span>
+							<strong>{formatTokenTotals(paymentDashboard.allTimeTotals)}</strong>
+						</div>
+						<div class="ledger-stat">
+							<span>Last 30 days</span>
+							<strong>{formatTokenTotals(paymentDashboard.last30DayTotals)}</strong>
+						</div>
+						<div class="ledger-stat">
+							<span>Pending value</span>
+							<strong>{formatTokenTotals(paymentDashboard.pendingTotals)}</strong>
+						</div>
+						<div class="ledger-stat">
+							<span>Paid users</span>
+							<strong>{paymentDashboard.paidUserCount}</strong>
+						</div>
+					</div>
+				</article>
+
+				<article class="panel">
+					<div class="panel-head">
+						<h2>Access</h2>
+						<p>Current and scheduled entitlements for paid plans, promos, and manual grants.</p>
+					</div>
+
+					<div class="ledger-grid">
+						<div class="ledger-stat">
+							<span>Active</span>
+							<strong>{paymentDashboard.activeEntitlements.length}</strong>
+						</div>
+						<div class="ledger-stat">
+							<span>Future stacked</span>
+							<strong>{paymentDashboard.futureEntitlements.length}</strong>
+						</div>
+						<div class="ledger-stat">
+							<span>Expiring 7d</span>
+							<strong>{paymentDashboard.expiringEntitlements.length}</strong>
+						</div>
+						<div class="ledger-stat">
+							<span>Users</span>
+							<strong>{data.firewatchUsers.length}</strong>
+						</div>
+					</div>
+				</article>
+			</section>
+
+			<section class="dashboard-grid">
+				<article class="panel table-panel">
+					<div class="panel-head">
+						<h2>Recent payments</h2>
+						<p>Newest paid links, grouped by the checkout record that confirmed access.</p>
+					</div>
+
+					{#if paymentDashboard.recentPaidLinks.length === 0}
+						<p class="empty-state">No paid links yet.</p>
+					{:else}
+						<div class="table-scroll">
+							<table class="admin-table">
+								<thead>
+									<tr>
+										<th>User</th>
+										<th>Amount</th>
+										<th>Plan</th>
+										<th>Paid</th>
+										<th>Link</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each paymentDashboard.recentPaidLinks as link (link.id)}
+										<tr>
+											<td>{userLabel(link.user_id)}</td>
+											<td>{formatPaymentAmount(link)}</td>
+											<td>{promoPlanLabel(link.plan_id)}</td>
+											<td>{formatTimestamp(link.paid_at ?? link.created_at)}</td>
+											<td><a href={link.public_url} target="_blank" rel="noreferrer">{shortAddress(link.id)}</a></td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+				</article>
+
+				<article class="panel table-panel">
+					<div class="panel-head">
+						<h2>Pending payments</h2>
+						<p>Open links that can still be paid before expiry.</p>
+					</div>
+
+					{#if paymentDashboard.pendingReviewLinks.length === 0}
+						<p class="empty-state">No open payment links.</p>
+					{:else}
+						<div class="table-scroll">
+							<table class="admin-table">
+								<thead>
+									<tr>
+										<th>User</th>
+										<th>Amount</th>
+										<th>Status</th>
+										<th>Expires</th>
+										<th>Link</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each paymentDashboard.pendingReviewLinks as link (link.id)}
+										<tr>
+											<td>{userLabel(link.user_id)}</td>
+											<td>{formatPaymentAmount(link)}</td>
+											<td>{paymentStatusLabel(link)}</td>
+											<td>{formatTimestamp(link.expires_at)}</td>
+											<td><a href={link.public_url} target="_blank" rel="noreferrer">{shortAddress(link.id)}</a></td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+				</article>
+			</section>
+
+			<section class="dashboard-grid">
+				<article class="panel">
+					<div class="panel-head">
+						<h2>Payment queue</h2>
+						<p>Counts for operational cleanup and support follow-up.</p>
+					</div>
+
+					<ul class="summary-list">
+						<li><strong>Open pending links</strong><span>{paymentDashboard.livePendingLinks.length}</span></li>
+						<li><strong>Expired unpaid links</strong><span>{paymentDashboard.expiredPendingLinks.length}</span></li>
+						<li><strong>Paid links</strong><span>{paymentDashboard.paidLinks.length}</span></li>
+						<li><strong>Telegram rules pending payment</strong><span>{data.telegramSubscriptions.filter((subscription) => subscription.status === 'pending_payment').length}</span></li>
+					</ul>
+				</article>
+
+				<article class="panel table-panel">
+					<div class="panel-head">
+						<h2>Payment anomalies</h2>
+						<p>Same user, same paid timestamp, multiple paid links.</p>
+					</div>
+
+					{#if paymentDashboard.anomalyGroups.length === 0}
+						<p class="empty-state">No duplicate paid timestamp groups.</p>
+					{:else}
+						<div class="table-scroll">
+							<table class="admin-table">
+								<thead>
+									<tr>
+										<th>User</th>
+										<th>Links</th>
+										<th>Total</th>
+										<th>Paid at</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each paymentDashboard.anomalyGroups as group (`${group.user_id}:${group.paid_at}`)}
+										<tr>
+											<td>{userLabel(group.user_id)}</td>
+											<td>{group.links.length}</td>
+											<td>{formatTokenTotals(group.totals)}</td>
+											<td>{formatTimestamp(group.paid_at)}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+				</article>
+			</section>
+		{/if}
+
+		{#if activeTab === 'builder'}
+			<section class="builder-grid">
 			<article class="panel">
 				<div class="panel-head">
 					<h2>Create Telegram rule</h2>
@@ -255,7 +558,7 @@
 							<span>Protocol</span>
 							<select bind:value={telegramProtocolSlug} onchange={handleProtocolChange}>
 								<option value="">All curated protocols</option>
-								{#each data.defiProtocols as protocol}
+								{#each data.defiProtocols as protocol (protocol.slug)}
 									<option value={protocol.slug}>{protocol.name}</option>
 								{/each}
 							</select>
@@ -269,7 +572,7 @@
 								<span>Official program</span>
 								<select bind:value={telegramKnownProgramId} onchange={useKnownProgram}>
 									<option value="">All {protocol.name} programs</option>
-									{#each protocol.programs as program}
+									{#each protocol.programs as program (program.program_id)}
 										<option value={program.program_id}>{program.label} · {shortAddress(program.program_id)}</option>
 									{/each}
 								</select>
@@ -310,7 +613,7 @@
 
 							{#if protocol.admin_instruction_filters.length > 0}
 								<div class="tag-grid">
-									{#each protocol.high_impact_instruction_filters.slice(0, 8) as instruction}
+									{#each protocol.high_impact_instruction_filters.slice(0, 8) as instruction (instruction)}
 										<label class="tag-check">
 											<input name="telegram_required_tags" type="checkbox" value={`instruction:${instruction}`} />
 											<span>{readableInstructionName(instruction)}</span>
@@ -341,7 +644,7 @@
 								<span>Protocol</span>
 								<select bind:value={telegramProtocolSlug} onchange={handleProtocolChange}>
 									<option value="">All FireWatch-known DeFi protocols</option>
-									{#each data.defiProtocols as protocol}
+									{#each data.defiProtocols as protocol (protocol.slug)}
 										<option value={protocol.slug}>{protocol.name}</option>
 									{/each}
 								</select>
@@ -354,7 +657,7 @@
 									<span>Official program</span>
 									<select bind:value={telegramKnownProgramId} onchange={useKnownProgram}>
 										<option value="">All {protocol.name} programs</option>
-										{#each protocol.programs as program}
+										{#each protocol.programs as program (program.program_id)}
 											<option value={program.program_id}>{program.label} · {shortAddress(program.program_id)}</option>
 										{/each}
 									</select>
@@ -445,7 +748,7 @@
 					<label>
 						<span>Observed metric</span>
 						<select bind:value={selectedMetricPresetKey}>
-							{#each data.metricAlertPresets as preset}
+							{#each data.metricAlertPresets as preset (metricPresetKey(preset))}
 								<option value={metricPresetKey(preset)}>
 									{preset.protocol_name} · {readableInstructionName(preset.instruction_name)} · {preset.metric_label}
 								</option>
@@ -507,7 +810,7 @@
 					<p class="empty-state">No Telegram rules yet.</p>
 				{:else}
 					<div class="list-grid">
-						{#each data.telegramSubscriptions as subscription}
+						{#each data.telegramSubscriptions as subscription (subscription.id)}
 							<article class="list-card">
 								<div class="list-head">
 									<div>
@@ -556,7 +859,7 @@
 					<p class="empty-state">No metric rules yet.</p>
 				{:else}
 					<div class="list-grid">
-						{#each data.metricAlertRules as rule}
+						{#each data.metricAlertRules as rule (rule.id)}
 							<article class="list-card">
 								<div class="list-head">
 									<div>
@@ -629,7 +932,7 @@
 							<span>User</span>
 							<select name="entitlement_user_id" required>
 								<option value="">Select user</option>
-								{#each data.firewatchUsers as user}
+								{#each data.firewatchUsers as user (user.id)}
 									<option value={user.id}>{userDisplay(user)}</option>
 								{/each}
 							</select>
@@ -678,7 +981,7 @@
 							<span>User</span>
 							<select name="payment_user_id" required>
 								<option value="">Select user</option>
-								{#each data.firewatchUsers as user}
+								{#each data.firewatchUsers as user (user.id)}
 									<option value={user.id}>{userDisplay(user)}</option>
 								{/each}
 							</select>
@@ -707,7 +1010,7 @@
 				<p class="empty-state">No users yet.</p>
 			{:else}
 				<div class="list-grid">
-					{#each data.firewatchUsers as user}
+					{#each data.firewatchUsers as user (user.id)}
 						{@const entitlement = activeEntitlementForUser(user.id)}
 						{@const links = paymentLinksForUser(user.id)}
 						{@const pendingRules = pendingRulesForUser(user.id)}
@@ -736,10 +1039,10 @@
 								<li>
 									<strong>Latest pay link</strong>
 									<span>
-										{#if links[0]}
-											<a href={links[0].public_url} target="_blank" rel="noreferrer">{links[0].status} · {links[0].amount} SOL</a>
-										{:else}
-											None
+											{#if links[0]}
+												<a href={links[0].public_url} target="_blank" rel="noreferrer">{paymentStatusLabel(links[0])} · {formatPaymentAmount(links[0])}</a>
+											{:else}
+												None
 										{/if}
 									</span>
 								</li>
@@ -832,7 +1135,7 @@
 				<p class="empty-state">No promo codes yet.</p>
 			{:else}
 				<div class="list-grid">
-					{#each data.promoCodes as promo}
+					{#each data.promoCodes as promo (promo.id)}
 						<article class="list-card">
 							<div class="list-head">
 								<div>
@@ -868,7 +1171,7 @@
 			</div>
 
 			<div class="catalog-grid">
-				{#each data.defiProtocols as protocol}
+				{#each data.defiProtocols as protocol (protocol.slug)}
 					<article class="catalog-card">
 						<div class="list-head">
 							<div>
@@ -879,7 +1182,7 @@
 						</div>
 
 						<ul class="program-list">
-							{#each protocol.programs as program}
+							{#each protocol.programs as program (program.program_id)}
 								<li>
 									<a href={explorerAddressUrl(program.program_id, data.explorerCluster)} rel="noreferrer" target="_blank">
 										{program.label} · {shortAddress(program.program_id)}
@@ -911,22 +1214,32 @@
 		gap: 0.8rem;
 	}
 
-	.hero,
-	.hero-stats,
-	.builder-grid,
-	.rule-grid,
-	.catalog-grid,
+		.hero,
+		.hero-stats,
+		.dashboard-grid,
+		.ledger-grid,
+		.builder-grid,
+		.rule-grid,
+		.catalog-grid,
 	.list-grid,
 	.field-grid,
 	.check-grid,
 	.tag-grid {
 		display: grid;
-		gap: 1rem;
-	}
+			gap: 1rem;
+		}
 
-	.hero {
-		grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.9fr);
-	}
+		.dashboard-grid {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+
+		.ledger-grid {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+
+		.hero {
+			grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.9fr);
+		}
 
 	.hero-stats {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -972,15 +1285,47 @@
 		padding: 1.4rem;
 	}
 
-	.stat-card,
-	.list-card,
-	.catalog-card {
-		padding: 1.1rem;
-	}
+		.stat-card,
+		.list-card,
+		.catalog-card {
+			padding: 1.1rem;
+		}
 
-	h1,
-	h2,
-	strong {
+		.stat-card {
+			display: grid;
+			gap: 0.45rem;
+			min-width: 0;
+		}
+
+		.stat-card strong {
+			overflow-wrap: anywhere;
+		}
+
+		.ledger-stat {
+			display: grid;
+			gap: 0.45rem;
+			min-width: 0;
+			padding: 0.9rem 1rem;
+			border: 1px solid rgba(23, 32, 42, 0.08);
+			border-radius: 8px;
+			background: #fbfaf8;
+		}
+
+		.stat-card span,
+		.ledger-stat span {
+			color: #5f6c79;
+			font-size: 0.84rem;
+			font-weight: 700;
+		}
+
+		.ledger-stat strong {
+			font-size: 1.25rem;
+			overflow-wrap: anywhere;
+		}
+
+		h1,
+		h2,
+		strong {
 		margin: 0;
 	}
 
@@ -1212,30 +1557,109 @@
 		color: #667788;
 	}
 
-	.promo-code {
-		font-family: 'IBM Plex Mono', 'SFMono-Regular', monospace;
-		overflow-wrap: anywhere;
-	}
-
-	@media (max-width: 980px) {
-		.hero,
-		.builder-grid,
-		.rule-grid,
-		.catalog-grid,
-		.field-grid,
-		.tag-grid {
-			grid-template-columns: 1fr;
+		.promo-code {
+			font-family: 'IBM Plex Mono', 'SFMono-Regular', monospace;
+			overflow-wrap: anywhere;
 		}
-	}
 
-	@media (max-width: 720px) {
+		.table-panel {
+			min-width: 0;
+		}
+
+		.table-scroll {
+			overflow-x: auto;
+			border: 1px solid rgba(23, 32, 42, 0.08);
+			border-radius: 8px;
+		}
+
+		.admin-table {
+			width: 100%;
+			min-width: 620px;
+			border-collapse: collapse;
+			font-size: 0.9rem;
+		}
+
+		.admin-table th,
+		.admin-table td {
+			padding: 0.72rem 0.85rem;
+			border-bottom: 1px solid rgba(23, 32, 42, 0.07);
+			text-align: left;
+			vertical-align: top;
+			white-space: nowrap;
+		}
+
+		.admin-table th {
+			background: #fbfaf8;
+			color: #5f6c79;
+			font-size: 0.8rem;
+			font-weight: 800;
+		}
+
+		.admin-table tr:last-child td {
+			border-bottom: 0;
+		}
+
+		.admin-table a {
+			color: #bd4a17;
+			text-decoration: none;
+		}
+
+		.summary-list {
+			display: grid;
+			gap: 0.7rem;
+			margin: 0;
+			padding: 0;
+			list-style: none;
+		}
+
+		.summary-list li {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 1rem;
+			padding-bottom: 0.7rem;
+			border-bottom: 1px solid rgba(23, 32, 42, 0.08);
+		}
+
+		.summary-list li:last-child {
+			padding-bottom: 0;
+			border-bottom: 0;
+		}
+
+		.summary-list span {
+			color: #5f6c79;
+			font-weight: 700;
+		}
+
+		@media (max-width: 980px) {
+			.hero,
+			.dashboard-grid,
+			.builder-grid,
+			.rule-grid,
+			.catalog-grid,
+			.field-grid,
+			.tag-grid {
+				grid-template-columns: 1fr;
+			}
+
+			.ledger-grid {
+				grid-template-columns: repeat(2, minmax(0, 1fr));
+			}
+		}
+
+		@media (max-width: 720px) {
 		.page-shell {
 			width: min(100vw - 1rem, var(--fw-page-max));
 			padding-top: 0.8rem;
 		}
 
-		h1 {
-			font-size: 1.9rem;
+			h1 {
+				font-size: 1.9rem;
+			}
+
+			.hero-stats,
+			.ledger-grid {
+				grid-template-columns: 1fr;
+			}
 		}
-	}
-</style>
+	</style>

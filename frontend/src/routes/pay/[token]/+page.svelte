@@ -6,6 +6,7 @@
 		SolanaSignAndSendTransaction,
 		SolanaSignTransaction,
 		WalletButton,
+		WalletMobileLinks,
 		wallet
 	} from '@fernolab/wallet-adapter-svelte';
 	import {
@@ -709,6 +710,7 @@
 
 		void loadWalletBalance(publicKey);
 	});
+
 </script>
 
 <svelte:head>
@@ -838,6 +840,9 @@
 			</div>
 			{#if statusRefreshMessage}
 				<p class="status-note error">{statusRefreshMessage}</p>
+			{/if}
+			{#if canPay() && !wallet.connected}
+				<WalletMobileLinks class="firewatch-mobile-wallet-links" label="Open in wallet" />
 			{/if}
 			{#if walletPayMessage}
 				<div
@@ -1069,14 +1074,18 @@
 	}
 
 	.deposit-input-shell {
-		position: relative;
+		display: grid;
+		grid-template-columns: minmax(7rem, 1fr) auto;
+		align-items: center;
+		gap: 0.48rem;
 		min-width: 0;
 	}
 
 	.deposit-input-shell input {
 		width: 100%;
 		min-height: 3rem;
-		padding: 0 15.4rem 0 0.82rem;
+		min-width: 0;
+		padding: 0 0.82rem;
 		border: 1px solid rgba(23, 32, 42, 0.12);
 		border-radius: 8px;
 		background: #fff;
@@ -1093,24 +1102,21 @@
 	}
 
 	.deposit-input-actions {
-		position: absolute;
-		inset: 0 0.46rem 0 auto;
-		display: flex;
+		display: grid;
+		grid-template-columns: minmax(7.5rem, auto) repeat(3, auto);
 		align-items: center;
 		gap: 0.34rem;
-		max-width: calc(100% - 5.5rem);
-		pointer-events: none;
+		min-width: 0;
 	}
 
 	.wallet-balance-label {
-		max-width: 7.8rem;
-		overflow: hidden;
+		min-width: 0;
+		max-width: 10.6rem;
 		color: #6d7782;
 		font-size: 0.72rem;
 		font-weight: 750;
 		line-height: 1.1;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		overflow-wrap: anywhere;
 	}
 
 	.amount-chip {
@@ -1125,7 +1131,6 @@
 		font: inherit;
 		font-size: 0.72rem;
 		font-weight: 850;
-		pointer-events: auto;
 	}
 
 	.amount-chip:disabled {
@@ -1147,6 +1152,46 @@
 	.wallet-status {
 		display: grid;
 		gap: 0.55rem;
+	}
+
+	:global(.firewatch-mobile-wallet-links) {
+		display: grid;
+		gap: 0.52rem;
+		padding: 0.72rem 0.82rem;
+		border: 1px solid rgba(23, 32, 42, 0.08);
+		border-radius: 8px;
+		background: #fbfaf8;
+	}
+
+	:global(.firewatch-mobile-wallet-links > span) {
+		color: #26313d;
+		font-size: 0.78rem;
+		font-weight: 850;
+		line-height: 1.2;
+	}
+
+	:global(.firewatch-mobile-wallet-links .wallet-mobile-link-row) {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.45rem;
+		min-width: 0;
+	}
+
+	:global(.firewatch-mobile-wallet-links .wallet-mobile-link-row button) {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 2.25rem;
+		padding: 0 0.78rem;
+		border: 1px solid rgba(23, 32, 42, 0.12);
+		border-radius: 8px;
+		background: #fff;
+		color: #17202a;
+		cursor: pointer;
+		font: inherit;
+		font-size: 0.82rem;
+		font-weight: 850;
+		line-height: 1.2;
 	}
 
 	.wallet-status details {
@@ -1389,12 +1434,17 @@
 			gap: 0.58rem;
 		}
 
-		.deposit-input-shell input {
-			padding-right: 12.8rem;
+		.deposit-input-shell {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		.deposit-input-actions {
+			grid-template-columns: minmax(0, 1fr) repeat(3, auto);
+			padding-top: 0.08rem;
 		}
 
 		.wallet-balance-label {
-			max-width: 5.5rem;
+			max-width: none;
 		}
 
 		.detail-panel li {
@@ -1419,6 +1469,15 @@
 		.action-row {
 			display: grid;
 			grid-template-columns: minmax(0, 1fr);
+		}
+
+		:global(.firewatch-mobile-wallet-links .wallet-mobile-link-row) {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		:global(.firewatch-mobile-wallet-links .wallet-mobile-link-row button) {
+			width: 100%;
 		}
 	}
 </style>

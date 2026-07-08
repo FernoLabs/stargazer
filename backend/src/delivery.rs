@@ -1641,6 +1641,8 @@ mod tests {
             telegram_api_base: "https://api.telegram.org".to_owned(),
             firewatch_web_base_url: "https://watch.ferno.ag".to_owned(),
             origin_api_token: None,
+            admin_username: "admin".to_owned(),
+            admin_password: None,
             cors_allowed_origin: "http://127.0.0.1:5173".to_owned(),
             delivery_poll_seconds: 5,
             telegram_daily_summary_poll_seconds: 300,

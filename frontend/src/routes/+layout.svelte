@@ -175,7 +175,7 @@
 	<meta name="twitter:image" content={previewImageUrl()} />
 </svelte:head>
 
-<WalletProvider rpcEndpoint="https://jenifer-6iwpyb-fast-mainnet.helius-rpc.com">
+<WalletProvider autoConnectWalletBrowser rpcEndpoint="https://jenifer-6iwpyb-fast-mainnet.helius-rpc.com">
 	<div class="shell">
 		<header class="topbar">
 			<div class="topbar-row">

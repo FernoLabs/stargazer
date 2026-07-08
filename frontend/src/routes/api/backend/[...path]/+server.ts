@@ -1,4 +1,4 @@
-import { adminUnauthorizedResponse, isAdminAuthorized } from '$lib/server/admin-auth';
+import { adminUnauthorizedResponse, verifyAdminAuthorization } from '$lib/server/admin-auth';
 import { backendOriginHeaders, backendUrl } from '$lib/server/backend';
 import type { RequestHandler } from './$types';
 
@@ -188,8 +188,11 @@ const proxy: RequestHandler = async (event) => {
 		return new Response('Not found', { status: 404 });
 	}
 
-	if (isProtectedBackendPath(normalizedPath) && !isAdminAuthorized(event.request)) {
-		return adminUnauthorizedResponse();
+	if (isProtectedBackendPath(normalizedPath)) {
+		const authorization = await verifyAdminAuthorization(event.fetch, event.request);
+		if (!authorization.authorized) {
+			return adminUnauthorizedResponse(authorization);
+		}
 	}
 
 	const method = event.request.method.toUpperCase();

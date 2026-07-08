@@ -2,7 +2,7 @@
 	import { resolve } from '$app/paths';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import ProtocolIdentity from '$lib/components/ProtocolIdentity.svelte';
-	import { WalletButton, wallet } from '@fernolab/wallet-adapter-svelte';
+	import { WalletButton, WalletMobileLinks, wallet } from '@fernolab/wallet-adapter-svelte';
 	import {
 		canonicalProtocolSlug,
 		hasProtocolListedItems,
@@ -933,7 +933,7 @@
 	function activationStatusHint() {
 		if (canSaveClearedConfig) return 'This will remove the saved watch rules for this chat.';
 		if (!hasDeliveryModeSelected) return 'Select daily summaries, live alerts, or both.';
-		if (data.billing?.active) return 'Live alerts are already active for this Telegram user.';
+		if (data.billing?.active) return 'Live alerts are active. Add more months or switch to yearly anytime.';
 		if (needsLiveCheckout) return 'Daily summaries save now. Live alerts activate after payment.';
 		return 'No checkout needed for daily summaries.';
 	}
@@ -1481,6 +1481,9 @@
 									Add connected wallet
 								</button>
 							</div>
+							{#if !wallet.connected}
+								<WalletMobileLinks class="config-mobile-wallet-links" label="Open in wallet" />
+							{/if}
 						</div>
 						<div class="target-add-row primary-target-row">
 							<input
@@ -1999,7 +2002,7 @@
 						<div class="review-group payment-group">
 							<div class="review-group-head">
 								<strong>Payment</strong>
-								<span>{data.billing?.active ? 'Current access' : 'Checkout'}</span>
+								<span>{data.billing?.active ? 'Access and top-up' : 'Checkout'}</span>
 							</div>
 							<div class="payment-summary">
 								<div>
@@ -2017,31 +2020,28 @@
 											<strong>{formatTimestamp(data.billing.next_payment_due_at)}</strong>
 										</div>
 									{/if}
-								{:else}
-									<div>
-										<span>Plan</span>
-										<strong>{billingPlanLine()}</strong>
-									</div>
 								{/if}
-							</div>
-							{#if !data.billing?.active}
-								<div class="billing-row compact">
-									<label>
-										<input type="radio" name="billing" value="month" checked />
-										<span>Monthly</span>
-										{#if billingAmountLine('month')}
-											<small>{billingAmountLine('month')}</small>
-										{/if}
-									</label>
-									<label>
-										<input type="radio" name="billing" value="year" />
-										<span>Yearly</span>
-										{#if billingAmountLine('year')}
-											<small>{billingAmountLine('year')}</small>
-										{/if}
-									</label>
+								<div>
+									<span>Plan</span>
+									<strong>{billingPlanLine()}</strong>
 								</div>
-							{/if}
+							</div>
+							<div class="billing-row compact">
+								<label>
+									<input type="radio" name="billing" value="month" checked />
+									<span>{data.billing?.active ? 'Add monthly' : 'Monthly'}</span>
+									{#if billingAmountLine('month')}
+										<small>{billingAmountLine('month')}</small>
+									{/if}
+								</label>
+								<label>
+									<input type="radio" name="billing" value="year" />
+									<span>{data.billing?.active ? 'Switch to yearly' : 'Yearly'}</span>
+									{#if billingAmountLine('year')}
+										<small>{billingAmountLine('year')}</small>
+									{/if}
+								</label>
+							</div>
 							{#if visiblePaymentLinks().length > 0}
 								<div class="payment-link-list">
 									{#each visiblePaymentLinks() as link (link.id)}
@@ -2057,19 +2057,21 @@
 									{/each}
 								</div>
 							{/if}
-							{#if !data.billing?.active}
-								<div class="payment-action-row">
-									<button
-										class="secondary-button payment-create-button"
-										type="submit"
-										formaction="?/create_checkout"
-										formmethod="POST"
-									>
-										Create checkout link
-									</button>
-									<span>Opens a Solana Pay checkout for the selected billing period.</span>
-								</div>
-							{/if}
+							<div class="payment-action-row">
+								<button
+									class="secondary-button payment-create-button"
+									type="submit"
+									formaction="?/create_checkout"
+									formmethod="POST"
+								>
+									{data.billing?.active ? 'Add more time' : 'Create checkout link'}
+								</button>
+								<span>
+									{data.billing?.active
+										? 'Opens checkout now and stacks the selected period after current access.'
+										: 'Opens a Solana Pay checkout for the selected billing period.'}
+								</span>
+							</div>
 						</div>
 
 						<div class="review-group">
@@ -2899,6 +2901,31 @@
 		justify-content: end;
 	}
 
+	:global(.config-mobile-wallet-links) {
+		grid-column: 1 / -1;
+		display: grid;
+		gap: 0.5rem;
+		padding-top: 0.15rem;
+	}
+
+	:global(.config-mobile-wallet-links > span) {
+		color: #5f6c79;
+		font-size: 0.82rem;
+		font-weight: 800;
+	}
+
+	:global(.config-mobile-wallet-links .wallet-mobile-link-row) {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.45rem;
+	}
+
+	:global(.config-mobile-wallet-links .wallet-mobile-link-row button) {
+		min-height: 2.35rem;
+		border-color: rgba(23, 32, 42, 0.12);
+		font-size: 0.84rem;
+	}
+
 	.target-add-row {
 		grid-template-columns: minmax(0, 1fr) auto;
 		background: #fff;
@@ -3525,6 +3552,7 @@
 		}
 
 		.wallet-connect-actions,
+		:global(.config-mobile-wallet-links .wallet-mobile-link-row),
 		.wallet-tools,
 		.protocol-head-actions,
 		.protocol-head-actions .secondary-button,
@@ -3542,6 +3570,11 @@
 		.source-filter-button {
 			width: 100%;
 			justify-content: stretch;
+		}
+
+		:global(.config-mobile-wallet-links .wallet-mobile-link-row) {
+			display: grid;
+			grid-template-columns: 1fr;
 		}
 
 		.source-filter-row {

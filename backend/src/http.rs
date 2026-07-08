@@ -14,7 +14,7 @@ use crate::{
         PromoCode, PromoCodesResponse, RememberTelegramConfigSessionResponse,
         SaveTelegramConfigRequest, SaveTelegramConfigResponse, TelegramConfigSessionResponse,
         TelegramDeliveryMode, TelegramSubscription, TelegramSubscriptionSummaryResponse,
-        TelegramSubscriptionsResponse, UpsertFirewatchUserRequest, now_ts,
+        TelegramSubscriptionsResponse, UpsertFirewatchUserRequest, UserEntitlement, now_ts,
     },
     name_service, program_authority, protocol_governance, protocols, telegram,
 };
@@ -26,6 +26,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{delete, get},
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use futures::{StreamExt, stream};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -165,6 +166,7 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
             "/api/telegram-subscriptions/{id}",
             delete(delete_telegram_subscription),
         )
+        .route("/api/admin/auth/check", get(admin_auth_check))
         .route("/api/admin/storage", get(database_storage))
         .route(
             "/api/admin/storage/migrate-blobs",
@@ -652,6 +654,35 @@ async fn telegram_subscriptions_summary(
         subscription_count,
         telegram_enabled: state.config.telegram_bot_token.is_some(),
     }))
+}
+
+async fn admin_auth_check(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+) -> ApiResult<serde_json::Value> {
+    let Some(expected_password) = state.config.admin_password.as_deref() else {
+        return Err(error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "FireWatch admin auth is not configured.",
+        ));
+    };
+
+    let Some((username, password)) = basic_auth_credentials(&headers) else {
+        return Err(error_response(
+            StatusCode::UNAUTHORIZED,
+            "Authentication required.",
+        ));
+    };
+
+    if secure_eq(&username, &state.config.admin_username) && secure_eq(&password, expected_password)
+    {
+        return Ok(Json(json!({ "ok": true })));
+    }
+
+    Err(error_response(
+        StatusCode::UNAUTHORIZED,
+        "Authentication required.",
+    ))
 }
 
 async fn database_storage(State(state): State<SharedState>) -> ApiResult<serde_json::Value> {
@@ -1769,26 +1800,11 @@ async fn refresh_payment_link_checkout(
             .await?
     {
         let paid_at = crate::models::now_ts();
-        if state
+        state
             .db
-            .mark_payment_link_paid(&payment_link.id, paid_at)
+            .confirm_payment_link_and_grant_entitlement(&payment_link, paid_at, "solana_pay")
             .await
-            .map_err(internal_error)?
-        {
-            state
-                .db
-                .grant_user_entitlement(
-                    &payment_link.user_id,
-                    &payment_link.plan_id,
-                    "solana_pay",
-                    Some(crate::models::payment_plan_duration_months(
-                        &payment_link.plan_id,
-                    )),
-                    None,
-                )
-                .await
-                .map_err(internal_error)?;
-        }
+            .map_err(internal_error)?;
     }
 
     let Some((payment_link, user)) = state
@@ -2497,6 +2513,15 @@ fn collect_instruction_program_ids(
 
 const BILLING_MONTH_SECONDS: i64 = 30 * 24 * 60 * 60;
 
+fn entitlement_credit_months(entitlement: &UserEntitlement) -> Option<i64> {
+    let expires_at = entitlement.expires_at?;
+    if entitlement.status != "active" || expires_at <= entitlement.starts_at {
+        return None;
+    }
+
+    Some(((expires_at - entitlement.starts_at) + BILLING_MONTH_SECONDS - 1) / BILLING_MONTH_SECONDS)
+}
+
 async fn user_billing_summary(
     state: &SharedState,
     user_id: &str,
@@ -2520,40 +2545,29 @@ async fn user_billing_summary(
                 .expires_at
                 .is_none_or(|expires_at| expires_at > now)
     });
-    let paid_links = payment_links
-        .iter()
-        .filter(|payment_link| payment_link.status == "paid")
-        .collect::<Vec<_>>();
-    let credit_months = paid_links
-        .iter()
-        .map(|payment_link| crate::models::payment_plan_duration_months(&payment_link.plan_id))
-        .sum::<i64>();
-    let first_paid_at = paid_links
-        .iter()
-        .filter_map(|payment_link| payment_link.paid_at.or(Some(payment_link.created_at)))
-        .min();
-    let consumed_months = first_paid_at
-        .map(|paid_at| ((now - paid_at).max(0) / BILLING_MONTH_SECONDS).min(credit_months))
-        .unwrap_or(0);
-    let next_payment_due_at = entitlements
+    let live_entitlements = entitlements
         .iter()
         .filter(|entitlement| {
             entitlement.status == "active"
-                && entitlement.starts_at <= now
                 && entitlement
                     .expires_at
                     .is_some_and(|expires_at| expires_at > now)
         })
+        .collect::<Vec<_>>();
+    let credit_months = live_entitlements
+        .iter()
+        .filter_map(|entitlement| entitlement_credit_months(entitlement))
+        .sum::<i64>();
+    let next_payment_due_at = live_entitlements
+        .iter()
         .filter_map(|entitlement| entitlement.expires_at)
         .max();
     let remaining_seconds = next_payment_due_at
         .map(|expires_at| (expires_at - now).max(0))
         .unwrap_or(0);
-    let balance_months = if remaining_seconds > 0 {
-        ((remaining_seconds + BILLING_MONTH_SECONDS - 1) / BILLING_MONTH_SECONDS).max(0)
-    } else {
-        (credit_months - consumed_months).max(0)
-    };
+    let balance_months =
+        ((remaining_seconds + BILLING_MONTH_SECONDS - 1) / BILLING_MONTH_SECONDS).max(0);
+    let consumed_months = (credit_months - balance_months).max(0);
 
     Ok(crate::models::UserBillingSummary {
         active,
@@ -3084,6 +3098,25 @@ async fn require_origin_token(
     Err(error_response(
         StatusCode::UNAUTHORIZED,
         "Provide a valid FireWatch origin token.",
+    ))
+}
+
+fn basic_auth_credentials(headers: &HeaderMap) -> Option<(String, String)> {
+    let authorization = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+    if authorization.len() < "Basic ".len()
+        || !authorization[.."Basic ".len()].eq_ignore_ascii_case("Basic ")
+    {
+        return None;
+    }
+
+    let encoded = authorization["Basic ".len()..].trim();
+    let decoded = BASE64.decode(encoded).ok()?;
+    let decoded = String::from_utf8(decoded).ok()?;
+    let separator = decoded.find(':')?;
+
+    Some((
+        decoded[..separator].to_owned(),
+        decoded[separator + 1..].to_owned(),
     ))
 }
 

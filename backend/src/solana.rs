@@ -1215,21 +1215,10 @@ async fn detect_solana_payments(
 
         if state
             .db
-            .mark_payment_link_paid(&payment_link.id, paid_at)
+            .confirm_payment_link_and_grant_entitlement(&payment_link, paid_at, "solana_pay")
             .await?
+            .is_some()
         {
-            state
-                .db
-                .grant_user_entitlement(
-                    &payment_link.user_id,
-                    &payment_link.plan_id,
-                    "solana_pay",
-                    Some(crate::models::payment_plan_duration_months(
-                        &payment_link.plan_id,
-                    )),
-                    None,
-                )
-                .await?;
             detected += 1;
             info!(
                 signature = %tx.signature,

@@ -21,7 +21,7 @@ use crate::{
         ProgramVersionLatestSummary, ProgramVersionRecord, ProgramVersionSummary, PromoCode,
         ProtocolActivitySummary, ProtocolGovernanceLink, ProtocolMetricObservation,
         ProtocolMultisigLink, TelegramConfigSession, TelegramDeliveryMode, TelegramEventScope,
-        TelegramSubscription, UserEntitlement, event_kind, now_ts,
+        TelegramSubscription, UserEntitlement, event_kind, now_ts, payment_plan_duration_months,
     },
 };
 use anyhow::{Context, Result, bail};
@@ -5434,7 +5434,7 @@ impl Database {
             FROM user_entitlements
             WHERE user_id = ?
               AND status = 'active'
-              AND plan_id IN ('paid', 'custom', 'pro', 'ferno-member')
+              AND plan_id IN ('paid', 'paid-year', 'paid_year', 'year', 'yearly', 'custom', 'pro', 'ferno-member')
               AND starts_at <= ?
               AND (expires_at IS NULL OR expires_at > ?);
             "#,
@@ -5457,8 +5457,28 @@ impl Database {
         expires_at: Option<i64>,
     ) -> Result<UserEntitlement> {
         let now = now_ts();
-        let computed_expires_at = expires_at
-            .or_else(|| duration_months.map(|months| now + months.max(1) * 30 * 24 * 60 * 60));
+        let latest_active_expiry = if duration_months.is_some() && expires_at.is_none() {
+            sqlx::query_scalar::<_, Option<i64>>(
+                r#"
+                SELECT MAX(expires_at)
+                FROM user_entitlements
+                WHERE user_id = ?
+                  AND status = 'active'
+                  AND plan_id IN ('paid', 'paid-year', 'paid_year', 'year', 'yearly', 'custom', 'pro', 'ferno-member')
+                  AND expires_at > ?;
+                "#,
+            )
+            .bind(user_id)
+            .bind(now)
+            .fetch_one(&self.pool)
+            .await?
+        } else {
+            None
+        };
+        let starts_at = latest_active_expiry.unwrap_or(now).max(now);
+        let computed_expires_at = expires_at.or_else(|| {
+            duration_months.map(|months| starts_at + months.max(1) * 30 * 24 * 60 * 60)
+        });
         let row = sqlx::query(
             r#"
             INSERT INTO user_entitlements (
@@ -5480,7 +5500,7 @@ impl Database {
         .bind(user_id)
         .bind(plan_id)
         .bind(source)
-        .bind(now)
+        .bind(starts_at)
         .bind(computed_expires_at)
         .bind(now)
         .bind(now)
@@ -5488,9 +5508,102 @@ impl Database {
         .await?;
 
         self.activate_user_pending_subscriptions(user_id).await?;
-        self.mark_user_payment_links_paid(user_id, now).await?;
 
         row_to_user_entitlement(row)
+    }
+
+    pub async fn confirm_payment_link_and_grant_entitlement(
+        &self,
+        payment_link: &PaymentLink,
+        paid_at: i64,
+        source: &str,
+    ) -> Result<Option<UserEntitlement>> {
+        let now = now_ts();
+        let mut transaction = self.pool.begin().await?;
+        let update_result = sqlx::query(
+            r#"
+            UPDATE payment_links
+            SET status = 'paid', paid_at = ?
+            WHERE id = ?
+              AND user_id = ?
+              AND reference = ?
+              AND status = 'pending'
+              AND expires_at > ?;
+            "#,
+        )
+        .bind(paid_at)
+        .bind(&payment_link.id)
+        .bind(&payment_link.user_id)
+        .bind(&payment_link.reference)
+        .bind(now)
+        .execute(&mut *transaction)
+        .await?;
+
+        if update_result.rows_affected() != 1 {
+            transaction.commit().await?;
+            return Ok(None);
+        }
+
+        let latest_active_expiry = sqlx::query_scalar::<_, Option<i64>>(
+            r#"
+            SELECT MAX(expires_at)
+            FROM user_entitlements
+            WHERE user_id = ?
+              AND status = 'active'
+              AND plan_id IN ('paid', 'paid-year', 'paid_year', 'year', 'yearly', 'custom', 'pro', 'ferno-member')
+              AND expires_at > ?;
+            "#,
+        )
+        .bind(&payment_link.user_id)
+        .bind(now)
+        .fetch_one(&mut *transaction)
+        .await?;
+        let starts_at = latest_active_expiry.unwrap_or(now).max(now);
+        let expires_at = starts_at
+            + payment_plan_duration_months(&payment_link.plan_id).max(1) * 30 * 24 * 60 * 60;
+
+        let row = sqlx::query(
+            r#"
+            INSERT INTO user_entitlements (
+                id,
+                user_id,
+                plan_id,
+                source,
+                status,
+                starts_at,
+                expires_at,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)
+            RETURNING id, user_id, plan_id, source, status, starts_at, expires_at, created_at, updated_at;
+            "#,
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&payment_link.user_id)
+        .bind(&payment_link.plan_id)
+        .bind(source)
+        .bind(starts_at)
+        .bind(expires_at)
+        .bind(now)
+        .bind(now)
+        .fetch_one(&mut *transaction)
+        .await?;
+
+        sqlx::query(
+            r#"
+            UPDATE telegram_subscriptions
+            SET status = 'active'
+            WHERE user_id = ? AND status = 'pending_payment';
+            "#,
+        )
+        .bind(&payment_link.user_id)
+        .execute(&mut *transaction)
+        .await?;
+
+        let entitlement = row_to_user_entitlement(row)?;
+        transaction.commit().await?;
+        Ok(Some(entitlement))
     }
 
     pub async fn list_payment_links(&self) -> Result<Vec<PaymentLink>> {
@@ -5754,22 +5867,6 @@ impl Database {
         rows.into_iter().map(row_to_payment_link).collect()
     }
 
-    pub async fn mark_payment_link_paid(&self, id: &str, paid_at: i64) -> Result<bool> {
-        let result = sqlx::query(
-            r#"
-            UPDATE payment_links
-            SET status = 'paid', paid_at = ?
-            WHERE id = ? AND status = 'pending';
-            "#,
-        )
-        .bind(paid_at)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(result.rows_affected() == 1)
-    }
-
     pub async fn activate_user_pending_subscriptions(&self, user_id: &str) -> Result<u64> {
         let result = sqlx::query(
             r#"
@@ -5778,22 +5875,6 @@ impl Database {
             WHERE user_id = ? AND status = 'pending_payment';
             "#,
         )
-        .bind(user_id)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(result.rows_affected())
-    }
-
-    pub async fn mark_user_payment_links_paid(&self, user_id: &str, paid_at: i64) -> Result<u64> {
-        let result = sqlx::query(
-            r#"
-            UPDATE payment_links
-            SET status = 'paid', paid_at = COALESCE(paid_at, ?)
-            WHERE user_id = ? AND status = 'pending';
-            "#,
-        )
-        .bind(paid_at)
         .bind(user_id)
         .execute(&self.pool)
         .await?;
@@ -9774,6 +9855,131 @@ mod tests {
         program_bytes::{instruction_order_key, sha256_hex},
     };
     use serde_json::json;
+
+    #[tokio::test]
+    async fn confirming_payment_link_atomically_grants_and_stacks_entitlements() -> Result<()> {
+        let db_path = std::env::temp_dir().join(format!(
+            "firewatch-payment-entitlement-stack-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let database_url = format!("sqlite://{}", db_path.display());
+        let db = Database::connect(&database_url, BlobStore::new(None, None)?).await?;
+        db.migrate().await?;
+
+        let user = db
+            .upsert_firewatch_user(Some(42_424_242), Some("payment-test"), Some("Payment Test"))
+            .await?;
+        let now = now_ts();
+        let first_link = db
+            .create_payment_link(
+                &user.id,
+                "paid",
+                "first-token-hash",
+                "https://example.test/pay/first",
+                "solana:first",
+                "FirstReference111111111111111111111111111111",
+                "Recipient1111111111111111111111111111111111",
+                "0.42",
+                Some("TokenMint111111111111111111111111111111111"),
+                "FireWatch",
+                "First payment",
+                "first memo",
+                now + 3600,
+            )
+            .await?;
+        let second_link = db
+            .create_payment_link(
+                &user.id,
+                "paid",
+                "second-token-hash",
+                "https://example.test/pay/second",
+                "solana:second",
+                "SecondReference11111111111111111111111111111",
+                "Recipient1111111111111111111111111111111111",
+                "0.42",
+                Some("TokenMint111111111111111111111111111111111"),
+                "FireWatch",
+                "Second payment",
+                "second memo",
+                now + 3600,
+            )
+            .await?;
+        let third_link = db
+            .create_payment_link(
+                &user.id,
+                "paid",
+                "third-token-hash",
+                "https://example.test/pay/third",
+                "solana:third",
+                "ThirdReference111111111111111111111111111111",
+                "Recipient1111111111111111111111111111111111",
+                "0.42",
+                Some("TokenMint111111111111111111111111111111111"),
+                "FireWatch",
+                "Third payment",
+                "third memo",
+                now + 3600,
+            )
+            .await?;
+
+        let first_entitlement = db
+            .confirm_payment_link_and_grant_entitlement(&first_link, now, "solana_pay")
+            .await?
+            .expect("first payment should grant entitlement");
+        let first_expires_at = first_entitlement
+            .expires_at
+            .expect("monthly entitlement should expire");
+        assert!(
+            db.confirm_payment_link_and_grant_entitlement(&first_link, now + 1, "solana_pay")
+                .await?
+                .is_none()
+        );
+        let mut paid_link_ids = db
+            .list_payment_links_for_user(&user.id)
+            .await?
+            .into_iter()
+            .filter(|link| link.status == "paid")
+            .map(|link| link.id)
+            .collect::<Vec<_>>();
+        paid_link_ids.sort();
+        assert_eq!(paid_link_ids, vec![first_link.id.clone()]);
+        assert_eq!(db.list_user_entitlements_for_user(&user.id).await?.len(), 1);
+
+        let second_after_first_grant = db
+            .list_payment_links_for_user(&user.id)
+            .await?
+            .into_iter()
+            .find(|link| link.id == second_link.id)
+            .expect("second link should remain listed");
+        assert_eq!(second_after_first_grant.status, "pending");
+        assert!(second_after_first_grant.paid_at.is_none());
+
+        let second_entitlement = db
+            .confirm_payment_link_and_grant_entitlement(&second_link, now + 1, "solana_pay")
+            .await?
+            .expect("second payment should grant entitlement");
+        let second_expires_at = second_entitlement
+            .expires_at
+            .expect("monthly entitlement should expire");
+        assert_eq!(second_entitlement.starts_at, first_expires_at);
+        assert_eq!(
+            second_entitlement.expires_at,
+            Some(second_entitlement.starts_at + 30 * 24 * 60 * 60)
+        );
+
+        let third_entitlement = db
+            .confirm_payment_link_and_grant_entitlement(&third_link, now + 2, "solana_pay")
+            .await?
+            .expect("third payment should grant entitlement");
+        assert_eq!(third_entitlement.starts_at, second_expires_at);
+        assert_eq!(
+            third_entitlement.expires_at,
+            Some(third_entitlement.starts_at + 30 * 24 * 60 * 60)
+        );
+
+        let _ = std::fs::remove_file(db_path);
+        Ok(())
+    }
 
     #[tokio::test]
     async fn prunes_liquidity_pool_snapshots_by_retention_class() -> Result<()> {

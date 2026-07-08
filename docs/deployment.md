@@ -54,8 +54,6 @@ Set these Cloudflare Pages variables/secrets for both Production and Preview env
 | --- | --- |
 | `BACKEND_ORIGIN_URL` | `https://firewatch-origin.ferno.ag` |
 | `BACKEND_ORIGIN_TOKEN` | Same value as backend `ORIGIN_API_TOKEN` |
-| `ADMIN_USERNAME` | Usually `admin` |
-| `ADMIN_PASSWORD` | Strong private password for `/admin` |
 | `NODE_VERSION` | Optional when `frontend/.node-version` is present, but `22.16.0` is safe |
 
 Use a staging Dokploy origin for Preview when possible. If previews point at production, keep preview access restricted because the admin page can read and mutate production alert rules after authentication.
@@ -66,11 +64,13 @@ Set the same random token on the Dokploy backend:
 
 ```bash
 ORIGIN_API_TOKEN=<same-value-as-BACKEND_ORIGIN_TOKEN>
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=<strong-admin-password>
 ```
 
 When `ORIGIN_API_TOKEN` is set, the backend rejects direct `/api/*` requests unless they include `x-firewatch-origin-token`. `/healthz` stays public for Dokploy, Caddy, and load balancer health checks.
 
-The browser calls same-origin paths such as `/api/backend/api/events`. The Pages function injects the origin token, applies small edge-cache windows to public reads, and blocks protected admin API paths unless `/admin` Basic Auth has already succeeded.
+The browser calls same-origin paths such as `/api/backend/api/events`. The Pages function injects the origin token, applies small edge-cache windows to public reads, and blocks protected admin API paths unless `/admin` Basic Auth has already succeeded. The Basic Auth password check is performed by the backend at `/api/admin/auth/check`, so keep `ADMIN_PASSWORD` on the backend/Dokploy service rather than in Cloudflare Pages.
 
 ### DNS Records
 
@@ -105,6 +105,7 @@ Provision one EU VM first, install Dokploy there, and deploy the indexer as a Do
 - Data persistence: keep the `firewatch-indexer-data` and `firewatch-blob-data` Docker named volumes
 - Environment: paste values from `deploy/dokploy/.env.example` into the Environment editor
 - Origin API token: set `ORIGIN_API_TOKEN` to match the Cloudflare Pages `BACKEND_ORIGIN_TOKEN`
+- Admin auth: set `ADMIN_PASSWORD` to a strong private password; `ADMIN_USERNAME` defaults to `admin`
 - Tunnel profile: set `COMPOSE_PROFILES=tunnel`
 - Tunnel token: set `CLOUDFLARE_TUNNEL_TOKEN` from Cloudflare Zero Trust or the private bootstrap env file
 
