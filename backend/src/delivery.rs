@@ -395,7 +395,11 @@ async fn deliver_telegram_event(
     delivery: &PendingTelegramDelivery,
 ) -> Result<()> {
     let hydrated_event = name_service::hydrate_event(state, delivery.event.clone()).await;
-    let preview_url = firewatch_event_url(&state.config, &hydrated_event);
+    let preview_url = if hydrated_event.kind == event_kind::PROGRAM_INSTRUCTION_ALERT {
+        explorer_tx_url(&state.config, &hydrated_event.signature)
+    } else {
+        firewatch_event_url(&state.config, &hydrated_event)
+    };
     let message = format_telegram_message(&state.config, &hydrated_event);
     match send_telegram_html(
         state,
@@ -623,7 +627,8 @@ fn format_telegram_message(config: &Config, event: &ChainEvent) -> String {
         | event_kind::PROGRAM_IDL_CLOSED => (idl_digest_lines(config, event), IDL_DIGEST_PREFIXES),
         event_kind::PROGRAM_ADMIN_INSTRUCTION
         | event_kind::PROGRAM_UNKNOWN_INSTRUCTION
-        | event_kind::PROGRAM_METRIC_ALERT => (
+        | event_kind::PROGRAM_METRIC_ALERT
+        | event_kind::PROGRAM_INSTRUCTION_ALERT => (
             protocol_digest_lines(config, event),
             PROTOCOL_DIGEST_PREFIXES,
         ),
@@ -672,10 +677,12 @@ fn format_telegram_message(config: &Config, event: &ChainEvent) -> String {
         html_attr_escape(&explorer_tx_url(config, &event.signature)),
         html_escape(&compact_identifier(&event.signature, 6, 6)),
     ));
-    lines.push(format!(
-        "<a href=\"{}\">Open in FireWatch</a>",
-        html_attr_escape(&firewatch_event_url(config, event)),
-    ));
+    if event.kind != event_kind::PROGRAM_INSTRUCTION_ALERT {
+        lines.push(format!(
+            "<a href=\"{}\">Open in FireWatch</a>",
+            html_attr_escape(&firewatch_event_url(config, event)),
+        ));
+    }
 
     lines.join("\n")
 }
@@ -769,7 +776,11 @@ fn event_context_label(event: &ChainEvent) -> Option<String> {
 }
 
 fn event_severity(event: &ChainEvent) -> &'static str {
-    if event.is_critical_signal() {
+    if event.kind == event_kind::PROGRAM_INSTRUCTION_ALERT
+        && payload_str(event, "alert_severity").is_some_and(|severity| severity == "critical")
+    {
+        "critical"
+    } else if event.is_critical_signal() {
         "critical"
     } else if event.has_tag("severity:high")
         || payload_str(event, "severity").is_some_and(|severity| severity == "high")
@@ -829,6 +840,7 @@ const PROTOCOL_DIGEST_PREFIXES: &[&str] = &[
     "Actor:",
     "Review:",
     "Rule:",
+    "Matched:",
     "Discriminator:",
 ];
 
@@ -885,6 +897,7 @@ fn event_title(event: &ChainEvent) -> &'static str {
         event_kind::PROGRAM_IDL_CLOSED => "Program IDL closed",
         event_kind::PROGRAM_ADMIN_INSTRUCTION => "Protocol admin instruction",
         event_kind::PROGRAM_METRIC_ALERT => "Protocol metric anomaly",
+        event_kind::PROGRAM_INSTRUCTION_ALERT => "Instruction alert",
         event_kind::PROGRAM_UNKNOWN_INSTRUCTION => "Critical unknown protocol instruction",
         event_kind::TOKEN_LIQUIDITY_LOW => "Token liquidity low",
         event_kind::TREASURY_TOKEN_OUTFLOW => "Treasury token outflow",
@@ -1217,7 +1230,9 @@ fn protocol_digest_lines(config: &Config, event: &ChainEvent) -> Vec<String> {
         }
     }
 
-    if let Some(classification) = payload_str(event, "classification") {
+    if let Some(classification) =
+        payload_str(event, "alert_classification").or_else(|| payload_str(event, "classification"))
+    {
         lines.push(format!("Signal: {classification}"));
     }
 
@@ -1270,6 +1285,10 @@ fn protocol_digest_lines(config: &Config, event: &ChainEvent) -> Vec<String> {
 
     if let Some(rule_label) = payload_str(event, "rule_label") {
         lines.push(format!("Rule: {rule_label}"));
+    }
+
+    if let Some(matched_conditions) = payload_str(event, "matched_conditions") {
+        lines.push(format!("Matched: {matched_conditions}"));
     }
 
     if let Some(previous_metric_value) = payload_f64(event, "previous_metric_value") {

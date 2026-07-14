@@ -14,14 +14,16 @@ use crate::{
         LiquidityPoolRecord, LiquidityPoolSnapshotRecord,
     },
     models::{
-        ChainEvent, EventScopeCounts, EventsSummary, FirewatchUser, MetricAlertPreset,
-        MetricAlertRule, PaymentLink, PendingTelegramDailySummary, PendingTelegramDelivery,
-        ProgramDataWrite, ProgramDisassemblyRecord, ProgramIdlDataWrite, ProgramIdlVersionRecord,
-        ProgramRiskSummary, ProgramSignerStat, ProgramVersionCatalogSummary,
-        ProgramVersionLatestSummary, ProgramVersionRecord, ProgramVersionSummary, PromoCode,
-        ProtocolActivitySummary, ProtocolGovernanceLink, ProtocolMetricObservation,
-        ProtocolMultisigLink, TelegramConfigSession, TelegramDeliveryMode, TelegramEventScope,
-        TelegramSubscription, UserEntitlement, event_kind, now_ts, payment_plan_duration_months,
+        ChainEvent, EventScopeCounts, EventsSummary, FirewatchUser, IdlInstructionAlertCondition,
+        IdlInstructionAlertConditionMode, IdlInstructionAlertRule, IdlInstructionAlertSeverity,
+        MetricAlertPreset, MetricAlertRule, NewIdlInstructionAlertRule, PaymentLink,
+        PendingTelegramDailySummary, PendingTelegramDelivery, ProgramDataWrite,
+        ProgramDisassemblyRecord, ProgramIdlDataWrite, ProgramIdlVersionRecord, ProgramRiskSummary,
+        ProgramSignerStat, ProgramVersionCatalogSummary, ProgramVersionLatestSummary,
+        ProgramVersionRecord, ProgramVersionSummary, PromoCode, ProtocolActivitySummary,
+        ProtocolGovernanceLink, ProtocolMetricObservation, ProtocolMultisigLink,
+        TelegramConfigSession, TelegramDeliveryMode, TelegramEventScope, TelegramSubscription,
+        UserEntitlement, event_kind, now_ts, payment_plan_duration_months,
     },
 };
 use anyhow::{Context, Result, bail};
@@ -887,6 +889,56 @@ impl Database {
             r#"
             CREATE INDEX IF NOT EXISTS idx_metric_alert_rules_lookup
             ON metric_alert_rules (protocol_slug, instruction_name, metric_key, subject_address, created_at DESC);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS idl_instruction_alert_rules (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                subscription_id TEXT,
+                label TEXT NOT NULL,
+                program_id TEXT NOT NULL,
+                protocol_slug TEXT,
+                protocol_name TEXT,
+                instruction_name TEXT NOT NULL,
+                discriminator TEXT NOT NULL,
+                idl_sha256 TEXT NOT NULL,
+                idl_source TEXT NOT NULL,
+                severity TEXT NOT NULL CHECK (severity IN ('standard', 'high', 'critical')),
+                condition_mode TEXT NOT NULL CHECK (condition_mode IN ('all', 'any')),
+                conditions_json TEXT NOT NULL DEFAULT '[]',
+                enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_idl_instruction_alert_rules_user
+            ON idl_instruction_alert_rules (user_id, created_at DESC, id DESC);
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_idl_instruction_alert_rules_instruction
+            ON idl_instruction_alert_rules (
+                program_id,
+                instruction_name,
+                enabled,
+                updated_at DESC,
+                id DESC
+            );
             "#,
         )
         .execute(&self.pool)
@@ -4279,7 +4331,8 @@ impl Database {
                 COALESCE(SUM(CASE WHEN events.tags_json LIKE '%"severity:high"%' THEN 1 ELSE 0 END), 0) AS high_count,
                 COALESCE(SUM(CASE WHEN events.tags_json LIKE '%"severity:standard"%' THEN 1 ELSE 0 END), 0) AS standard_count
             FROM events, json_each(events.tags_json) AS protocol_tag
-            WHERE protocol_tag.value LIKE 'protocol:%'
+            WHERE events.kind <> 'program_instruction_alert'
+              AND protocol_tag.value LIKE 'protocol:%'
             GROUP BY slug
             ORDER BY total_count DESC, critical_count DESC, slug ASC;
             "#,
@@ -4903,7 +4956,8 @@ impl Database {
                 END AS evidence
             FROM events
             WHERE
-                target_type <> 'domain'
+                kind <> 'program_instruction_alert'
+                AND target_type <> 'domain'
                 AND (
                     target_address = ?
                     OR actor = ?
@@ -5264,6 +5318,255 @@ impl Database {
         .await?;
 
         Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn list_idl_instruction_alert_rules_for_user(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<IdlInstructionAlertRule>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                id,
+                user_id,
+                subscription_id,
+                label,
+                program_id,
+                protocol_slug,
+                protocol_name,
+                instruction_name,
+                discriminator,
+                idl_sha256,
+                idl_source,
+                severity,
+                condition_mode,
+                conditions_json,
+                enabled,
+                created_at,
+                updated_at
+            FROM idl_instruction_alert_rules
+            WHERE user_id = ?
+            ORDER BY created_at DESC, id DESC;
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(row_to_idl_instruction_alert_rule)
+            .collect()
+    }
+
+    pub async fn idl_instruction_alert_rule_for_user(
+        &self,
+        id: &str,
+        user_id: &str,
+    ) -> Result<Option<IdlInstructionAlertRule>> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                id,
+                user_id,
+                subscription_id,
+                label,
+                program_id,
+                protocol_slug,
+                protocol_name,
+                instruction_name,
+                discriminator,
+                idl_sha256,
+                idl_source,
+                severity,
+                condition_mode,
+                conditions_json,
+                enabled,
+                created_at,
+                updated_at
+            FROM idl_instruction_alert_rules
+            WHERE id = ? AND user_id = ?
+            LIMIT 1;
+            "#,
+        )
+        .bind(id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(row_to_idl_instruction_alert_rule).transpose()
+    }
+
+    pub async fn active_idl_instruction_alert_rules(&self) -> Result<Vec<IdlInstructionAlertRule>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                r.id,
+                r.user_id,
+                r.subscription_id,
+                r.label,
+                r.program_id,
+                r.protocol_slug,
+                r.protocol_name,
+                r.instruction_name,
+                r.discriminator,
+                r.idl_sha256,
+                r.idl_source,
+                r.severity,
+                r.condition_mode,
+                r.conditions_json,
+                r.enabled,
+                r.created_at,
+                r.updated_at
+            FROM idl_instruction_alert_rules r
+            JOIN telegram_subscriptions s
+              ON s.id = r.subscription_id
+             AND s.user_id = r.user_id
+            WHERE r.enabled = 1
+              AND s.status = 'active'
+              AND s.delivery_mode = 'live'
+              AND EXISTS (
+                    SELECT 1
+                    FROM user_entitlements e
+                    WHERE e.user_id = r.user_id
+                      AND e.status = 'active'
+                      AND e.plan_id IN (
+                            'paid',
+                            'paid-year',
+                            'paid_year',
+                            'year',
+                            'yearly',
+                            'custom',
+                            'pro',
+                            'ferno-member'
+                      )
+                      AND e.starts_at <= ?
+                      AND (e.expires_at IS NULL OR e.expires_at > ?)
+              )
+            ORDER BY r.program_id ASC, r.instruction_name ASC, r.updated_at DESC, r.id DESC;
+            "#,
+        )
+        .bind(now_ts())
+        .bind(now_ts())
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(row_to_idl_instruction_alert_rule)
+            .collect()
+    }
+
+    pub async fn create_idl_instruction_alert_rule(
+        &self,
+        rule: &NewIdlInstructionAlertRule,
+    ) -> Result<IdlInstructionAlertRule> {
+        if let Err(error) = rule.validate() {
+            bail!(error);
+        }
+
+        let conditions_json = serde_json::to_string(&rule.conditions)
+            .context("serialize IDL instruction alert conditions")?;
+        let discriminator = rule.discriminator.trim().to_ascii_lowercase();
+        let created_at = now_ts();
+        let row = sqlx::query(
+            r#"
+            INSERT INTO idl_instruction_alert_rules (
+                id,
+                user_id,
+                subscription_id,
+                label,
+                program_id,
+                protocol_slug,
+                protocol_name,
+                instruction_name,
+                discriminator,
+                idl_sha256,
+                idl_source,
+                severity,
+                condition_mode,
+                conditions_json,
+                enabled,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING
+                id,
+                user_id,
+                subscription_id,
+                label,
+                program_id,
+                protocol_slug,
+                protocol_name,
+                instruction_name,
+                discriminator,
+                idl_sha256,
+                idl_source,
+                severity,
+                condition_mode,
+                conditions_json,
+                enabled,
+                created_at,
+                updated_at;
+            "#,
+        )
+        .bind(&rule.id)
+        .bind(&rule.user_id)
+        .bind(&rule.subscription_id)
+        .bind(rule.label.trim())
+        .bind(rule.program_id.trim())
+        .bind(rule.protocol_slug.as_deref())
+        .bind(rule.protocol_name.as_deref())
+        .bind(rule.instruction_name.trim())
+        .bind(discriminator)
+        .bind(rule.idl_sha256.trim())
+        .bind(rule.idl_source.trim())
+        .bind(rule.severity.as_str())
+        .bind(rule.condition_mode.as_str())
+        .bind(conditions_json)
+        .bind(if rule.enabled { 1_i64 } else { 0_i64 })
+        .bind(created_at)
+        .bind(created_at)
+        .fetch_one(&self.pool)
+        .await?;
+
+        row_to_idl_instruction_alert_rule(row)
+    }
+
+    pub async fn delete_idl_instruction_alert_rule_for_user(
+        &self,
+        id: &str,
+        user_id: &str,
+    ) -> Result<Option<IdlInstructionAlertRule>> {
+        let row = sqlx::query(
+            r#"
+            DELETE FROM idl_instruction_alert_rules
+            WHERE id = ? AND user_id = ?
+            RETURNING
+                id,
+                user_id,
+                subscription_id,
+                label,
+                program_id,
+                protocol_slug,
+                protocol_name,
+                instruction_name,
+                discriminator,
+                idl_sha256,
+                idl_source,
+                severity,
+                condition_mode,
+                conditions_json,
+                enabled,
+                created_at,
+                updated_at;
+            "#,
+        )
+        .bind(id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(row_to_idl_instruction_alert_rule).transpose()
     }
 
     pub async fn list_firewatch_users(&self) -> Result<Vec<FirewatchUser>> {
@@ -7401,14 +7704,29 @@ impl Database {
                 COUNT(*) AS total_count,
                 MIN(slot) AS first_indexed_slot,
                 COALESCE(
-                    (SELECT COUNT(*) FROM telegram_deliveries WHERE delivered_at IS NOT NULL),
+                    (
+                        SELECT COUNT(*)
+                        FROM telegram_deliveries AS delivery
+                        INNER JOIN events AS delivery_event
+                            ON delivery_event.id = delivery.event_id
+                        WHERE delivery.delivered_at IS NOT NULL
+                          AND delivery_event.kind <> 'program_instruction_alert'
+                    ),
                     0
                 ) AS delivered_count,
                 COALESCE(
-                    (SELECT COUNT(*) FROM telegram_deliveries WHERE delivered_at IS NULL),
+                    (
+                        SELECT COUNT(*)
+                        FROM telegram_deliveries AS delivery
+                        INNER JOIN events AS delivery_event
+                            ON delivery_event.id = delivery.event_id
+                        WHERE delivery.delivered_at IS NULL
+                          AND delivery_event.kind <> 'program_instruction_alert'
+                    ),
                     0
                 ) AS pending_delivery_count
-            FROM events;
+            FROM events
+            WHERE kind <> 'program_instruction_alert';
             "#,
         )
         .fetch_one(&self.pool)
@@ -9857,6 +10175,122 @@ mod tests {
     use serde_json::json;
 
     #[tokio::test]
+    async fn idl_instruction_alert_rules_are_user_scoped_and_match_only_when_enabled() -> Result<()>
+    {
+        let db_path = std::env::temp_dir().join(format!(
+            "firewatch-idl-instruction-alert-rules-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let database_url = format!("sqlite://{}", db_path.display());
+        let db = Database::connect(&database_url, BlobStore::new(None, None)?).await?;
+        db.migrate().await?;
+
+        db.create_telegram_subscription(
+            "subscription-1",
+            "Active instruction alert",
+            Some("user-1"),
+            "1001",
+            None,
+            TelegramEventScope::DefiWatch,
+            Some("program-1"),
+            &["rule:rule-1".to_owned()],
+            TelegramDeliveryMode::Live,
+            "active",
+            None,
+        )
+        .await?;
+        db.grant_user_entitlement("user-1", "paid", "test", Some(1), None)
+            .await?;
+        db.create_telegram_subscription(
+            "subscription-pending",
+            "Pending instruction alert",
+            Some("user-3"),
+            "1003",
+            None,
+            TelegramEventScope::DefiWatch,
+            Some("program-1"),
+            &["rule:rule-3".to_owned()],
+            TelegramDeliveryMode::Live,
+            "pending_payment",
+            None,
+        )
+        .await?;
+
+        let condition = IdlInstructionAlertCondition {
+            source: crate::models::IdlInstructionAlertConditionSource::Argument,
+            field: "borrow_limit".to_owned(),
+            value_type: "u128".to_owned(),
+            operator: "gte".to_owned(),
+            value: Some("18446744073709551616".to_owned()),
+            second_value: None,
+        };
+        let rule = NewIdlInstructionAlertRule {
+            id: "rule-1".to_owned(),
+            user_id: "user-1".to_owned(),
+            subscription_id: Some("subscription-1".to_owned()),
+            label: "Large borrow limit".to_owned(),
+            program_id: "program-1".to_owned(),
+            protocol_slug: Some("protocol-1".to_owned()),
+            protocol_name: Some("Protocol 1".to_owned()),
+            instruction_name: "update_config".to_owned(),
+            discriminator: "0123456789abcdef".to_owned(),
+            idl_sha256: "idl-sha-1".to_owned(),
+            idl_source: "program_metadata".to_owned(),
+            severity: IdlInstructionAlertSeverity::Critical,
+            condition_mode: IdlInstructionAlertConditionMode::All,
+            conditions: vec![condition],
+            enabled: true,
+        };
+
+        let created = db.create_idl_instruction_alert_rule(&rule).await?;
+        assert_eq!(created.id, "rule-1");
+        assert_eq!(created.conditions, rule.conditions);
+        assert_eq!(created.subscription_id.as_deref(), Some("subscription-1"));
+
+        let mut disabled_rule = rule.clone();
+        disabled_rule.id = "rule-2".to_owned();
+        disabled_rule.user_id = "user-2".to_owned();
+        disabled_rule.enabled = false;
+        db.create_idl_instruction_alert_rule(&disabled_rule).await?;
+
+        let mut pending_rule = rule.clone();
+        pending_rule.id = "rule-3".to_owned();
+        pending_rule.user_id = "user-3".to_owned();
+        pending_rule.subscription_id = Some("subscription-pending".to_owned());
+        db.create_idl_instruction_alert_rule(&pending_rule).await?;
+
+        assert_eq!(
+            db.list_idl_instruction_alert_rules_for_user("user-1")
+                .await?
+                .len(),
+            1
+        );
+        assert!(
+            db.idl_instruction_alert_rule_for_user("rule-1", "user-2")
+                .await?
+                .is_none()
+        );
+
+        let matches = db.active_idl_instruction_alert_rules().await?;
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].id, "rule-1");
+
+        assert!(
+            db.delete_idl_instruction_alert_rule_for_user("rule-1", "user-2")
+                .await?
+                .is_none()
+        );
+        let deleted = db
+            .delete_idl_instruction_alert_rule_for_user("rule-1", "user-1")
+            .await?
+            .expect("rule should be deleted");
+        assert_eq!(deleted.subscription_id.as_deref(), Some("subscription-1"));
+
+        let _ = std::fs::remove_file(db_path);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn confirming_payment_link_atomically_grants_and_stacks_entitlements() -> Result<()> {
         let db_path = std::env::temp_dir().join(format!(
             "firewatch-payment-entitlement-stack-{}.db",
@@ -9976,6 +10410,100 @@ mod tests {
             third_entitlement.expires_at,
             Some(third_entitlement.starts_at + 30 * 24 * 60 * 60)
         );
+
+        let _ = std::fs::remove_file(db_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn private_instruction_alerts_are_excluded_from_public_event_queries() -> Result<()> {
+        let db_path = std::env::temp_dir().join(format!(
+            "firewatch-private-instruction-alerts-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let database_url = format!("sqlite://{}", db_path.display());
+        let db = Database::connect(&database_url, BlobStore::new(None, None)?).await?;
+        db.migrate().await?;
+
+        let target = "11111111111111111111111111111111";
+        let event = ChainEvent {
+            id: "private-instruction-alert".to_owned(),
+            signature: "private-instruction-signature".to_owned(),
+            instruction_path: "0".to_owned(),
+            kind: event_kind::PROGRAM_INSTRUCTION_ALERT.to_owned(),
+            target_type: target_type::PROGRAM.to_owned(),
+            target_address: target.to_owned(),
+            actor: Some("Owner11111111111111111111111111111111111".to_owned()),
+            slot: 42,
+            block_time: Some(100),
+            indexed_at: 100,
+            summary: "Private instruction rule matched".to_owned(),
+            tags: vec![
+                "protocol:private-test".to_owned(),
+                "rule:rule-1".to_owned(),
+                "severity:critical".to_owned(),
+                "watch:defi".to_owned(),
+            ],
+            payload: json!({
+                "classification": "hidden",
+                "rule_id": "rule-1",
+                "rule_owner_user_id": "user-1",
+                "decoded_arguments": { "amount": "100" },
+            }),
+            delivery_attempts: 0,
+            delivered_at: None,
+            last_error: None,
+            next_retry_at: 100,
+        };
+        db.insert_event(&event).await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO telegram_deliveries (
+                id,
+                event_id,
+                subscription_id,
+                created_at,
+                delivery_attempts,
+                delivered_at,
+                last_error,
+                next_retry_at
+            )
+            VALUES
+                ('private-delivered', ?, 'private-subscription-delivered', 100, 1, 101, NULL, 101),
+                ('private-pending', ?, 'private-subscription-pending', 100, 0, NULL, NULL, 100);
+            "#,
+        )
+        .bind(&event.id)
+        .bind(&event.id)
+        .execute(&db.pool)
+        .await?;
+
+        let related_multisigs = Vec::new();
+        let related_governances = Vec::new();
+        let filters = EventListFilters {
+            protocol_slug: None,
+            related_multisigs: &related_multisigs,
+            related_governances: &related_governances,
+            target_address: Some(target),
+            scope: None,
+            search: None,
+            severity: None,
+            known_defi_only: false,
+            tag: None,
+            from_ts: None,
+            before_ts: None,
+        };
+        assert!(db.list_events_filtered(10, 0, filters).await?.is_empty());
+        let counts = db.event_scope_counts(filters).await?;
+        assert_eq!(counts.all, 0);
+        assert_eq!(counts.critical, 0);
+        let summary = db.summary().await?;
+        assert_eq!(summary.total_count, 0);
+        assert_eq!(summary.delivered_count, 0);
+        assert_eq!(summary.pending_delivery_count, 0);
+        assert!(db.protocol_activity_summaries().await?.is_empty());
+        assert!(db.event_by_id(&event.id).await?.is_some());
 
         let _ = std::fs::remove_file(db_path);
         Ok(())
@@ -11321,6 +11849,45 @@ fn row_to_metric_alert_rule(row: sqlx::sqlite::SqliteRow) -> Result<MetricAlertR
     })
 }
 
+fn row_to_idl_instruction_alert_rule(
+    row: sqlx::sqlite::SqliteRow,
+) -> Result<IdlInstructionAlertRule> {
+    let id: String = row.try_get("id")?;
+    let severity = row
+        .try_get::<String, _>("severity")?
+        .parse::<IdlInstructionAlertSeverity>()
+        .map_err(anyhow::Error::msg)
+        .with_context(|| format!("parse severity for IDL instruction alert rule {id}"))?;
+    let condition_mode = row
+        .try_get::<String, _>("condition_mode")?
+        .parse::<IdlInstructionAlertConditionMode>()
+        .map_err(anyhow::Error::msg)
+        .with_context(|| format!("parse condition mode for IDL instruction alert rule {id}"))?;
+    let conditions_json: String = row.try_get("conditions_json")?;
+    let conditions = serde_json::from_str::<Vec<IdlInstructionAlertCondition>>(&conditions_json)
+        .with_context(|| format!("parse conditions for IDL instruction alert rule {id}"))?;
+
+    Ok(IdlInstructionAlertRule {
+        id,
+        user_id: row.try_get("user_id")?,
+        subscription_id: row.try_get("subscription_id")?,
+        label: row.try_get("label")?,
+        program_id: row.try_get("program_id")?,
+        protocol_slug: row.try_get("protocol_slug")?,
+        protocol_name: row.try_get("protocol_name")?,
+        instruction_name: row.try_get("instruction_name")?,
+        discriminator: row.try_get("discriminator")?,
+        idl_sha256: row.try_get("idl_sha256")?,
+        idl_source: row.try_get("idl_source")?,
+        severity,
+        condition_mode,
+        conditions,
+        enabled: row.try_get::<i64, _>("enabled")? == 1,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
 fn protocol_multisig_link_from_row(row: &SqliteRow) -> Result<ProtocolMultisigLink> {
     Ok(ProtocolMultisigLink {
         multisig: row.try_get("multisig")?,
@@ -11507,6 +12074,11 @@ fn push_event_filters(
     has_where: &mut bool,
     filters: &EventListFilters<'_>,
 ) {
+    push_where_prefix(builder, has_where);
+    builder
+        .push("kind <> ")
+        .push_bind(event_kind::PROGRAM_INSTRUCTION_ALERT);
+
     if let Some(protocol_slug) = filters.protocol_slug {
         let protocol_tag = format!("%\"protocol:{protocol_slug}\"%");
         push_where_prefix(builder, has_where);

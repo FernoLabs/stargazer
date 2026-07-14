@@ -6,6 +6,7 @@ mod context;
 mod database;
 mod delivery;
 mod http;
+mod idl_catalog;
 mod link_preview;
 mod liquidity_pools;
 mod models;

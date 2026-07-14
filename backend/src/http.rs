@@ -2,19 +2,22 @@ use crate::{
     block_backfill::{backfill_ferno_blocks, backfill_grpc_transactions, backfill_rpc_blocks},
     context::SharedState,
     database::{EventListFilters, ProgramVersionByteSide},
-    link_preview,
+    idl_catalog, link_preview,
     models::{
         AdminUsersResponse, ChainEvent, CreateConfigSessionCheckoutRequest,
-        CreateMetricAlertRuleRequest, CreatePaymentLinkRequest, CreatePromoCodeRequest,
-        CreateTelegramSubscriptionRequest, DefiProtocolDescriptor, DefiProtocolsIncluded,
-        DefiProtocolsResponse, EventScopeCounts, EventsResponse, EventsSummary, FirewatchUser,
-        GrantUserEntitlementRequest, LiveStatusResponse, MetricAlertRule, MetricAlertsResponse,
+        CreateIdlInstructionAlertRuleRequest, CreateMetricAlertRuleRequest,
+        CreatePaymentLinkRequest, CreatePromoCodeRequest, CreateTelegramSubscriptionRequest,
+        DefiProtocolDescriptor, DefiProtocolsIncluded, DefiProtocolsResponse, EventScopeCounts,
+        EventsResponse, EventsSummary, FirewatchUser, GrantUserEntitlementRequest,
+        IdlInstructionAlertCondition, IdlInstructionAlertConditionSource, IdlInstructionAlertRule,
+        LiveStatusResponse, MetricAlertRule, MetricAlertsResponse, NewIdlInstructionAlertRule,
         PaymentLink, PaymentLinkCheckoutResponse, ProgramDisassemblyResponse,
         ProgramIdlVersionsResponse, ProgramSignerStatsResponse, ProgramVersionCatalogSummary,
         ProgramVersionSummariesResponse, ProgramVersionsResponse, PromoCode, PromoCodesResponse,
         RememberTelegramConfigSessionResponse, SaveTelegramConfigRequest,
-        SaveTelegramConfigResponse, TelegramConfigSessionResponse, TelegramDeliveryMode,
-        TelegramSubscription, TelegramSubscriptionSummaryResponse, TelegramSubscriptionsResponse,
+        SaveTelegramConfigResponse, TelegramConfigSession, TelegramConfigSessionResponse,
+        TelegramDeliveryMode, TelegramEventScope, TelegramSubscription,
+        TelegramSubscriptionSummaryResponse, TelegramSubscriptionsResponse,
         UpsertFirewatchUserRequest, UserEntitlement, now_ts,
     },
     name_service, program_authority, protocol_governance, protocols, telegram,
@@ -162,6 +165,22 @@ pub fn router(state: SharedState) -> anyhow::Result<Router> {
         .route(
             "/api/telegram-subscriptions",
             get(list_telegram_subscriptions).post(create_telegram_subscription),
+        )
+        .route(
+            "/api/config-sessions/by-token/{token}/instruction-alert-catalog",
+            get(config_session_instruction_alert_catalog),
+        )
+        .route(
+            "/api/config-sessions/by-token/{token}/instruction-alert-catalog/{program_id}",
+            get(config_session_instruction_alert_program),
+        )
+        .route(
+            "/api/config-sessions/by-token/{token}/instruction-alert-rules",
+            axum::routing::post(create_config_session_instruction_alert_rule),
+        )
+        .route(
+            "/api/config-sessions/by-token/{token}/instruction-alert-rules/{id}",
+            delete(delete_config_session_instruction_alert_rule),
         )
         .route(
             "/api/telegram-subscriptions/summary",
@@ -519,14 +538,23 @@ async fn get_event(
     })?;
 
     match event {
-        Some(event) => Ok(Json(
+        Some(event) if !is_private_instruction_alert_event(&event) => Ok(Json(
             name_service::hydrate_event_cached(&state, event).await,
         )),
-        None => Err((
+        Some(_) | None => Err((
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "Event not found" })),
         )),
     }
+}
+
+fn is_private_instruction_alert_event(event: &ChainEvent) -> bool {
+    event.kind == "program_instruction_alert"
+        && event
+            .payload
+            .get("rule_owner_user_id")
+            .and_then(|value| value.as_str())
+            .is_some_and(|value| !value.trim().is_empty())
 }
 
 async fn event_preview_card(
@@ -548,7 +576,7 @@ async fn event_preview_card(
         )
     })?;
 
-    let Some(event) = event else {
+    let Some(event) = event.filter(|event| !is_private_instruction_alert_event(event)) else {
         return Err((
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "Event not found" })),
@@ -1472,6 +1500,486 @@ async fn delete_metric_alert_rule(
     }
 }
 
+async fn config_session_instruction_alert_catalog(
+    State(state): State<SharedState>,
+    Path(token): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let (_session, user) = config_session_identity(&state, token.trim()).await?;
+    let rules = state
+        .db
+        .list_idl_instruction_alert_rules_for_user(&user.id)
+        .await
+        .map_err(internal_error)?;
+    let programs = idl_catalog::program_summaries()
+        .iter()
+        .map(instruction_alert_program_summary_json)
+        .collect::<Vec<_>>();
+
+    Ok(Json(json!({
+        "programs": programs,
+        "rules": rules,
+    })))
+}
+
+async fn config_session_instruction_alert_program(
+    State(state): State<SharedState>,
+    Path((token, program_id)): Path<(String, String)>,
+) -> ApiResult<serde_json::Value> {
+    config_session_identity(&state, token.trim()).await?;
+    let program_id = Pubkey::from_str(program_id.trim())
+        .map_err(|_| error_response(StatusCode::BAD_REQUEST, "Program address is invalid."))?
+        .to_string();
+    let Some(program) = idl_catalog::program_descriptor(&program_id) else {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "No published IDL instruction catalog is available for this program.",
+        ));
+    };
+
+    Ok(Json(instruction_alert_program_json(program)))
+}
+
+async fn create_config_session_instruction_alert_rule(
+    State(state): State<SharedState>,
+    Path(token): Path<String>,
+    Json(payload): Json<CreateIdlInstructionAlertRuleRequest>,
+) -> ApiResult<IdlInstructionAlertRule> {
+    if state.config.telegram_bot_token.is_none() {
+        return Err(error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "TELEGRAM_BOT_TOKEN is not configured on the backend.",
+        ));
+    }
+    payload
+        .validate()
+        .map_err(|error| error_response(StatusCode::BAD_REQUEST, &error))?;
+
+    let (session, user) = config_session_identity(&state, token.trim()).await?;
+    let program_id = Pubkey::from_str(payload.program_id.trim())
+        .map_err(|_| error_response(StatusCode::BAD_REQUEST, "Program address is invalid."))?
+        .to_string();
+    let Some(program) = idl_catalog::program_descriptor(&program_id) else {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Choose a program from the published IDL catalog.",
+        ));
+    };
+    let Some(instruction) =
+        idl_catalog::instruction_descriptor(&program_id, payload.instruction_name.trim())
+    else {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Choose an instruction from the selected program IDL.",
+        ));
+    };
+
+    let conditions = payload
+        .conditions
+        .iter()
+        .map(|condition| validate_instruction_alert_condition(condition, instruction))
+        .collect::<Result<Vec<_>, _>>()?;
+    let rule_id = uuid::Uuid::new_v4().to_string();
+    let subscription_id = uuid::Uuid::new_v4().to_string();
+    let label = payload.label.trim().to_owned();
+    let has_entitlement = state
+        .db
+        .user_has_active_custom_entitlement(&user.id, now_ts())
+        .await
+        .map_err(internal_error)?;
+    let subscription = state
+        .db
+        .create_telegram_subscription(
+            &subscription_id,
+            &format!("IDL instruction alert - {label}"),
+            Some(&user.id),
+            &session.chat_id,
+            None,
+            TelegramEventScope::DefiWatch,
+            Some(&program_id),
+            &[format!("rule:{rule_id}")],
+            TelegramDeliveryMode::Live,
+            status_for_delivery_mode(has_entitlement, TelegramDeliveryMode::Live),
+            None,
+        )
+        .await
+        .map_err(internal_error)?;
+
+    let rule = NewIdlInstructionAlertRule {
+        id: rule_id,
+        user_id: user.id,
+        subscription_id: Some(subscription.id.clone()),
+        label,
+        program_id,
+        protocol_slug: catalog_optional_label(&program.protocol_slug),
+        protocol_name: catalog_optional_label(&program.protocol_name),
+        instruction_name: instruction.name.clone(),
+        discriminator: instruction.discriminator_hex.clone(),
+        idl_sha256: program.idl_sha256.clone(),
+        idl_source: program.idl_source.clone(),
+        severity: payload.severity,
+        condition_mode: payload.condition_mode,
+        conditions,
+        enabled: true,
+    };
+
+    match state.db.create_idl_instruction_alert_rule(&rule).await {
+        Ok(rule) => {
+            state.solana_filter_refresh.notify_one();
+            Ok(Json(rule))
+        }
+        Err(error) => {
+            if let Err(cleanup_error) = state
+                .db
+                .delete_telegram_subscription(&subscription.id)
+                .await
+            {
+                warn!(
+                    error = ?cleanup_error,
+                    subscription_id = %subscription.id,
+                    "failed to clean up instruction alert subscription after rule creation failed",
+                );
+            }
+            Err(internal_error(error))
+        }
+    }
+}
+
+async fn delete_config_session_instruction_alert_rule(
+    State(state): State<SharedState>,
+    Path((token, id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    let (_session, user) = config_session_identity(&state, token.trim()).await?;
+    let Some(rule) = state
+        .db
+        .idl_instruction_alert_rule_for_user(id.trim(), &user.id)
+        .await
+        .map_err(internal_error)?
+    else {
+        return Err(error_response(
+            StatusCode::NOT_FOUND,
+            "Instruction alert rule not found.",
+        ));
+    };
+
+    if let Some(subscription_id) = rule.subscription_id {
+        state
+            .db
+            .delete_telegram_subscription(&subscription_id)
+            .await
+            .map_err(internal_error)?;
+    }
+
+    state
+        .db
+        .delete_idl_instruction_alert_rule_for_user(id.trim(), &user.id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| {
+            error_response(
+                StatusCode::CONFLICT,
+                "Instruction alert rule changed while it was being removed.",
+            )
+        })?;
+
+    state.solana_filter_refresh.notify_one();
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn instruction_alert_program_summary_json(
+    program: &idl_catalog::ProgramSummary,
+) -> serde_json::Value {
+    let filterable_instruction_count = idl_catalog::program_descriptor(&program.program_id)
+        .map(|descriptor| {
+            descriptor
+                .instructions
+                .iter()
+                .filter(|instruction| {
+                    !instruction.accounts.is_empty()
+                        || instruction
+                            .arguments
+                            .iter()
+                            .any(|argument| argument.filterable)
+                })
+                .count()
+        })
+        .unwrap_or_default();
+
+    json!({
+        "program_id": program.program_id,
+        "program_name": instruction_alert_program_name(
+            &program.protocol_name,
+            &program.program_label,
+            &program.idl_name,
+        ),
+        "protocol_slug": catalog_optional_label(&program.protocol_slug),
+        "protocol_name": catalog_optional_label(&program.protocol_name),
+        "instruction_count": program.instruction_count,
+        "filterable_instruction_count": filterable_instruction_count,
+        "admin_candidate_count": program.admin_candidate_count,
+    })
+}
+
+fn instruction_alert_program_json(program: &idl_catalog::ProgramDescriptor) -> serde_json::Value {
+    let filterable_instruction_count = program
+        .instructions
+        .iter()
+        .filter(|instruction| {
+            !instruction.accounts.is_empty()
+                || instruction
+                    .arguments
+                    .iter()
+                    .any(|argument| argument.filterable)
+        })
+        .count();
+    let instructions = program
+        .instructions
+        .iter()
+        .map(|instruction| {
+            let accounts = instruction
+                .accounts
+                .iter()
+                .map(|account| {
+                    json!({
+                        "source": "account",
+                        "name": account.name,
+                        "display_name": readable_catalog_name(&account.name),
+                        "value_type": "pubkey",
+                        "operators": ["eq", "ne"],
+                        "filterable": true,
+                        "index": account.index,
+                        "is_signer": account.is_signer,
+                        "is_writable": account.is_writable,
+                    })
+                })
+                .collect::<Vec<_>>();
+            let arguments = instruction
+                .arguments
+                .iter()
+                .map(|argument| {
+                    json!({
+                        "source": "argument",
+                        "name": argument.name,
+                        "display_name": readable_catalog_name(&argument.name),
+                        "value_type": argument.type_name,
+                        "operators": instruction_alert_operators(argument.value_kind),
+                        "filterable": argument.filterable,
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            json!({
+                "name": instruction.name,
+                "display_name": readable_catalog_name(&instruction.name),
+                "discriminator": hex::decode(&instruction.discriminator_hex).unwrap_or_default(),
+                "admin_confidence": instruction_alert_admin_confidence(instruction.admin_confidence),
+                "recommended_severity": instruction
+                    .recommended_severity
+                    .map(idl_catalog::RecommendedSeverity::as_str)
+                    .unwrap_or("standard"),
+                "admin_reasons": instruction.admin_reasons,
+                "accounts": accounts,
+                "arguments": arguments,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "program_id": program.program_id,
+        "program_name": instruction_alert_program_name(
+            &program.protocol_name,
+            &program.program_label,
+            &program.idl_name,
+        ),
+        "protocol_slug": catalog_optional_label(&program.protocol_slug),
+        "protocol_name": catalog_optional_label(&program.protocol_name),
+        "instruction_count": program.instruction_count,
+        "filterable_instruction_count": filterable_instruction_count,
+        "admin_candidate_count": program.admin_candidate_count,
+        "idl_source": program.idl_source,
+        "idl_sha256": program.idl_sha256,
+        "instructions": instructions,
+    })
+}
+
+fn instruction_alert_program_name(
+    protocol_name: &str,
+    program_label: &str,
+    idl_name: &str,
+) -> String {
+    catalog_optional_label(program_label)
+        .or_else(|| catalog_optional_label(idl_name).map(|name| readable_catalog_name(&name)))
+        .or_else(|| catalog_optional_label(protocol_name))
+        .unwrap_or_else(|| "Unknown program".to_owned())
+}
+
+fn catalog_optional_label(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty() && !value.eq_ignore_ascii_case("unknown")).then(|| value.to_owned())
+}
+
+fn readable_catalog_name(value: &str) -> String {
+    let mut output = value
+        .split('_')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if let Some(first) = output.get_mut(0..1) {
+        first.make_ascii_uppercase();
+    }
+    output
+}
+
+fn instruction_alert_admin_confidence(confidence: idl_catalog::AdminConfidence) -> &'static str {
+    match confidence.as_str() {
+        "high_confidence_admin" => "high",
+        "likely_admin" => "likely",
+        "manual_review" => "review",
+        _ => "none",
+    }
+}
+
+fn instruction_alert_operators(
+    value_kind: Option<idl_catalog::ValueKind>,
+) -> &'static [&'static str] {
+    match value_kind {
+        Some(idl_catalog::ValueKind::Integer) => &["eq", "ne", "gt", "gte", "lt", "lte", "between"],
+        Some(idl_catalog::ValueKind::Boolean | idl_catalog::ValueKind::Pubkey) => &["eq", "ne"],
+        Some(idl_catalog::ValueKind::Float) | None => &[],
+    }
+}
+
+fn validate_instruction_alert_condition(
+    condition: &IdlInstructionAlertCondition,
+    instruction: &idl_catalog::InstructionDescriptor,
+) -> Result<IdlInstructionAlertCondition, (StatusCode, Json<serde_json::Value>)> {
+    condition
+        .validate()
+        .map_err(|error| error_response(StatusCode::BAD_REQUEST, &error))?;
+    let field = condition.field.trim();
+    let operator = condition.operator.trim();
+    let (expected_type, value_kind, filterable) = match condition.source {
+        IdlInstructionAlertConditionSource::Account => {
+            let Some(_account) = instruction
+                .accounts
+                .iter()
+                .find(|account| account.name == field)
+            else {
+                return Err(error_response(
+                    StatusCode::BAD_REQUEST,
+                    "Instruction alert account field is not present in the selected IDL instruction.",
+                ));
+            };
+            ("pubkey", idl_catalog::ValueKind::Pubkey, true)
+        }
+        IdlInstructionAlertConditionSource::Argument => {
+            let Some(argument) = instruction
+                .arguments
+                .iter()
+                .find(|argument| argument.name == field)
+            else {
+                return Err(error_response(
+                    StatusCode::BAD_REQUEST,
+                    "Instruction alert argument is not present in the selected IDL instruction.",
+                ));
+            };
+            let Some(value_kind) = argument.value_kind else {
+                return Err(error_response(
+                    StatusCode::BAD_REQUEST,
+                    "This IDL argument cannot be filtered safely.",
+                ));
+            };
+            (argument.type_name.as_str(), value_kind, argument.filterable)
+        }
+    };
+
+    if !filterable || value_kind == idl_catalog::ValueKind::Float {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "This IDL field cannot be filtered safely.",
+        ));
+    }
+    if condition.value_type.trim() != expected_type {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Instruction alert field type does not match the published IDL.",
+        ));
+    }
+    if !instruction_alert_operators(Some(value_kind)).contains(&operator) {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Instruction alert operator is not supported for this IDL field.",
+        ));
+    }
+
+    let value = normalized_instruction_alert_value(
+        value_kind,
+        expected_type,
+        condition.value.as_deref().unwrap_or_default(),
+    )?;
+    let second_value = if operator == "between" {
+        Some(normalized_instruction_alert_value(
+            value_kind,
+            expected_type,
+            condition.second_value.as_deref().unwrap_or_default(),
+        )?)
+    } else {
+        None
+    };
+
+    Ok(IdlInstructionAlertCondition {
+        source: condition.source,
+        field: field.to_owned(),
+        value_type: expected_type.to_owned(),
+        operator: operator.to_owned(),
+        value: Some(value),
+        second_value,
+    })
+}
+
+fn normalized_instruction_alert_value(
+    value_kind: idl_catalog::ValueKind,
+    value_type: &str,
+    value: &str,
+) -> Result<String, (StatusCode, Json<serde_json::Value>)> {
+    let value = value.trim();
+    let valid = match value_kind {
+        idl_catalog::ValueKind::Integer => valid_idl_integer(value_type, value),
+        idl_catalog::ValueKind::Boolean => matches!(value, "true" | "false"),
+        idl_catalog::ValueKind::Pubkey => Pubkey::from_str(value).is_ok(),
+        idl_catalog::ValueKind::Float => false,
+    };
+    if !valid {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Instruction alert value is invalid for the selected IDL field type.",
+        ));
+    }
+
+    if value_kind == idl_catalog::ValueKind::Pubkey {
+        return Ok(Pubkey::from_str(value)
+            .expect("validated instruction alert pubkey")
+            .to_string());
+    }
+    Ok(value.to_owned())
+}
+
+fn valid_idl_integer(value_type: &str, value: &str) -> bool {
+    match value_type {
+        "i8" => value.parse::<i8>().is_ok(),
+        "i16" => value.parse::<i16>().is_ok(),
+        "i32" => value.parse::<i32>().is_ok(),
+        "i64" => value.parse::<i64>().is_ok(),
+        "i128" => value.parse::<i128>().is_ok(),
+        "u8" => value.parse::<u8>().is_ok(),
+        "u16" => value.parse::<u16>().is_ok(),
+        "u32" => value.parse::<u32>().is_ok(),
+        "u64" => value.parse::<u64>().is_ok(),
+        "u128" => value.parse::<u128>().is_ok(),
+        _ => false,
+    }
+}
+
 async fn list_promo_codes(State(state): State<SharedState>) -> ApiResult<PromoCodesResponse> {
     let items = state.db.list_promo_codes().await.map_err(internal_error)?;
 
@@ -1698,6 +2206,7 @@ async fn grant_user_entitlement(
         )
         .await
         .map_err(internal_error)?;
+    state.solana_filter_refresh.notify_one();
 
     Ok(Json(entitlement))
 }
@@ -1805,11 +2314,14 @@ async fn refresh_payment_link_checkout(
             .await?
     {
         let paid_at = crate::models::now_ts();
-        state
+        let entitlement = state
             .db
             .confirm_payment_link_and_grant_entitlement(&payment_link, paid_at, "solana_pay")
             .await
             .map_err(internal_error)?;
+        if entitlement.is_some() {
+            state.solana_filter_refresh.notify_one();
+        }
     }
 
     let Some((payment_link, user)) = state
@@ -2160,6 +2672,27 @@ fn decimal_amount_to_base_units(amount: &str, decimals: usize) -> Option<u64> {
     whole_units.checked_add(fractional_units)
 }
 
+async fn instruction_alert_subscription_ids_for_user(
+    state: &SharedState,
+    user_id: &str,
+) -> Result<HashSet<String>, (StatusCode, Json<serde_json::Value>)> {
+    Ok(state
+        .db
+        .list_idl_instruction_alert_rules_for_user(user_id)
+        .await
+        .map_err(internal_error)?
+        .into_iter()
+        .filter_map(|rule| rule.subscription_id)
+        .collect())
+}
+
+fn is_instruction_alert_subscription(
+    subscription: &TelegramSubscription,
+    instruction_alert_subscription_ids: &HashSet<String>,
+) -> bool {
+    instruction_alert_subscription_ids.contains(&subscription.id)
+}
+
 async fn get_config_session(
     State(state): State<SharedState>,
     Path(token): Path<String>,
@@ -2186,11 +2719,18 @@ async fn get_config_session(
     };
 
     let billing = user_billing_summary(&state, &user.id).await?;
+    let instruction_alert_subscription_ids =
+        instruction_alert_subscription_ids_for_user(&state, &user.id).await?;
     let subscriptions = state
         .db
         .list_telegram_subscriptions_for_config_session(&user.id, &session.chat_id)
         .await
-        .map_err(internal_error)?;
+        .map_err(internal_error)?
+        .into_iter()
+        .filter(|subscription| {
+            !is_instruction_alert_subscription(subscription, &instruction_alert_subscription_ids)
+        })
+        .collect();
 
     Ok(Json(TelegramConfigSessionResponse {
         session,
@@ -2440,6 +2980,13 @@ async fn ensure_config_session(
     state: &SharedState,
     token: &str,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    config_session_identity(state, token).await.map(|_| ())
+}
+
+async fn config_session_identity(
+    state: &SharedState,
+    token: &str,
+) -> Result<(TelegramConfigSession, FirewatchUser), (StatusCode, Json<serde_json::Value>)> {
     if token.is_empty() {
         return Err(error_response(
             StatusCode::NOT_FOUND,
@@ -2448,7 +2995,7 @@ async fn ensure_config_session(
     }
 
     let token_hash = token_hash(token);
-    let Some((_session, _user)) = state
+    let Some((session, user)) = state
         .db
         .telegram_config_session_by_token_hash(&token_hash, crate::models::now_ts())
         .await
@@ -2460,7 +3007,7 @@ async fn ensure_config_session(
         ));
     };
 
-    Ok(())
+    Ok((session, user))
 }
 
 async fn wallet_history_signatures(
@@ -2655,8 +3202,13 @@ async fn save_config_session(
         .list_telegram_subscriptions_for_config_session(&user.id, &session.chat_id)
         .await
         .map_err(internal_error)?;
+    let instruction_alert_subscription_ids =
+        instruction_alert_subscription_ids_for_user(&state, &user.id).await?;
     let removable_ids = current_subscriptions
         .iter()
+        .filter(|subscription| {
+            !is_instruction_alert_subscription(subscription, &instruction_alert_subscription_ids)
+        })
         .map(|subscription| subscription.id.as_str())
         .collect::<HashSet<_>>();
     let unsubscribe_ids = payload
@@ -3589,5 +4141,92 @@ mod tests {
 
         let error = payment_plan_id_for_billing(Some("lifetime")).unwrap_err();
         assert_eq!(error.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn instruction_alert_program_payload_matches_lazy_builder_contract() {
+        let program =
+            idl_catalog::program_descriptor("1349iiGjWC7ZTbu6otFmJwztms122jEEnShKgpVnNewy")
+                .expect("fixture program exists in the embedded catalog");
+        let payload = instruction_alert_program_json(program);
+
+        assert_eq!(payload["program_id"], program.program_id);
+        assert_eq!(payload["instruction_count"], program.instruction_count);
+        assert_eq!(
+            payload["admin_candidate_count"],
+            program.admin_candidate_count
+        );
+        assert!(payload["filterable_instruction_count"].as_u64().is_some());
+        let instruction = payload["instructions"]
+            .as_array()
+            .and_then(|instructions| instructions.first())
+            .expect("program exposes instructions");
+        assert!(instruction["display_name"].as_str().is_some());
+        assert!(instruction["admin_confidence"].as_str().is_some());
+        assert!(instruction["recommended_severity"].as_str().is_some());
+    }
+
+    #[test]
+    fn instruction_alert_condition_is_validated_against_catalog_type() {
+        let (instruction, argument) = idl_catalog::instruction_catalog()
+            .programs
+            .iter()
+            .flat_map(|program| &program.instructions)
+            .find_map(|instruction| {
+                instruction
+                    .arguments
+                    .iter()
+                    .find(|argument| {
+                        argument.filterable
+                            && argument.value_kind == Some(idl_catalog::ValueKind::Boolean)
+                    })
+                    .map(|argument| (instruction, argument))
+            })
+            .expect("catalog contains a filterable boolean argument");
+        let condition = IdlInstructionAlertCondition {
+            source: IdlInstructionAlertConditionSource::Argument,
+            field: argument.name.clone(),
+            value_type: argument.type_name.clone(),
+            operator: "ne".to_owned(),
+            value: Some("true".to_owned()),
+            second_value: None,
+        };
+
+        assert!(validate_instruction_alert_condition(&condition, instruction).is_ok());
+
+        let mut spoofed_type = condition;
+        spoofed_type.value_type = "u64".to_owned();
+        assert!(validate_instruction_alert_condition(&spoofed_type, instruction).is_err());
+    }
+
+    #[test]
+    fn instruction_alert_subscriptions_are_protected_from_base_config_replacement() {
+        let subscription = TelegramSubscription {
+            id: "instruction-subscription".to_owned(),
+            label: "IDL alert".to_owned(),
+            user_id: Some("user-1".to_owned()),
+            chat_id: "1001".to_owned(),
+            thread_id: None,
+            scope: TelegramEventScope::DefiWatch,
+            target_address: Some("11111111111111111111111111111111".to_owned()),
+            required_tags: vec!["rule:rule-1".to_owned()],
+            delivery_mode: TelegramDeliveryMode::Live,
+            status: "active".to_owned(),
+            payment_link_id: None,
+            created_at: 1,
+        };
+        let protected_ids = HashSet::from([subscription.id.clone()]);
+
+        assert!(is_instruction_alert_subscription(
+            &subscription,
+            &protected_ids
+        ));
+
+        let mut ordinary_subscription = subscription;
+        ordinary_subscription.id = "ordinary-subscription".to_owned();
+        assert!(!is_instruction_alert_subscription(
+            &ordinary_subscription,
+            &protected_ids
+        ));
     }
 }

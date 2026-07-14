@@ -22,6 +22,7 @@ pub mod event_kind {
     pub const PROGRAM_ADMIN_INSTRUCTION: &str = "program_admin_instruction";
     pub const PROGRAM_DORMANT_ACTIVITY: &str = "program_dormant_activity";
     pub const PROGRAM_METRIC_ALERT: &str = "program_metric_alert";
+    pub const PROGRAM_INSTRUCTION_ALERT: &str = "program_instruction_alert";
     pub const PROGRAM_UNKNOWN_INSTRUCTION: &str = "program_unknown_instruction";
     pub const TOKEN_LIQUIDITY_LOW: &str = "token_liquidity_low";
     pub const TREASURY_TOKEN_OUTFLOW: &str = "treasury_token_outflow";
@@ -341,6 +342,34 @@ impl TelegramSubscription {
                 && self.delivery_mode == TelegramDeliveryMode::DailySummary);
         if !can_receive_events {
             return false;
+        }
+
+        if let Some(rule_owner_user_id) = event.payload.get("rule_owner_user_id") {
+            let Some(rule_owner_user_id) = rule_owner_user_id
+                .as_str()
+                .filter(|value| !value.trim().is_empty())
+            else {
+                return false;
+            };
+            if self.user_id.as_deref() != Some(rule_owner_user_id) {
+                return false;
+            }
+            let Some(rule_id) = event
+                .payload
+                .get("rule_id")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+            else {
+                return false;
+            };
+            let required_rule_tag = format!("rule:{rule_id}");
+            if !self
+                .required_tags
+                .iter()
+                .any(|required_tag| required_tag == &required_rule_tag)
+            {
+                return false;
+            }
         }
 
         if self.scope == TelegramEventScope::MultisigActivity {
@@ -934,6 +963,305 @@ pub struct CreateMetricAlertRuleRequest {
     pub max_value: Option<f64>,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum IdlInstructionAlertSeverity {
+    Standard,
+    High,
+    Critical,
+}
+
+impl IdlInstructionAlertSeverity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::High => "high",
+            Self::Critical => "critical",
+        }
+    }
+}
+
+impl FromStr for IdlInstructionAlertSeverity {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "standard" => Ok(Self::Standard),
+            "high" => Ok(Self::High),
+            "critical" => Ok(Self::Critical),
+            _ => Err(format!("unsupported instruction alert severity: {value}")),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum IdlInstructionAlertConditionMode {
+    #[default]
+    All,
+    Any,
+}
+
+impl IdlInstructionAlertConditionMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Any => "any",
+        }
+    }
+}
+
+impl FromStr for IdlInstructionAlertConditionMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "all" => Ok(Self::All),
+            "any" => Ok(Self::Any),
+            _ => Err(format!(
+                "unsupported instruction alert condition mode: {value}"
+            )),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum IdlInstructionAlertConditionSource {
+    Argument,
+    Account,
+}
+
+impl IdlInstructionAlertConditionSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Argument => "argument",
+            Self::Account => "account",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct IdlInstructionAlertCondition {
+    pub source: IdlInstructionAlertConditionSource,
+    pub field: String,
+    pub value_type: String,
+    pub operator: String,
+    pub value: Option<String>,
+    pub second_value: Option<String>,
+}
+
+impl IdlInstructionAlertCondition {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.field.trim().is_empty() {
+            return Err("instruction alert condition field cannot be empty".to_owned());
+        }
+        if self.value_type.trim().is_empty() {
+            return Err("instruction alert condition value_type cannot be empty".to_owned());
+        }
+
+        let value_type = self.value_type.trim().to_ascii_lowercase();
+        let operator = self.operator.trim();
+        let supported = match self.source {
+            IdlInstructionAlertConditionSource::Argument
+                if matches!(
+                    value_type.as_str(),
+                    "integer"
+                        | "u8"
+                        | "u16"
+                        | "u32"
+                        | "u64"
+                        | "u128"
+                        | "i8"
+                        | "i16"
+                        | "i32"
+                        | "i64"
+                        | "i128"
+                ) =>
+            {
+                matches!(
+                    operator,
+                    "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "between"
+                )
+            }
+            IdlInstructionAlertConditionSource::Argument
+                if matches!(value_type.as_str(), "pubkey" | "public_key" | "publickey") =>
+            {
+                matches!(operator, "eq" | "ne" | "in" | "not_in")
+            }
+            IdlInstructionAlertConditionSource::Argument
+                if matches!(value_type.as_str(), "bool" | "boolean") =>
+            {
+                matches!(operator, "eq" | "ne")
+            }
+            IdlInstructionAlertConditionSource::Argument => false,
+            IdlInstructionAlertConditionSource::Account => {
+                matches!(
+                    value_type.as_str(),
+                    "account" | "pubkey" | "public_key" | "publickey"
+                ) && matches!(operator, "eq" | "ne" | "in" | "not_in")
+            }
+        };
+        if !supported {
+            return Err(format!(
+                "unsupported {} instruction alert operator: {operator}",
+                self.source.as_str()
+            ));
+        }
+
+        if self
+            .value
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
+        {
+            return Err(format!(
+                "instruction alert operator {operator} requires a value"
+            ));
+        }
+        if operator == "between"
+            && self
+                .second_value
+                .as_deref()
+                .is_none_or(|value| value.trim().is_empty())
+        {
+            return Err("instruction alert operator between requires a second_value".to_owned());
+        }
+        if matches!(value_type.as_str(), "bool" | "boolean")
+            && self
+                .value
+                .as_deref()
+                .is_some_and(|value| !matches!(value.trim(), "true" | "false"))
+        {
+            return Err("boolean instruction alert values must be true or false".to_owned());
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IdlInstructionAlertRule {
+    pub id: String,
+    pub user_id: String,
+    pub subscription_id: Option<String>,
+    pub label: String,
+    pub program_id: String,
+    pub protocol_slug: Option<String>,
+    pub protocol_name: Option<String>,
+    pub instruction_name: String,
+    pub discriminator: String,
+    pub idl_sha256: String,
+    pub idl_source: String,
+    pub severity: IdlInstructionAlertSeverity,
+    pub condition_mode: IdlInstructionAlertConditionMode,
+    pub conditions: Vec<IdlInstructionAlertCondition>,
+    pub enabled: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateIdlInstructionAlertRuleRequest {
+    pub label: String,
+    pub program_id: String,
+    pub instruction_name: String,
+    pub severity: IdlInstructionAlertSeverity,
+    #[serde(default)]
+    pub condition_mode: IdlInstructionAlertConditionMode,
+    #[serde(default)]
+    pub conditions: Vec<IdlInstructionAlertCondition>,
+}
+
+impl CreateIdlInstructionAlertRuleRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.label.trim().is_empty() {
+            return Err("instruction alert label cannot be empty".to_owned());
+        }
+        if self.label.chars().count() > 120 {
+            return Err("instruction alert label cannot exceed 120 characters".to_owned());
+        }
+        if self.program_id.trim().is_empty() {
+            return Err("instruction alert program_id cannot be empty".to_owned());
+        }
+        if self.instruction_name.trim().is_empty() {
+            return Err("instruction alert instruction_name cannot be empty".to_owned());
+        }
+        if self.conditions.len() > 16 {
+            return Err("instruction alerts cannot have more than 16 conditions".to_owned());
+        }
+        self.conditions
+            .iter()
+            .try_for_each(IdlInstructionAlertCondition::validate)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct NewIdlInstructionAlertRule {
+    pub id: String,
+    pub user_id: String,
+    pub subscription_id: Option<String>,
+    pub label: String,
+    pub program_id: String,
+    pub protocol_slug: Option<String>,
+    pub protocol_name: Option<String>,
+    pub instruction_name: String,
+    pub discriminator: String,
+    pub idl_sha256: String,
+    pub idl_source: String,
+    pub severity: IdlInstructionAlertSeverity,
+    pub condition_mode: IdlInstructionAlertConditionMode,
+    pub conditions: Vec<IdlInstructionAlertCondition>,
+    pub enabled: bool,
+}
+
+impl NewIdlInstructionAlertRule {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id.trim().is_empty() {
+            return Err("instruction alert id cannot be empty".to_owned());
+        }
+        if self.user_id.trim().is_empty() {
+            return Err("instruction alert user_id cannot be empty".to_owned());
+        }
+        if self.label.trim().is_empty() {
+            return Err("instruction alert label cannot be empty".to_owned());
+        }
+        if self.label.chars().count() > 120 {
+            return Err("instruction alert label cannot exceed 120 characters".to_owned());
+        }
+        if self.program_id.trim().is_empty() {
+            return Err("instruction alert program_id cannot be empty".to_owned());
+        }
+        if self.instruction_name.trim().is_empty() {
+            return Err("instruction alert instruction_name cannot be empty".to_owned());
+        }
+        if self.discriminator.trim().is_empty() {
+            return Err("instruction alert discriminator cannot be empty".to_owned());
+        }
+        let discriminator = self.discriminator.trim();
+        if !discriminator.len().is_multiple_of(2)
+            || !discriminator.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(
+                "instruction alert discriminator must be an even-length hex string".to_owned(),
+            );
+        }
+        if self.idl_sha256.trim().is_empty() {
+            return Err("instruction alert idl_sha256 cannot be empty".to_owned());
+        }
+        if self.idl_source.trim().is_empty() {
+            return Err("instruction alert idl_source cannot be empty".to_owned());
+        }
+        if self.conditions.len() > 16 {
+            return Err("instruction alerts cannot have more than 16 conditions".to_owned());
+        }
+        self.conditions
+            .iter()
+            .try_for_each(IdlInstructionAlertCondition::validate)
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MetricAlertPreset {
     pub protocol_slug: String,
@@ -1085,6 +1413,7 @@ fn is_default_defi_watch_event(event: &ChainEvent) -> bool {
         | event_kind::PROGRAM_UNKNOWN_INSTRUCTION
         | event_kind::PROGRAM_DORMANT_ACTIVITY
         | event_kind::PROGRAM_METRIC_ALERT
+        | event_kind::PROGRAM_INSTRUCTION_ALERT
         | event_kind::TOKEN_LIQUIDITY_LOW
         | event_kind::TREASURY_TOKEN_OUTFLOW => true,
         event_kind::NAME_SERVICE_DOMAIN_CREATED
@@ -1267,5 +1596,93 @@ mod tests {
         );
 
         assert!(sample_multisig_subscription(Some("test-multisig")).matches_event(&event));
+    }
+
+    #[test]
+    fn instruction_alert_condition_validation_supports_exact_integer_bounds() {
+        let request = CreateIdlInstructionAlertRuleRequest {
+            label: "Large borrow limit".to_owned(),
+            program_id: "program-1".to_owned(),
+            instruction_name: "update_config".to_owned(),
+            severity: IdlInstructionAlertSeverity::Critical,
+            condition_mode: IdlInstructionAlertConditionMode::All,
+            conditions: vec![IdlInstructionAlertCondition {
+                source: IdlInstructionAlertConditionSource::Argument,
+                field: "borrow_limit".to_owned(),
+                value_type: "u128".to_owned(),
+                operator: "between".to_owned(),
+                value: Some("18446744073709551616".to_owned()),
+                second_value: Some("340282366920938463463374607431768211455".to_owned()),
+            }],
+        };
+
+        assert!(request.validate().is_ok());
+        assert_eq!(
+            serde_json::to_value(&request).unwrap()["severity"],
+            "critical"
+        );
+        assert_eq!(
+            serde_json::to_value(&request).unwrap()["conditions"][0]["source"],
+            "argument"
+        );
+
+        let boolean_condition = IdlInstructionAlertCondition {
+            source: IdlInstructionAlertConditionSource::Argument,
+            field: "frozen".to_owned(),
+            value_type: "bool".to_owned(),
+            operator: "ne".to_owned(),
+            value: Some("false".to_owned()),
+            second_value: None,
+        };
+        assert!(boolean_condition.validate().is_ok());
+    }
+
+    #[test]
+    fn private_instruction_alert_requires_matching_owner_and_rule_tag() {
+        let event = ChainEvent {
+            id: "private-instruction-alert".to_owned(),
+            signature: "test-signature".to_owned(),
+            instruction_path: "0".to_owned(),
+            kind: event_kind::PROGRAM_INSTRUCTION_ALERT.to_owned(),
+            target_type: target_type::PROGRAM.to_owned(),
+            target_address: "program-1".to_owned(),
+            actor: None,
+            slot: 1,
+            block_time: None,
+            indexed_at: 1,
+            summary: "Instruction alert".to_owned(),
+            tags: vec!["watch:defi".to_owned(), "rule:rule-1".to_owned()],
+            payload: serde_json::json!({
+                "rule_id": "rule-1",
+                "rule_owner_user_id": "user-1",
+            }),
+            delivery_attempts: 0,
+            delivered_at: None,
+            last_error: None,
+            next_retry_at: 1,
+        };
+        let mut subscription = TelegramSubscription {
+            id: "instruction-alert-subscription".to_owned(),
+            label: "Instruction alert".to_owned(),
+            user_id: Some("user-1".to_owned()),
+            chat_id: "1".to_owned(),
+            thread_id: None,
+            scope: TelegramEventScope::DefiWatch,
+            target_address: Some("program-1".to_owned()),
+            required_tags: vec!["rule:rule-1".to_owned()],
+            delivery_mode: TelegramDeliveryMode::Live,
+            status: "active".to_owned(),
+            payment_link_id: None,
+            created_at: 1,
+        };
+
+        assert!(subscription.matches_event(&event));
+
+        subscription.user_id = Some("user-2".to_owned());
+        assert!(!subscription.matches_event(&event));
+
+        subscription.user_id = Some("user-1".to_owned());
+        subscription.required_tags.clear();
+        assert!(!subscription.matches_event(&event));
     }
 }

@@ -3,6 +3,7 @@
 !/data/platform_registry_snapshot.json
 !/data/defillama_solana_protocols_snapshot.json
 !/data/solana_onchain_presence_snapshot.json
+!/data/idl_instruction_catalog.json
 *.db
 *.db-shm
 *.db-wal

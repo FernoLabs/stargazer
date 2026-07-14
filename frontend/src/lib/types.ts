@@ -153,6 +153,77 @@ export interface MetricAlertsResponse {
 	rules: MetricAlertRule[];
 }
 
+export type IdlInstructionAdminConfidence = 'high' | 'likely' | 'review' | 'none';
+export type IdlInstructionAlertSeverity = 'standard' | 'high' | 'critical';
+export type IdlInstructionAlertConditionMode = 'all' | 'any';
+export type IdlInstructionAlertFieldSource = 'argument' | 'account';
+
+export interface IdlInstructionAlertFieldDescriptor {
+	source: IdlInstructionAlertFieldSource;
+	name: string;
+	display_name: string;
+	value_type: string;
+	operators: string[];
+	filterable: boolean;
+}
+
+export interface IdlInstructionDescriptor {
+	name: string;
+	display_name: string;
+	discriminator: number[];
+	admin_confidence: IdlInstructionAdminConfidence;
+	recommended_severity: IdlInstructionAlertSeverity;
+	admin_reasons: string[];
+	accounts: IdlInstructionAlertFieldDescriptor[];
+	arguments: IdlInstructionAlertFieldDescriptor[];
+}
+
+export interface IdlInstructionProgramSummary {
+	program_id: string;
+	program_name: string;
+	protocol_slug?: string | null;
+	protocol_name?: string | null;
+	instruction_count: number;
+	filterable_instruction_count: number;
+	admin_candidate_count: number;
+}
+
+export interface IdlInstructionProgramDescriptor extends IdlInstructionProgramSummary {
+	idl_source: string;
+	idl_sha256: string;
+	instructions: IdlInstructionDescriptor[];
+}
+
+export interface IdlInstructionAlertCondition {
+	source: IdlInstructionAlertFieldSource;
+	field: string;
+	value_type: string;
+	operator: string;
+	value: string;
+	second_value: string | null;
+}
+
+export interface IdlInstructionAlertRule {
+	id: string;
+	label: string;
+	program_id: string;
+	program_name?: string | null;
+	protocol_slug?: string | null;
+	protocol_name?: string | null;
+	instruction_name: string;
+	severity: IdlInstructionAlertSeverity;
+	condition_mode: IdlInstructionAlertConditionMode;
+	conditions: IdlInstructionAlertCondition[];
+	enabled: boolean;
+	created_at: number;
+	subscription_id?: string | null;
+}
+
+export interface IdlInstructionAlertCatalogResponse {
+	programs: IdlInstructionProgramSummary[];
+	rules: IdlInstructionAlertRule[];
+}
+
 export interface PromoCode {
 	id: string;
 	code: string;

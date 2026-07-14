@@ -17,6 +17,14 @@
 	} from '$lib/format';
 	import type { PageData } from './$types';
 	import type {
+		IdlInstructionAlertCondition,
+		IdlInstructionAlertConditionMode,
+		IdlInstructionAlertFieldDescriptor,
+		IdlInstructionAlertRule,
+		IdlInstructionAlertSeverity,
+		IdlInstructionDescriptor,
+		IdlInstructionProgramDescriptor,
+		IdlInstructionProgramSummary,
 		MetricAlertPreset,
 		PaymentLink,
 		TelegramDeliveryMode,
@@ -52,12 +60,15 @@
 	type ProtocolSource = 'current' | 'curated' | 'manual' | 'history' | 'live';
 	type ProtocolSourceFilter = 'all' | ProtocolSource;
 	type SelectableProtocol = PageData['defiProtocols'][number];
+	type InstructionRuleMode = 'unconditional' | 'conditional';
+	type InstructionConditionDraft = IdlInstructionAlertCondition & { id: string };
 
 	const CURATED_PROTOCOL_LIMIT = 100;
 	const PAYMENT_LINK_PREVIEW_LIMIT = 3;
 	const WALLET_HISTORY_SCAN_LIMIT = 100;
 	const USER_PROTOCOL_PREVIEW_LIMIT = 8;
 	const SELECTED_PROTOCOL_PREVIEW_LIMIT = 12;
+	const INSTRUCTION_PROGRAM_PREVIEW_LIMIT = 40;
 	const PROTOCOL_SOURCE_FILTER_ORDER: ProtocolSource[] = [
 		'history',
 		'live',
@@ -98,6 +109,20 @@
 	let walletScanError = $state<string | null>(null);
 	let dailyDeliveryEnabled = $state(true);
 	let liveDeliveryEnabled = $state(true);
+	let instructionProgramSearch = $state('');
+	let selectedInstructionProgramId = $state('');
+	let instructionProgramDescriptor = $state.raw<IdlInstructionProgramDescriptor | null>(null);
+	let instructionCatalogState = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
+	let instructionCatalogError = $state<string | null>(null);
+	let instructionSearch = $state('');
+	let selectedInstructionName = $state('');
+	let instructionRuleLabel = $state('');
+	let instructionSeverity = $state<IdlInstructionAlertSeverity>('high');
+	let instructionRuleMode = $state<InstructionRuleMode>('unconditional');
+	let instructionConditionMode = $state<IdlInstructionAlertConditionMode>('all');
+	let instructionConditions = $state<InstructionConditionDraft[]>([]);
+	let instructionCatalogRequestId = 0;
+	let nextInstructionConditionId = 0;
 
 	const selectableProtocolList = $derived(selectableProtocols());
 	const currentSubscriptionCount = $derived(data.subscriptions?.length ?? 0);
@@ -192,6 +217,69 @@
 	});
 	const protocolPickerOptions = $derived.by(() =>
 		filteredProtocolOptions.filter((protocol) => !selectedCustomProtocolSlugs.includes(protocol.slug))
+	);
+	const instructionAlertPrograms = $derived.by(() =>
+		[...(data.instructionAlertPrograms ?? [])].sort((left, right) => {
+			const protocolDelta = (left.protocol_name ?? '').localeCompare(right.protocol_name ?? '');
+			if (protocolDelta !== 0) return protocolDelta;
+			return left.program_name.localeCompare(right.program_name);
+		})
+	);
+	const filteredInstructionAlertPrograms = $derived.by(() => {
+		const query = instructionProgramSearch.trim().toLowerCase();
+		if (!query) return instructionAlertPrograms;
+		return instructionAlertPrograms.filter((program) =>
+			instructionProgramSearchText(program).includes(query)
+		);
+	});
+	const displayedInstructionAlertPrograms = $derived(
+		filteredInstructionAlertPrograms.slice(0, INSTRUCTION_PROGRAM_PREVIEW_LIMIT)
+	);
+	const hiddenInstructionAlertProgramCount = $derived(
+		Math.max(0, filteredInstructionAlertPrograms.length - displayedInstructionAlertPrograms.length)
+	);
+	const selectedInstruction = $derived(
+		instructionProgramDescriptor?.instructions.find(
+			(instruction) => instruction.name === selectedInstructionName
+		) ?? null
+	);
+	const filteredInstructionOptions = $derived.by(() => {
+		const instructions = instructionProgramDescriptor?.instructions ?? [];
+		const query = instructionSearch.trim().toLowerCase();
+		const filtered = query
+			? instructions.filter((instruction) => instructionSearchText(instruction).includes(query))
+			: instructions;
+		if (!selectedInstruction || filtered.some((item) => item.name === selectedInstruction.name)) {
+			return filtered;
+		}
+		return [selectedInstruction, ...filtered];
+	});
+	const selectedInstructionFields = $derived.by(() =>
+		selectedInstruction
+			? [...selectedInstruction.accounts, ...selectedInstruction.arguments].filter(
+					(field) => field.filterable && field.operators.length > 0
+				)
+			: []
+	);
+	const serializedInstructionConditions = $derived(
+		JSON.stringify(
+			instructionRuleMode === 'conditional'
+				? instructionConditions.map(({ id: _id, ...condition }) => condition)
+				: []
+		)
+	);
+	const instructionConditionsComplete = $derived(
+		instructionConditions.length > 0 && instructionConditions.every(instructionConditionComplete)
+	);
+	const canSaveInstructionAlert = $derived(
+		Boolean(
+			selectedInstruction &&
+				instructionRuleLabel.trim() &&
+				(instructionRuleMode === 'unconditional' || instructionConditionsComplete)
+		)
+	);
+	const sortedInstructionAlertRules = $derived.by(() =>
+		[...(data.instructionAlertRules ?? [])].sort((left, right) => right.created_at - left.created_at)
 	);
 
 	function subscriptionProtocolSlug(subscription: TelegramSubscription) {
@@ -681,6 +769,272 @@
 		]
 			.join(' ')
 			.toLowerCase();
+	}
+
+	function instructionProgramSearchText(program: IdlInstructionProgramSummary) {
+		return [
+			program.program_name,
+			program.program_id,
+			program.protocol_name ?? '',
+			program.protocol_slug ?? ''
+		]
+			.join(' ')
+			.toLowerCase();
+	}
+
+	function instructionSearchText(instruction: IdlInstructionDescriptor) {
+		return [instruction.name, instruction.display_name, ...instruction.admin_reasons]
+			.join(' ')
+			.toLowerCase();
+	}
+
+	function instructionProgramLabel(program: IdlInstructionProgramSummary) {
+		return program.protocol_name && program.protocol_name !== program.program_name
+			? `${program.protocol_name} · ${program.program_name}`
+			: program.program_name;
+	}
+
+	function instructionProgramSummary(program: IdlInstructionProgramSummary) {
+		const parts = [
+			`${program.instruction_count} instruction${program.instruction_count === 1 ? '' : 's'}`,
+			`${program.filterable_instruction_count} filterable`
+		];
+		if (program.admin_candidate_count > 0) {
+			parts.push(`${program.admin_candidate_count} admin candidate${program.admin_candidate_count === 1 ? '' : 's'}`);
+		}
+		return parts.join(' · ');
+	}
+
+	function resetInstructionRule() {
+		selectedInstructionName = '';
+		instructionRuleLabel = '';
+		instructionSeverity = 'high';
+		instructionRuleMode = 'unconditional';
+		instructionConditionMode = 'all';
+		instructionConditions = [];
+		instructionSearch = '';
+	}
+
+	async function selectInstructionProgram(programId: string) {
+		if (programId === selectedInstructionProgramId && instructionProgramDescriptor) return;
+		selectedInstructionProgramId = programId;
+		instructionProgramDescriptor = null;
+		instructionCatalogError = null;
+		resetInstructionRule();
+		const requestId = ++instructionCatalogRequestId;
+
+		if (!programId) {
+			instructionCatalogState = 'idle';
+			return;
+		}
+
+		instructionCatalogState = 'loading';
+		try {
+			const basePath = window.location.pathname.replace(/\/$/, '');
+			const response = await fetch(
+				`${basePath}/instruction-alert-catalog/${encodeURIComponent(programId)}`
+			);
+			const payload = (await response.json()) as IdlInstructionProgramDescriptor & {
+				error?: string;
+			};
+			if (!response.ok) throw new Error(payload.error ?? 'Instruction catalog failed to load.');
+			if (requestId !== instructionCatalogRequestId || selectedInstructionProgramId !== programId) {
+				return;
+			}
+			instructionProgramDescriptor = payload;
+			instructionCatalogState = 'ready';
+		} catch (error) {
+			if (requestId !== instructionCatalogRequestId) return;
+			instructionProgramDescriptor = null;
+			instructionCatalogState = 'error';
+			instructionCatalogError =
+				error instanceof Error ? error.message : 'Instruction catalog failed to load.';
+		}
+	}
+
+	function chooseInstruction(name: string) {
+		selectedInstructionName = name;
+		instructionRuleMode = 'unconditional';
+		instructionConditionMode = 'all';
+		instructionConditions = [];
+		const instruction = instructionProgramDescriptor?.instructions.find(
+			(candidate) => candidate.name === name
+		);
+		if (!instruction || !instructionProgramDescriptor) {
+			instructionRuleLabel = '';
+			return;
+		}
+		instructionSeverity = instruction.recommended_severity;
+		instructionRuleLabel = `${instructionProgramDescriptor.program_name}: ${instruction.display_name}`;
+	}
+
+	function onInstructionChange(
+		event: Event & { currentTarget: EventTarget & HTMLSelectElement }
+	) {
+		chooseInstruction(event.currentTarget.value);
+	}
+
+	function instructionAdminConfidenceLabel(instruction: IdlInstructionDescriptor) {
+		if (instruction.admin_confidence === 'high') return 'High-confidence admin action';
+		if (instruction.admin_confidence === 'likely') return 'Likely admin action';
+		if (instruction.admin_confidence === 'review') return 'Review admin access';
+		return 'No admin signal';
+	}
+
+	function instructionSeverityLabel(severity: IdlInstructionAlertSeverity) {
+		if (severity === 'critical') return 'Critical';
+		if (severity === 'high') return 'High';
+		return 'Standard';
+	}
+
+	function instructionFieldKey(field: IdlInstructionAlertFieldDescriptor) {
+		return `${field.source}:${field.name}`;
+	}
+
+	function instructionFieldForKey(key: string) {
+		return selectedInstructionFields.find((field) => instructionFieldKey(field) === key) ?? null;
+	}
+
+	function instructionConditionField(condition: InstructionConditionDraft) {
+		return (
+			selectedInstructionFields.find(
+				(field) => field.source === condition.source && field.name === condition.field
+			) ?? null
+		);
+	}
+
+	function conditionFromField(field: IdlInstructionAlertFieldDescriptor): InstructionConditionDraft {
+		return {
+			id: `instruction-condition-${++nextInstructionConditionId}`,
+			source: field.source,
+			field: field.name,
+			value_type: field.value_type,
+			operator: field.operators[0] ?? 'eq',
+			value: isBooleanInstructionField(field.value_type) ? 'true' : '',
+			second_value: null
+		};
+	}
+
+	function addInstructionCondition() {
+		const field = selectedInstructionFields[0];
+		if (!field) return;
+		instructionRuleMode = 'conditional';
+		instructionConditions = [...instructionConditions, conditionFromField(field)];
+	}
+
+	function updateInstructionCondition(
+		id: string,
+		update: Partial<IdlInstructionAlertCondition>
+	) {
+		instructionConditions = instructionConditions.map((condition) =>
+			condition.id === id ? { ...condition, ...update } : condition
+		);
+	}
+
+	function onInstructionConditionFieldChange(
+		id: string,
+		event: Event & { currentTarget: EventTarget & HTMLSelectElement }
+	) {
+		const field = instructionFieldForKey(event.currentTarget.value);
+		if (!field) return;
+		updateInstructionCondition(id, {
+			source: field.source,
+			field: field.name,
+			value_type: field.value_type,
+			operator: field.operators[0] ?? 'eq',
+			value: isBooleanInstructionField(field.value_type) ? 'true' : '',
+			second_value: null
+		});
+	}
+
+	function onInstructionConditionOperatorChange(
+		id: string,
+		event: Event & { currentTarget: EventTarget & HTMLSelectElement }
+	) {
+		const operator = event.currentTarget.value;
+		updateInstructionCondition(id, {
+			operator,
+			second_value: operator === 'between' ? '' : null
+		});
+	}
+
+	function onInstructionConditionValueChange(
+		id: string,
+		field: 'value' | 'second_value',
+		event: Event & { currentTarget: EventTarget & HTMLInputElement | HTMLSelectElement }
+	) {
+		updateInstructionCondition(id, { [field]: event.currentTarget.value });
+	}
+
+	function removeInstructionCondition(id: string) {
+		instructionConditions = instructionConditions.filter((condition) => condition.id !== id);
+		if (instructionConditions.length === 0) instructionRuleMode = 'unconditional';
+	}
+
+	function instructionConditionComplete(condition: InstructionConditionDraft) {
+		return Boolean(
+			condition.field &&
+				condition.operator &&
+				condition.value.trim() &&
+				(condition.operator !== 'between' || condition.second_value?.trim())
+		);
+	}
+
+	function isBooleanInstructionField(valueType: string) {
+		return ['bool', 'boolean'].includes(valueType.trim().toLowerCase());
+	}
+
+	function instructionFieldInputMode(valueType: string): 'numeric' | 'text' {
+		const normalized = valueType.trim().toLowerCase();
+		return /^(u|i)\d+$/.test(normalized) || ['integer', 'bigint', 'number'].includes(normalized)
+			? 'numeric'
+			: 'text';
+	}
+
+	function instructionValuePlaceholder(valueType: string) {
+		const normalized = valueType.trim().toLowerCase();
+		if (normalized.includes('pubkey') || normalized.includes('publickey')) {
+			return 'Solana address';
+		}
+		if (instructionFieldInputMode(valueType) === 'numeric') return 'Exact integer';
+		return 'Value';
+	}
+
+	function instructionOperatorLabel(operator: string) {
+		const labels: Record<string, string> = {
+			eq: 'equals',
+			ne: 'does not equal',
+			gt: 'greater than',
+			gte: 'greater than or equal',
+			lt: 'less than',
+			lte: 'less than or equal',
+			between: 'between'
+		};
+		return labels[operator] ?? readableInstructionName(operator);
+	}
+
+	function instructionRuleConditionSummary(rule: IdlInstructionAlertRule) {
+		if (rule.conditions.length === 0) return 'Every matching instruction';
+		const joiner = rule.condition_mode === 'any' ? ' or ' : ' and ';
+		return rule.conditions
+			.map((condition) => {
+				const field = readableInstructionName(condition.field);
+				const comparison = `${field} ${instructionOperatorLabel(condition.operator)} ${condition.value}`;
+				return condition.operator === 'between' && condition.second_value
+					? `${comparison} and ${condition.second_value}`
+					: comparison;
+			})
+			.join(joiner);
+	}
+
+	function instructionRuleProgramLabel(rule: IdlInstructionAlertRule) {
+		return rule.protocol_name
+			? `${rule.protocol_name} · ${rule.program_name ?? shortAddress(rule.program_id)}`
+			: rule.program_name ?? shortAddress(rule.program_id);
+	}
+
+	function shortIdlSha(value: string) {
+		return value.length > 14 ? `${value.slice(0, 14)}…` : value;
 	}
 
 	function protocolLevel(level: ProtocolLevel) {
@@ -2120,6 +2474,346 @@
 			</div>
 		</form>
 
+		<section id="instruction-alerts" class="panel instruction-alert-panel">
+			<div class="section-head instruction-alert-head">
+				<div>
+					<h2>Instruction alerts</h2>
+					<p>Build exact alerts from the latest decoded program IDLs. Program details load only when selected.</p>
+				</div>
+				<span>{sortedInstructionAlertRules.length} saved</span>
+			</div>
+
+			{#if instructionAlertPrograms.length === 0}
+				<p class="instruction-alert-empty">
+					No filterable IDL catalog is available for this config session yet.
+				</p>
+			{:else}
+				<div class="instruction-alert-layout">
+					<div class="instruction-program-browser">
+						<label>
+							<span>Find a program</span>
+							<input
+								bind:value={instructionProgramSearch}
+								placeholder="Program, protocol, or address"
+								type="search"
+							/>
+						</label>
+						<div class="instruction-program-list" aria-label="IDL instruction programs">
+							{#each displayedInstructionAlertPrograms as program (program.program_id)}
+								<button
+									class={[
+										'instruction-program-row',
+										{ active: selectedInstructionProgramId === program.program_id }
+									]}
+									type="button"
+									aria-pressed={selectedInstructionProgramId === program.program_id}
+									onclick={() => void selectInstructionProgram(program.program_id)}
+								>
+									<span>
+										<strong>{instructionProgramLabel(program)}</strong>
+										<small>{instructionProgramSummary(program)}</small>
+									</span>
+									<code>{shortAddress(program.program_id)}</code>
+								</button>
+							{:else}
+								<p class="instruction-list-empty">No programs match this search.</p>
+							{/each}
+						</div>
+						{#if hiddenInstructionAlertProgramCount > 0}
+							<p class="instruction-list-note">
+								{hiddenInstructionAlertProgramCount} more programs. Narrow the search to find one.
+							</p>
+						{/if}
+					</div>
+
+					<div class="instruction-builder" aria-live="polite">
+						{#if instructionCatalogState === 'idle'}
+							<div class="instruction-builder-placeholder">
+								<strong>Choose a program</strong>
+								<p>Select a program to inspect its instructions and available account or argument filters.</p>
+							</div>
+						{:else if instructionCatalogState === 'loading'}
+							<div class="instruction-builder-placeholder" role="status">
+								<strong>Loading instruction catalog…</strong>
+								<p>Reading the latest decoded IDL for this program.</p>
+							</div>
+						{:else if instructionCatalogState === 'error'}
+							<div class="instruction-builder-placeholder error" role="alert">
+								<strong>Catalog unavailable</strong>
+								<p>{instructionCatalogError ?? 'The selected program catalog could not be loaded.'}</p>
+								<button
+									class="secondary-button"
+									type="button"
+									onclick={() => void selectInstructionProgram(selectedInstructionProgramId)}
+								>
+									Try again
+								</button>
+							</div>
+						{:else if instructionProgramDescriptor}
+							<form
+								class="instruction-rule-form"
+								method="POST"
+								action="?/create_instruction_alert_rule"
+							>
+								<input type="hidden" name="program_id" value={instructionProgramDescriptor.program_id} />
+								<input type="hidden" name="instruction_name" value={selectedInstructionName} />
+								<input type="hidden" name="condition_mode" value={instructionConditionMode} />
+								<input type="hidden" name="conditions_json" value={serializedInstructionConditions} />
+								<div class="instruction-program-detail-head">
+									<div>
+										<strong>{instructionProgramLabel(instructionProgramDescriptor)}</strong>
+										<code>{instructionProgramDescriptor.program_id}</code>
+									</div>
+									<dl>
+										<div>
+											<dt>IDL source</dt>
+											<dd>{readableInstructionName(instructionProgramDescriptor.idl_source)}</dd>
+										</div>
+										<div>
+											<dt>IDL hash</dt>
+											<dd title={instructionProgramDescriptor.idl_sha256}>
+												{shortIdlSha(instructionProgramDescriptor.idl_sha256)}
+											</dd>
+										</div>
+									</dl>
+								</div>
+
+								<div class="instruction-picker-fields">
+									<label>
+										<span>Search instructions</span>
+										<input
+											bind:value={instructionSearch}
+											placeholder="Instruction name"
+											type="search"
+										/>
+									</label>
+									<label>
+										<span>Instruction</span>
+										<select
+											value={selectedInstructionName}
+											onchange={onInstructionChange}
+											required
+										>
+											<option value="">Choose an instruction</option>
+											{#each filteredInstructionOptions as instruction (instruction.name)}
+												<option value={instruction.name}>{instruction.display_name}</option>
+											{/each}
+										</select>
+									</label>
+								</div>
+
+								{#if selectedInstruction}
+									<div
+										class={[
+											'instruction-admin-review',
+											`confidence-${selectedInstruction.admin_confidence}`
+										]}
+									>
+										<div>
+											<strong>{instructionAdminConfidenceLabel(selectedInstruction)}</strong>
+											<span>Recommended {instructionSeverityLabel(selectedInstruction.recommended_severity).toLowerCase()} alert</span>
+										</div>
+										{#if selectedInstruction.admin_reasons.length > 0}
+											<ul>
+												{#each selectedInstruction.admin_reasons as reason (reason)}
+													<li>{reason}</li>
+												{/each}
+											</ul>
+										{/if}
+									</div>
+
+									<div class="instruction-rule-basics">
+										<label>
+											<span>Rule label</span>
+											<input
+												bind:value={instructionRuleLabel}
+												name="label"
+												type="text"
+												maxlength="120"
+												required
+											/>
+										</label>
+										<label>
+											<span>Alert level</span>
+											<select bind:value={instructionSeverity} name="severity">
+												<option value="standard">Standard</option>
+												<option value="high">High</option>
+												<option value="critical">Critical</option>
+											</select>
+										</label>
+									</div>
+
+									<fieldset class="instruction-rule-scope">
+										<legend>When to alert</legend>
+										<label>
+											<input bind:group={instructionRuleMode} type="radio" value="unconditional" />
+											<span>
+												<strong>Every execution</strong>
+												<small>Alert whenever this instruction runs.</small>
+											</span>
+										</label>
+										<label>
+											<input bind:group={instructionRuleMode} type="radio" value="conditional" />
+											<span>
+												<strong>Only when fields match</strong>
+												<small>Compare decoded accounts or arguments before alerting.</small>
+											</span>
+										</label>
+									</fieldset>
+
+									{#if instructionRuleMode === 'conditional'}
+										<div class="instruction-conditions">
+											<div class="instruction-condition-toolbar">
+												<label>
+													<span>Match</span>
+													<select bind:value={instructionConditionMode}>
+														<option value="all">All conditions</option>
+														<option value="any">Any condition</option>
+													</select>
+												</label>
+												<button
+													class="secondary-button"
+													type="button"
+													disabled={selectedInstructionFields.length === 0}
+													onclick={addInstructionCondition}
+												>
+													Add condition
+												</button>
+											</div>
+
+											{#if selectedInstructionFields.length === 0}
+												<p class="instruction-condition-empty">
+													This instruction has no account or argument fields that can be filtered.
+												</p>
+											{:else if instructionConditions.length === 0}
+												<p class="instruction-condition-empty">Add at least one condition.</p>
+											{/if}
+
+											{#each instructionConditions as condition (condition.id)}
+												{@const conditionField = instructionConditionField(condition)}
+												<div class="instruction-condition-row">
+													<label>
+														<span>Field</span>
+														<select
+															value={conditionField ? instructionFieldKey(conditionField) : ''}
+															onchange={(event) => onInstructionConditionFieldChange(condition.id, event)}
+														>
+															{#each selectedInstructionFields as field (instructionFieldKey(field))}
+																<option value={instructionFieldKey(field)}>
+																	{field.display_name} ({field.source})
+																</option>
+															{/each}
+														</select>
+													</label>
+													<label>
+														<span>Comparison</span>
+														<select
+															value={condition.operator}
+															onchange={(event) => onInstructionConditionOperatorChange(condition.id, event)}
+														>
+															{#each conditionField?.operators ?? [] as operator (operator)}
+																<option value={operator}>{instructionOperatorLabel(operator)}</option>
+															{/each}
+														</select>
+													</label>
+													<label>
+														<span>Value</span>
+														{#if isBooleanInstructionField(condition.value_type)}
+															<select
+																value={condition.value}
+																onchange={(event) => onInstructionConditionValueChange(condition.id, 'value', event)}
+															>
+																<option value="true">True</option>
+																<option value="false">False</option>
+															</select>
+														{:else}
+															<input
+																type="text"
+																inputmode={instructionFieldInputMode(condition.value_type)}
+																placeholder={instructionValuePlaceholder(condition.value_type)}
+																value={condition.value}
+																oninput={(event) => onInstructionConditionValueChange(condition.id, 'value', event)}
+																autocomplete="off"
+																required
+															/>
+														{/if}
+													</label>
+													{#if condition.operator === 'between'}
+														<label>
+															<span>Second value</span>
+															<input
+																type="text"
+																inputmode={instructionFieldInputMode(condition.value_type)}
+																placeholder={instructionValuePlaceholder(condition.value_type)}
+																value={condition.second_value ?? ''}
+																oninput={(event) => onInstructionConditionValueChange(condition.id, 'second_value', event)}
+																autocomplete="off"
+																required
+															/>
+														</label>
+													{/if}
+													<button
+														class="secondary-button instruction-condition-remove"
+														type="button"
+														aria-label={`Remove condition for ${conditionField?.display_name ?? condition.field}`}
+														onclick={() => removeInstructionCondition(condition.id)}
+													>
+														Remove
+													</button>
+												</div>
+											{/each}
+										</div>
+									{/if}
+
+									<div class="instruction-rule-submit">
+										<span>
+											{instructionRuleMode === 'unconditional'
+												? 'Alerts on every execution.'
+												: `${instructionConditions.length} ${instructionConditions.length === 1 ? 'condition' : 'conditions'} · match ${instructionConditionMode}`}
+										</span>
+										<button type="submit" disabled={!canSaveInstructionAlert}>Save instruction alert</button>
+									</div>
+								{/if}
+							</form>
+						{/if}
+					</div>
+				</div>
+			{/if}
+
+			<div class="saved-instruction-rules">
+				<div class="saved-instruction-rules-head">
+					<strong>Saved instruction alerts</strong>
+					<span>{sortedInstructionAlertRules.length}</span>
+				</div>
+				{#each sortedInstructionAlertRules as rule (rule.id)}
+					<div class="saved-instruction-rule">
+						<div class="saved-instruction-rule-main">
+							<div>
+								<strong>{rule.label}</strong>
+								<span>{instructionRuleProgramLabel(rule)} · {readableInstructionName(rule.instruction_name)}</span>
+							</div>
+							<p>{instructionRuleConditionSummary(rule)}</p>
+							<small>
+								{instructionSeverityLabel(rule.severity)} · {rule.enabled ? 'Enabled' : 'Disabled'} · saved {formatTimestamp(rule.created_at)}
+							</small>
+						</div>
+						<form method="POST" action="?/delete_instruction_alert_rule">
+							<input type="hidden" name="rule_id" value={rule.id} />
+							<button
+								class="secondary-button danger-button"
+								type="submit"
+								aria-label={`Delete ${rule.label}`}
+							>
+								Delete
+							</button>
+						</form>
+					</div>
+				{:else}
+					<p class="instruction-alert-empty">No instruction-specific alerts saved yet.</p>
+				{/each}
+			</div>
+		</section>
+
 		{#if protocolPickerOpen}
 			<div class="modal-backdrop" role="presentation" onclick={closeProtocolPicker}>
 				<div
@@ -2353,6 +3047,357 @@
 	.protocol-panel {
 		display: grid;
 		gap: 0.85rem;
+	}
+
+	.instruction-alert-panel {
+		display: grid;
+		gap: 1rem;
+	}
+
+	.instruction-alert-head {
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: start;
+	}
+
+	.instruction-alert-head > div {
+		display: grid;
+		gap: 0.32rem;
+	}
+
+	.instruction-alert-head > span,
+	.saved-instruction-rules-head span {
+		color: #5f6c79;
+		font-size: 0.8rem;
+		font-weight: 800;
+	}
+
+	.instruction-alert-layout {
+		display: grid;
+		grid-template-columns: minmax(16rem, 20rem) minmax(0, 1fr);
+		gap: 1rem;
+		min-width: 0;
+	}
+
+	.instruction-program-browser,
+	.instruction-builder,
+	.instruction-rule-form,
+	.instruction-conditions,
+	.saved-instruction-rules {
+		display: grid;
+		align-content: start;
+		gap: 0.65rem;
+		min-width: 0;
+	}
+
+	.instruction-builder {
+		padding-left: 1rem;
+		border-left: 1px solid rgba(23, 32, 42, 0.1);
+	}
+
+	.instruction-program-list {
+		display: grid;
+		align-content: start;
+		gap: 0.4rem;
+		max-height: 35rem;
+		overflow: auto;
+		overscroll-behavior: contain;
+		padding-right: 0.15rem;
+	}
+
+	.instruction-program-row {
+		justify-self: stretch;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 0.65rem;
+		min-height: 3.3rem;
+		padding: 0.58rem 0.65rem;
+		border: 1px solid rgba(23, 32, 42, 0.1);
+		border-radius: 8px;
+		background: #fff;
+		color: #17202a;
+		text-align: left;
+	}
+
+	.instruction-program-row.active {
+		border-color: rgba(189, 74, 23, 0.48);
+		background: rgba(189, 74, 23, 0.06);
+	}
+
+	.instruction-program-row > span {
+		display: grid;
+		gap: 0.12rem;
+		min-width: 0;
+	}
+
+	.instruction-program-row small,
+	.instruction-program-row code,
+	.instruction-list-note,
+	.instruction-builder-placeholder p,
+	.instruction-rule-submit span,
+	.saved-instruction-rule span,
+	.saved-instruction-rule p,
+	.saved-instruction-rule small {
+		color: #5f6c79;
+		font-size: 0.78rem;
+		font-weight: 700;
+		line-height: 1.4;
+	}
+
+	.instruction-program-row code {
+		white-space: nowrap;
+	}
+
+	.instruction-list-note {
+		margin: 0;
+	}
+
+	.instruction-list-empty,
+	.instruction-alert-empty,
+	.instruction-condition-empty {
+		margin: 0;
+		padding: 0.68rem 0.72rem;
+		border: 1px dashed rgba(23, 32, 42, 0.16);
+		border-radius: 8px;
+		background: #fbfaf8;
+		color: #5f6c79;
+		font-size: 0.82rem;
+		font-weight: 700;
+		line-height: 1.45;
+	}
+
+	.instruction-builder-placeholder {
+		display: grid;
+		align-content: center;
+		gap: 0.25rem;
+		min-height: 11rem;
+		padding: 1rem;
+		border: 1px dashed rgba(23, 32, 42, 0.16);
+		border-radius: 8px;
+		background: #fbfaf8;
+	}
+
+	.instruction-builder-placeholder.error {
+		border-color: rgba(156, 57, 41, 0.24);
+		background: rgba(156, 57, 41, 0.06);
+		color: #9c3929;
+	}
+
+	.instruction-builder-placeholder p {
+		margin: 0;
+	}
+
+	.instruction-program-detail-head {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		gap: 0.75rem;
+		align-items: start;
+		padding-bottom: 0.65rem;
+		border-bottom: 1px solid rgba(23, 32, 42, 0.1);
+	}
+
+	.instruction-program-detail-head > div {
+		display: grid;
+		gap: 0.16rem;
+		min-width: 0;
+	}
+
+	.instruction-program-detail-head code {
+		overflow: hidden;
+		color: #5f6c79;
+		font-size: 0.78rem;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.instruction-program-detail-head dl {
+		display: grid;
+		gap: 0.24rem;
+		margin: 0;
+	}
+
+	.instruction-program-detail-head dl div {
+		display: grid;
+		grid-template-columns: auto auto;
+		gap: 0.45rem;
+		justify-content: end;
+	}
+
+	.instruction-program-detail-head dt,
+	.instruction-program-detail-head dd {
+		margin: 0;
+		font-size: 0.76rem;
+		font-weight: 750;
+	}
+
+	.instruction-program-detail-head dt {
+		color: #5f6c79;
+	}
+
+	.instruction-picker-fields,
+	.instruction-rule-basics {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.6rem;
+	}
+
+	.instruction-admin-review {
+		display: grid;
+		gap: 0.5rem;
+		padding: 0.65rem 0.72rem;
+		border-left: 3px solid rgba(23, 32, 42, 0.3);
+		background: #fbfaf8;
+	}
+
+	.instruction-admin-review.confidence-high,
+	.instruction-admin-review.confidence-likely {
+		border-left-color: #9c3929;
+		background: rgba(156, 57, 41, 0.06);
+	}
+
+	.instruction-admin-review.confidence-review {
+		border-left-color: #ad4e22;
+		background: rgba(189, 74, 23, 0.06);
+	}
+
+	.instruction-admin-review > div {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: space-between;
+		gap: 0.45rem 0.75rem;
+	}
+
+	.instruction-admin-review span,
+	.instruction-admin-review li {
+		color: #5f6c79;
+		font-size: 0.78rem;
+		font-weight: 700;
+		line-height: 1.4;
+	}
+
+	.instruction-admin-review ul {
+		margin: 0;
+		padding-left: 1.1rem;
+	}
+
+	.instruction-rule-scope {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.5rem;
+		margin: 0;
+		padding: 0;
+		border: 0;
+	}
+
+	.instruction-rule-scope legend {
+		grid-column: 1 / -1;
+		padding: 0;
+		font-size: 0.86rem;
+		font-weight: 800;
+	}
+
+	.instruction-rule-scope label {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		align-items: start;
+		gap: 0.5rem;
+		padding: 0.62rem 0.68rem;
+		border: 1px solid rgba(23, 32, 42, 0.1);
+		border-radius: 8px;
+		background: #fff;
+		cursor: pointer;
+	}
+
+	.instruction-rule-scope label:has(input:checked) {
+		border-color: rgba(189, 74, 23, 0.42);
+		background: rgba(189, 74, 23, 0.05);
+	}
+
+	.instruction-rule-scope input {
+		margin-top: 0.18rem;
+		accent-color: #bd4a17;
+	}
+
+	.instruction-rule-scope label > span {
+		display: grid;
+		gap: 0.08rem;
+	}
+
+	.instruction-condition-toolbar {
+		display: grid;
+		grid-template-columns: minmax(10rem, 14rem) auto;
+		align-items: end;
+		gap: 0.6rem;
+		justify-content: space-between;
+		padding-top: 0.65rem;
+		border-top: 1px solid rgba(23, 32, 42, 0.1);
+	}
+
+	.instruction-condition-row {
+		display: grid;
+		grid-template-columns: minmax(10rem, 1.25fr) minmax(9rem, 1fr) minmax(9rem, 1fr) auto;
+		align-items: end;
+		gap: 0.5rem;
+		padding: 0.62rem;
+		border: 1px solid rgba(23, 32, 42, 0.1);
+		border-radius: 8px;
+		background: #fbfaf8;
+	}
+
+	.instruction-condition-row:has(label:nth-of-type(4)) {
+		grid-template-columns:
+			minmax(10rem, 1.2fr) minmax(9rem, 1fr) repeat(2, minmax(8rem, 1fr)) auto;
+	}
+
+	.instruction-condition-remove {
+		align-self: end;
+		min-height: 2.65rem;
+	}
+
+	.instruction-rule-submit {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 0.75rem;
+		padding-top: 0.65rem;
+		border-top: 1px solid rgba(23, 32, 42, 0.1);
+	}
+
+	.saved-instruction-rules {
+		padding-top: 0.85rem;
+		border-top: 1px solid rgba(23, 32, 42, 0.1);
+	}
+
+	.saved-instruction-rules-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+
+	.saved-instruction-rule {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.68rem 0;
+		border-bottom: 1px solid rgba(23, 32, 42, 0.08);
+	}
+
+	.saved-instruction-rule:last-child {
+		border-bottom: 0;
+	}
+
+	.saved-instruction-rule-main,
+	.saved-instruction-rule-main > div {
+		display: grid;
+		gap: 0.12rem;
+		min-width: 0;
+	}
+
+	.saved-instruction-rule p {
+		margin: 0.22rem 0 0;
+		overflow-wrap: anywhere;
 	}
 
 	.protocol-head {
@@ -3444,8 +4489,29 @@
 		}
 
 		.config-layout,
-		.program-filters {
+		.program-filters,
+		.instruction-alert-layout {
 			grid-template-columns: 1fr;
+		}
+
+		.instruction-builder {
+			padding-top: 0.85rem;
+			padding-left: 0;
+			border-top: 1px solid rgba(23, 32, 42, 0.1);
+			border-left: 0;
+		}
+
+		.instruction-program-list {
+			max-height: 17rem;
+		}
+
+		.instruction-condition-row,
+		.instruction-condition-row:has(label:nth-of-type(4)) {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+
+		.instruction-condition-remove {
+			grid-column: 1 / -1;
 		}
 
 		.mobile-payment-strip {
@@ -3547,8 +4613,34 @@
 		.discovery-action,
 		.discovery-options,
 		.program-picker-row,
-		.watchlist-tools {
+		.watchlist-tools,
+		.instruction-alert-head,
+		.instruction-program-detail-head,
+		.instruction-picker-fields,
+		.instruction-rule-basics,
+		.instruction-rule-scope,
+		.instruction-condition-toolbar,
+		.instruction-condition-row,
+		.instruction-condition-row:has(label:nth-of-type(4)),
+		.instruction-rule-submit,
+		.saved-instruction-rule {
 			grid-template-columns: 1fr;
+		}
+
+		.instruction-program-detail-head dl div {
+			justify-content: start;
+		}
+
+		.instruction-rule-scope legend,
+		.instruction-condition-remove {
+			grid-column: auto;
+		}
+
+		.instruction-condition-toolbar button,
+		.instruction-rule-submit button,
+		.saved-instruction-rule form,
+		.saved-instruction-rule button {
+			width: 100%;
 		}
 
 		.wallet-connect-actions,

@@ -6,10 +6,13 @@ use crate::{
         apply_program_version_payload,
     },
     delivery,
+    idl_catalog::{self, DecodedInstruction},
     liquidity_pools::{self, LiquidityPoolRecord},
     models::{
-        ChainEvent, MetricAlertRule, ProgramDataWrite, ProgramIdlDataWrite,
-        ProtocolMetricObservation, event_kind, now_ts, target_type,
+        ChainEvent, IdlInstructionAlertCondition, IdlInstructionAlertConditionMode,
+        IdlInstructionAlertConditionSource, IdlInstructionAlertRule, MetricAlertRule,
+        ProgramDataWrite, ProgramIdlDataWrite, ProtocolMetricObservation, event_kind, now_ts,
+        target_type,
     },
     name_service::{self, DomainInstructionEvent, DomainInstructionKind},
     program_bytes::{instruction_order_key, sha256_hex},
@@ -171,11 +174,21 @@ struct KaminoReserveConfigUpdate {
 
 struct ParsedTransactionArtifacts {
     events: Vec<ChainEvent>,
+    idl_instruction_observations: Vec<IdlInstructionObservation>,
     metric_observations: Vec<ProtocolMetricObservation>,
     liquidity_pool_observations: Vec<LiquidityPoolRecord>,
     program_activities: Vec<ProgramActivityObservation>,
     program_data_writes: Vec<ProgramDataWrite>,
     program_idl_data_writes: Vec<ProgramIdlDataWrite>,
+}
+
+#[derive(Clone, Debug)]
+struct IdlInstructionObservation {
+    instruction_path: String,
+    slot: u64,
+    block_time: Option<i64>,
+    actor: Option<String>,
+    decoded: DecodedInstruction,
 }
 
 #[derive(Clone, Debug)]
@@ -421,7 +434,12 @@ async fn connect_and_stream(
 
     loop {
         tokio::select! {
-            _ = filter_refresh.tick() => {
+            _ = async {
+                tokio::select! {
+                    _ = filter_refresh.tick() => {}
+                    _ = state.solana_filter_refresh.notified() => {}
+                }
+            } => {
                 let next_filter = transaction_account_filter(&state).await?;
                 if next_filter != current_account_filter {
                     subscribe_tx
@@ -563,23 +581,24 @@ async fn transaction_account_filter(state: &SharedState) -> Result<TransactionAc
         name_service::program_id().to_string(),
         squads_program_id().to_string(),
     ];
-    watched_accounts.extend(
-        protocols::watched_program_ids()
-            .into_iter()
-            .map(|program_id| program_id.to_string()),
-    );
+    let active_rule_program_ids = refresh_idl_instruction_alert_rule_cache(state).await?;
+    let mut watched_program_ids = protocols::watched_program_ids();
+    watched_program_ids.extend(active_rule_program_ids);
+    watched_program_ids.sort_unstable();
+    watched_program_ids.dedup();
+    watched_accounts.extend(watched_program_ids.iter().map(ToString::to_string));
     watched_accounts.extend(
         protocols::watched_treasury_addresses()
             .into_iter()
             .map(str::to_owned),
     );
     watched_accounts.extend(
-        program_metadata::canonical_idl_metadata_addresses(&protocols::watched_program_ids())
+        program_metadata::canonical_idl_metadata_addresses(&watched_program_ids)
             .into_iter()
             .map(|metadata_account| metadata_account.to_string()),
     );
     watched_accounts.extend(
-        anchor_idl::legacy_idl_addresses(&protocols::watched_program_ids())
+        anchor_idl::legacy_idl_addresses(&watched_program_ids)
             .into_iter()
             .map(|metadata_account| metadata_account.to_string()),
     );
@@ -607,6 +626,40 @@ async fn transaction_account_filter(state: &SharedState) -> Result<TransactionAc
         accounts: watched_accounts,
         wallet_count,
     })
+}
+
+async fn refresh_idl_instruction_alert_rule_cache(state: &SharedState) -> Result<Vec<Pubkey>> {
+    let rules = state
+        .db
+        .active_idl_instruction_alert_rules()
+        .await
+        .context("load active IDL instruction alert rules")?;
+    let rule_count = rules.len();
+    let mut cache = HashMap::<String, HashMap<String, Vec<IdlInstructionAlertRule>>>::new();
+    let mut program_ids = Vec::new();
+
+    for rule in rules {
+        if let Ok(program_id) = Pubkey::from_str(&rule.program_id) {
+            program_ids.push(program_id);
+        }
+        cache
+            .entry(rule.program_id.clone())
+            .or_default()
+            .entry(rule.instruction_name.clone())
+            .or_default()
+            .push(rule);
+    }
+
+    program_ids.sort_unstable();
+    program_ids.dedup();
+    let program_count = program_ids.len();
+    *state.idl_instruction_alert_rules.write().await = cache;
+    debug!(
+        rule_count,
+        program_count, "refreshed active IDL instruction alert rule cache",
+    );
+
+    Ok(program_ids)
 }
 
 fn subscription_request(
@@ -756,7 +809,16 @@ pub(crate) async fn ingest_resolved_transaction(
     let detected_payment_count = detect_solana_payments(state.clone(), tx, block_time)
         .await
         .context("detect Solana Pay payment")?;
+    let idl_instruction_events = build_idl_instruction_events(
+        &state,
+        tx,
+        &parsed.idl_instruction_observations,
+        &parsed.events,
+        options.evaluate_metric_alerts,
+    )
+    .await?;
     let mut events = parsed.events;
+    events.extend(idl_instruction_events);
     let mut result = IngestTransactionResult {
         matched: !events.is_empty()
             || !parsed.metric_observations.is_empty()
@@ -1055,6 +1117,7 @@ async fn parse_transaction_events(
     block_time: Option<i64>,
 ) -> Result<ParsedTransactionArtifacts> {
     let mut events = Vec::new();
+    let mut idl_instruction_observations = Vec::new();
     let mut metric_observations = Vec::new();
     let mut liquidity_pool_observations = Vec::new();
     let mut program_activities = Vec::new();
@@ -1062,6 +1125,11 @@ async fn parse_transaction_events(
     let mut program_idl_data_writes = Vec::new();
 
     for (index, instruction) in tx.top_level_instructions.iter().enumerate() {
+        if let Some(observation) =
+            idl_instruction_observation(tx, instruction, slot, block_time, &index.to_string())
+        {
+            idl_instruction_observations.push(observation);
+        }
         if let Some(activity) =
             program_activity_observation(tx, instruction, slot, block_time, &index.to_string())
         {
@@ -1103,6 +1171,11 @@ async fn parse_transaction_events(
             )?;
             for (inner_index, inner_instruction) in inner_set.instructions.iter().enumerate() {
                 let path = format!("{index}.{inner_index}");
+                if let Some(observation) =
+                    idl_instruction_observation(tx, inner_instruction, slot, block_time, &path)
+                {
+                    idl_instruction_observations.push(observation);
+                }
                 if let Some(activity) =
                     program_activity_observation(tx, inner_instruction, slot, block_time, &path)
                 {
@@ -1149,12 +1222,446 @@ async fn parse_transaction_events(
 
     Ok(ParsedTransactionArtifacts {
         events,
+        idl_instruction_observations,
         metric_observations,
         liquidity_pool_observations,
         program_activities,
         program_data_writes,
         program_idl_data_writes,
     })
+}
+
+fn idl_instruction_observation(
+    tx: &ResolvedTransaction,
+    instruction: &ResolvedInstruction,
+    slot: u64,
+    block_time: Option<i64>,
+    instruction_path: &str,
+) -> Option<IdlInstructionObservation> {
+    let program_id = program_id(tx, instruction)?.to_string();
+    let instruction_accounts = instruction
+        .accounts
+        .iter()
+        .filter_map(|index| tx.account_keys.get(*index))
+        .collect::<Vec<_>>();
+    let decoded =
+        idl_catalog::decode_instruction(&program_id, &instruction.data, &instruction_accounts)?;
+
+    Some(IdlInstructionObservation {
+        instruction_path: instruction_path.to_owned(),
+        slot,
+        block_time,
+        actor: tx.primary_signer.map(|value| value.to_string()),
+        decoded,
+    })
+}
+
+async fn build_idl_instruction_events(
+    state: &SharedState,
+    tx: &ResolvedTransaction,
+    observations: &[IdlInstructionObservation],
+    existing_events: &[ChainEvent],
+    evaluate_user_rules: bool,
+) -> Result<Vec<ChainEvent>> {
+    let mut events = Vec::new();
+    let rule_cache = state.idl_instruction_alert_rules.read().await;
+
+    for observation in observations {
+        let has_existing_signal = existing_events
+            .iter()
+            .any(|event| event.instruction_path == observation.instruction_path);
+        if !has_existing_signal
+            && matches!(
+                observation.decoded.admin_confidence,
+                idl_catalog::AdminConfidence::HighConfidenceAdmin
+            )
+        {
+            events.push(build_idl_admin_candidate_event(tx, observation));
+        }
+
+        if !evaluate_user_rules {
+            continue;
+        }
+
+        let Some(rules) = rule_cache
+            .get(&observation.decoded.program_id)
+            .and_then(|instructions| instructions.get(&observation.decoded.instruction_name))
+        else {
+            continue;
+        };
+        let current_idl_sha256 = idl_catalog::program_descriptor(&observation.decoded.program_id)
+            .map(|program| program.idl_sha256.as_str());
+
+        for rule in rules {
+            if rule.discriminator != observation.decoded.discriminator_hex
+                || current_idl_sha256 != Some(rule.idl_sha256.as_str())
+                || !idl_instruction_rule_matches(rule, &observation.decoded)
+            {
+                continue;
+            }
+            events.push(build_idl_instruction_alert_event(tx, observation, rule));
+        }
+    }
+
+    Ok(events)
+}
+
+fn build_idl_admin_candidate_event(
+    tx: &ResolvedTransaction,
+    observation: &IdlInstructionObservation,
+) -> ChainEvent {
+    let decoded = &observation.decoded;
+    let severity = match decoded.recommended_severity {
+        Some(idl_catalog::RecommendedSeverity::Critical) => "critical",
+        Some(idl_catalog::RecommendedSeverity::High) | None => "high",
+    };
+    let mut tags = vec![
+        "target:program".to_owned(),
+        "watch:defi".to_owned(),
+        "sector:defi".to_owned(),
+        "source:published_idl".to_owned(),
+        "signal:admin_instruction".to_owned(),
+        "impact:high".to_owned(),
+        format!("severity:{severity}"),
+        format!("instruction:{}", decoded.instruction_name),
+    ];
+    if let Some(protocol_slug) = catalog_protocol_slug(decoded) {
+        tags.push(format!("protocol:{protocol_slug}"));
+    }
+
+    build_event(
+        tx,
+        event_kind::PROGRAM_ADMIN_INSTRUCTION,
+        target_type::PROGRAM,
+        decoded.program_id.clone(),
+        observation.actor.clone(),
+        observation.slot,
+        observation.block_time,
+        &observation.instruction_path,
+        format!(
+            "High-confidence IDL admin instruction: {} {}",
+            idl_instruction_surface(decoded),
+            decoded.instruction_name.replace('_', " ")
+        ),
+        tags,
+        json!({
+            "program": decoded.program_id,
+            "program_label": decoded.program_label,
+            "protocol": catalog_protocol_slug(decoded),
+            "protocol_name": catalog_protocol_name(decoded),
+            "instruction_name": decoded.instruction_name,
+            "raw_instruction_name": decoded.raw_instruction_name,
+            "discriminator": decoded.discriminator_hex,
+            "classification": "idl_admin_candidate",
+            "admin_confidence": "high_confidence_admin",
+            "admin_reasons": decoded.admin_reasons,
+            "severity": severity,
+            "high_impact": true,
+            "decoded_arguments": decoded.arguments,
+            "decoded_accounts": decoded.accounts,
+        }),
+    )
+}
+
+fn build_idl_instruction_alert_event(
+    tx: &ResolvedTransaction,
+    observation: &IdlInstructionObservation,
+    rule: &IdlInstructionAlertRule,
+) -> ChainEvent {
+    let decoded = &observation.decoded;
+    let indexed_at = now_ts();
+    let severity = rule.severity.as_str();
+    let matched_conditions = idl_rule_condition_summary(rule);
+    let mut tags = vec![
+        "target:program".to_owned(),
+        "watch:defi".to_owned(),
+        "sector:defi".to_owned(),
+        "source:published_idl".to_owned(),
+        "signal:instruction_alert".to_owned(),
+        format!("severity:{severity}"),
+        format!("instruction:{}", decoded.instruction_name),
+        format!("rule:{}", rule.id),
+    ];
+    if severity != "standard" {
+        tags.push("impact:high".to_owned());
+    }
+    if let Some(protocol_slug) = catalog_protocol_slug(decoded) {
+        tags.push(format!("protocol:{protocol_slug}"));
+    }
+
+    ChainEvent {
+        id: format!(
+            "{}:{}:{}:{}",
+            tx.signature,
+            observation.instruction_path,
+            event_kind::PROGRAM_INSTRUCTION_ALERT,
+            rule.id,
+        ),
+        signature: tx.signature.clone(),
+        instruction_path: observation.instruction_path.clone(),
+        kind: event_kind::PROGRAM_INSTRUCTION_ALERT.to_owned(),
+        target_type: target_type::PROGRAM.to_owned(),
+        target_address: decoded.program_id.clone(),
+        actor: observation.actor.clone(),
+        slot: observation.slot as i64,
+        block_time: observation.block_time,
+        indexed_at,
+        summary: format!(
+            "{}: {} {}",
+            rule.label,
+            idl_instruction_surface(decoded),
+            decoded.instruction_name.replace('_', " "),
+        ),
+        tags: normalize_tags(tags),
+        payload: json!({
+            "program": decoded.program_id,
+            "program_label": decoded.program_label,
+            "protocol": catalog_protocol_slug(decoded),
+            "protocol_name": catalog_protocol_name(decoded),
+            "instruction_name": decoded.instruction_name,
+            "raw_instruction_name": decoded.raw_instruction_name,
+            "discriminator": decoded.discriminator_hex,
+            "classification": "hidden",
+            "alert_classification": "instruction rule matched",
+            "severity": severity,
+            "alert_severity": severity,
+            "rule_id": rule.id,
+            "rule_label": rule.label,
+            "rule_owner_user_id": rule.user_id,
+            "rule_condition_mode": rule.condition_mode.as_str(),
+            "rule_conditions": rule.conditions,
+            "matched_conditions": matched_conditions,
+            "idl_sha256": rule.idl_sha256,
+            "idl_source": rule.idl_source,
+            "decoded_arguments": decoded.arguments,
+            "decoded_accounts": decoded.accounts,
+        }),
+        delivery_attempts: 0,
+        delivered_at: None,
+        last_error: None,
+        next_retry_at: indexed_at,
+    }
+}
+
+fn catalog_protocol_slug(decoded: &DecodedInstruction) -> Option<&str> {
+    let value = decoded.protocol_slug.trim();
+    (!value.is_empty() && !value.eq_ignore_ascii_case("unknown")).then_some(value)
+}
+
+fn catalog_protocol_name(decoded: &DecodedInstruction) -> Option<&str> {
+    let value = decoded.protocol_name.trim();
+    (!value.is_empty() && !value.eq_ignore_ascii_case("unknown")).then_some(value)
+}
+
+fn idl_instruction_surface(decoded: &DecodedInstruction) -> String {
+    let program_label = decoded.program_label.trim();
+    match (catalog_protocol_name(decoded), program_label.is_empty()) {
+        (Some(protocol_name), false) if protocol_name != program_label => {
+            format!("{protocol_name} {program_label}")
+        }
+        (Some(protocol_name), _) => protocol_name.to_owned(),
+        (None, false) => program_label.to_owned(),
+        (None, true) => decoded.program_id.clone(),
+    }
+}
+
+fn idl_instruction_rule_matches(
+    rule: &IdlInstructionAlertRule,
+    decoded: &DecodedInstruction,
+) -> bool {
+    if rule.conditions.is_empty() {
+        return true;
+    }
+
+    match rule.condition_mode {
+        IdlInstructionAlertConditionMode::All => rule
+            .conditions
+            .iter()
+            .all(|condition| idl_instruction_condition_matches(condition, decoded)),
+        IdlInstructionAlertConditionMode::Any => rule
+            .conditions
+            .iter()
+            .any(|condition| idl_instruction_condition_matches(condition, decoded)),
+    }
+}
+
+enum IdlObservedValue<'a> {
+    Integer(&'a str),
+    Boolean(bool),
+    Pubkey(&'a str),
+}
+
+fn idl_instruction_condition_matches(
+    condition: &IdlInstructionAlertCondition,
+    decoded: &DecodedInstruction,
+) -> bool {
+    let observed = match condition.source {
+        IdlInstructionAlertConditionSource::Account => decoded
+            .accounts
+            .get(condition.field.trim())
+            .map(|value| IdlObservedValue::Pubkey(value.as_str())),
+        IdlInstructionAlertConditionSource::Argument => decoded
+            .arguments
+            .get(condition.field.trim())
+            .and_then(|value| {
+                value
+                    .as_integer_str()
+                    .map(IdlObservedValue::Integer)
+                    .or_else(|| value.as_bool().map(IdlObservedValue::Boolean))
+                    .or_else(|| value.as_pubkey().map(IdlObservedValue::Pubkey))
+            }),
+    };
+    let Some(observed) = observed else {
+        return false;
+    };
+    let Some(expected) = condition.value.as_deref() else {
+        return false;
+    };
+    let operator = condition.operator.trim();
+
+    match observed {
+        IdlObservedValue::Integer(actual) => match_integer_condition(
+            actual,
+            condition.value_type.trim(),
+            operator,
+            expected,
+            condition.second_value.as_deref(),
+        ),
+        IdlObservedValue::Boolean(actual) => {
+            let expected_values = condition_values(expected)
+                .filter_map(|value| value.parse::<bool>().ok())
+                .collect::<Vec<_>>();
+            match operator {
+                "eq" => expected_values
+                    .first()
+                    .is_some_and(|value| actual == *value),
+                "ne" => expected_values
+                    .first()
+                    .is_some_and(|value| actual != *value),
+                "in" => expected_values.contains(&actual),
+                "not_in" => !expected_values.is_empty() && !expected_values.contains(&actual),
+                _ => false,
+            }
+        }
+        IdlObservedValue::Pubkey(actual) => {
+            let expected_values = condition_values(expected).collect::<Vec<_>>();
+            match operator {
+                "eq" => expected_values
+                    .first()
+                    .is_some_and(|value| actual == *value),
+                "ne" => expected_values
+                    .first()
+                    .is_some_and(|value| actual != *value),
+                "in" => expected_values.contains(&actual),
+                "not_in" => !expected_values.is_empty() && !expected_values.contains(&actual),
+                _ => false,
+            }
+        }
+    }
+}
+
+fn condition_values(value: &str) -> impl Iterator<Item = &str> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn match_integer_condition(
+    actual: &str,
+    value_type: &str,
+    operator: &str,
+    expected: &str,
+    second_expected: Option<&str>,
+) -> bool {
+    if value_type.starts_with('i') {
+        let Ok(actual) = actual.parse::<i128>() else {
+            return false;
+        };
+        if matches!(operator, "in" | "not_in") {
+            let contains = condition_values(expected)
+                .filter_map(|value| value.parse::<i128>().ok())
+                .any(|value| value == actual);
+            return if operator == "in" {
+                contains
+            } else {
+                !contains
+            };
+        }
+        let Ok(expected) = expected.parse::<i128>() else {
+            return false;
+        };
+        return match operator {
+            "eq" => actual == expected,
+            "ne" => actual != expected,
+            "gt" => actual > expected,
+            "gte" => actual >= expected,
+            "lt" => actual < expected,
+            "lte" => actual <= expected,
+            "between" => second_expected
+                .and_then(|value| value.parse::<i128>().ok())
+                .is_some_and(|upper| actual >= expected && actual <= upper),
+            _ => false,
+        };
+    }
+
+    let Ok(actual) = actual.parse::<u128>() else {
+        return false;
+    };
+    if matches!(operator, "in" | "not_in") {
+        let contains = condition_values(expected)
+            .filter_map(|value| value.parse::<u128>().ok())
+            .any(|value| value == actual);
+        return if operator == "in" {
+            contains
+        } else {
+            !contains
+        };
+    }
+    let Ok(expected) = expected.parse::<u128>() else {
+        return false;
+    };
+    match operator {
+        "eq" => actual == expected,
+        "ne" => actual != expected,
+        "gt" => actual > expected,
+        "gte" => actual >= expected,
+        "lt" => actual < expected,
+        "lte" => actual <= expected,
+        "between" => second_expected
+            .and_then(|value| value.parse::<u128>().ok())
+            .is_some_and(|upper| actual >= expected && actual <= upper),
+        _ => false,
+    }
+}
+
+fn idl_rule_condition_summary(rule: &IdlInstructionAlertRule) -> String {
+    if rule.conditions.is_empty() {
+        return "any invocation".to_owned();
+    }
+    let separator = match rule.condition_mode {
+        IdlInstructionAlertConditionMode::All => " AND ",
+        IdlInstructionAlertConditionMode::Any => " OR ",
+    };
+    let summary = rule
+        .conditions
+        .iter()
+        .map(|condition| {
+            let value = condition.value.as_deref().unwrap_or_default();
+            if condition.operator == "between" {
+                format!(
+                    "{} between {} and {}",
+                    condition.field,
+                    value,
+                    condition.second_value.as_deref().unwrap_or_default(),
+                )
+            } else {
+                format!("{} {} {}", condition.field, condition.operator, value)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(separator);
+    summary.chars().take(320).collect()
 }
 
 async fn detect_solana_payments(
@@ -1219,6 +1726,7 @@ async fn detect_solana_payments(
             .await?
             .is_some()
         {
+            state.solana_filter_refresh.notify_one();
             detected += 1;
             info!(
                 signature = %tx.signature,
@@ -4955,6 +5463,109 @@ mod tests {
             high_impact: true,
             discriminator_hex: "e445a52e51cb9a1d".to_owned(),
         }
+    }
+
+    fn sample_decoded_idl_instruction() -> DecodedInstruction {
+        DecodedInstruction {
+            program_id: "11111111111111111111111111111111".to_owned(),
+            protocol_slug: "sample".to_owned(),
+            protocol_name: "Sample".to_owned(),
+            program_label: "Core".to_owned(),
+            instruction_name: "update_config".to_owned(),
+            raw_instruction_name: "updateConfig".to_owned(),
+            discriminator_hex: "0011223344556677".to_owned(),
+            admin_confidence: idl_catalog::AdminConfidence::HighConfidenceAdmin,
+            recommended_severity: Some(idl_catalog::RecommendedSeverity::Critical),
+            admin_reasons: vec!["changes protocol configuration".to_owned()],
+            arguments: BTreeMap::from([
+                (
+                    "limit".to_owned(),
+                    idl_catalog::DecodedValue::Integer(u64::MAX.to_string()),
+                ),
+                (
+                    "paused".to_owned(),
+                    idl_catalog::DecodedValue::Boolean(false),
+                ),
+            ]),
+            accounts: BTreeMap::from([(
+                "authority".to_owned(),
+                "11111111111111111111111111111111".to_owned(),
+            )]),
+        }
+    }
+
+    fn sample_idl_alert_rule(
+        conditions: Vec<IdlInstructionAlertCondition>,
+        mode: IdlInstructionAlertConditionMode,
+    ) -> IdlInstructionAlertRule {
+        IdlInstructionAlertRule {
+            id: "rule-1".to_owned(),
+            user_id: "user-1".to_owned(),
+            subscription_id: Some("subscription-1".to_owned()),
+            label: "Critical config".to_owned(),
+            program_id: "11111111111111111111111111111111".to_owned(),
+            protocol_slug: Some("sample".to_owned()),
+            protocol_name: Some("Sample".to_owned()),
+            instruction_name: "update_config".to_owned(),
+            discriminator: "0011223344556677".to_owned(),
+            idl_sha256: "catalog-hash".to_owned(),
+            idl_source: "program_metadata".to_owned(),
+            severity: crate::models::IdlInstructionAlertSeverity::Critical,
+            condition_mode: mode,
+            conditions,
+            enabled: true,
+            created_at: 1,
+            updated_at: 1,
+        }
+    }
+
+    #[test]
+    fn idl_instruction_rules_compare_exact_integers_booleans_and_accounts() {
+        let decoded = sample_decoded_idl_instruction();
+        let rule = sample_idl_alert_rule(
+            vec![
+                IdlInstructionAlertCondition {
+                    source: IdlInstructionAlertConditionSource::Argument,
+                    field: "limit".to_owned(),
+                    value_type: "u64".to_owned(),
+                    operator: "gte".to_owned(),
+                    value: Some(u64::MAX.to_string()),
+                    second_value: None,
+                },
+                IdlInstructionAlertCondition {
+                    source: IdlInstructionAlertConditionSource::Argument,
+                    field: "paused".to_owned(),
+                    value_type: "bool".to_owned(),
+                    operator: "ne".to_owned(),
+                    value: Some("true".to_owned()),
+                    second_value: None,
+                },
+                IdlInstructionAlertCondition {
+                    source: IdlInstructionAlertConditionSource::Account,
+                    field: "authority".to_owned(),
+                    value_type: "pubkey".to_owned(),
+                    operator: "eq".to_owned(),
+                    value: Some("11111111111111111111111111111111".to_owned()),
+                    second_value: None,
+                },
+            ],
+            IdlInstructionAlertConditionMode::All,
+        );
+
+        assert!(idl_instruction_rule_matches(&rule, &decoded));
+
+        let mut mismatch = rule.clone();
+        mismatch.conditions[0].value = Some("18446744073709551616".to_owned());
+        assert!(!idl_instruction_rule_matches(&mismatch, &decoded));
+    }
+
+    #[test]
+    fn unconditional_idl_instruction_rule_matches_every_invocation() {
+        let decoded = sample_decoded_idl_instruction();
+        let rule = sample_idl_alert_rule(Vec::new(), IdlInstructionAlertConditionMode::All);
+
+        assert!(idl_instruction_rule_matches(&rule, &decoded));
+        assert_eq!(idl_rule_condition_summary(&rule), "any invocation");
     }
 
     fn sample_domain_context() -> (ResolvedTransaction, ResolvedInstruction) {

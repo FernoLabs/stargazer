@@ -3,6 +3,11 @@ import { fail, redirect } from '@sveltejs/kit';
 import { backendOriginRequest, readBackendError } from '$lib/server/backend';
 import { customPlanPricing } from '$lib/server/custom-plan-pricing';
 import type {
+	IdlInstructionAlertCatalogResponse,
+	IdlInstructionAlertCondition,
+	IdlInstructionAlertConditionMode,
+	IdlInstructionAlertFieldSource,
+	IdlInstructionAlertSeverity,
 	MetricAlertsResponse,
 	PaymentLink,
 	RememberTelegramConfigSessionResponse,
@@ -61,6 +66,21 @@ async function loadMetricAlerts(fetch: typeof globalThis.fetch) {
 		return (await response.json()) as MetricAlertsResponse;
 	} catch {
 		return { presets: [], rules: [] } satisfies MetricAlertsResponse;
+	}
+}
+
+async function loadInstructionAlertCatalog(fetch: typeof globalThis.fetch, token: string) {
+	try {
+		const response = await backendOriginRequest(
+			fetch,
+			`/api/config-sessions/by-token/${encodeURIComponent(token)}/instruction-alert-catalog`
+		);
+		if (!response.ok) {
+			return { programs: [], rules: [] } satisfies IdlInstructionAlertCatalogResponse;
+		}
+		return (await response.json()) as IdlInstructionAlertCatalogResponse;
+	} catch {
+		return { programs: [], rules: [] } satisfies IdlInstructionAlertCatalogResponse;
 	}
 }
 
@@ -203,12 +223,17 @@ export const load = (async ({ fetch, params, cookies }) => {
 			subscriptions: [],
 			metricAlertPresets: [],
 			metricAlertRules: [],
+			instructionAlertPrograms: [],
+			instructionAlertRules: [],
 			customPlanPricing: customPlanPricing()
 		};
 	}
 
 	const payload = (await response.json()) as TelegramConfigSessionResponse;
-	const metricAlerts = await loadMetricAlerts(fetch);
+	const [metricAlerts, instructionAlerts] = await Promise.all([
+		loadMetricAlerts(fetch),
+		loadInstructionAlertCatalog(fetch, token)
+	]);
 	const remembered = await rememberBrowserSession(fetch, token, payload);
 	rememberConfigCookie(cookies, remembered.token, remembered.payload.session.expires_at);
 
@@ -220,6 +245,8 @@ export const load = (async ({ fetch, params, cookies }) => {
 		subscriptions: remembered.payload.subscriptions,
 		metricAlertPresets: metricAlerts.presets,
 		metricAlertRules: metricAlerts.rules,
+		instructionAlertPrograms: instructionAlerts.programs,
+		instructionAlertRules: instructionAlerts.rules,
 		customPlanPricing: customPlanPricing()
 	};
 }) satisfies PageServerLoad;
@@ -230,6 +257,54 @@ function metricFieldName(key: string, field: string) {
 
 function metricField(form: FormData, key: string, field: string) {
 	return String(form.get(metricFieldName(key, field)) ?? '').trim();
+}
+
+function instructionAlertField(form: FormData, field: string) {
+	return String(form.get(field) ?? '').trim();
+}
+
+function instructionConditionSource(value: unknown): IdlInstructionAlertFieldSource {
+	if (value === 'argument' || value === 'account') return value;
+	throw new Error('Each condition must target an instruction argument or account.');
+}
+
+function parseInstructionConditions(raw: string): IdlInstructionAlertCondition[] {
+	if (!raw.trim()) return [];
+	const parsed = JSON.parse(raw) as unknown;
+	if (!Array.isArray(parsed)) {
+		throw new Error('Instruction alert conditions are invalid.');
+	}
+
+	return parsed.map((value) => {
+		if (!value || typeof value !== 'object') {
+			throw new Error('Instruction alert conditions are invalid.');
+		}
+		const record = value as Record<string, unknown>;
+		const field = String(record.field ?? '').trim();
+		const valueType = String(record.value_type ?? '').trim();
+		const operator = String(record.operator ?? '').trim();
+		const conditionValue = String(record.value ?? '').trim();
+		const secondValue =
+			record.second_value === null || record.second_value === undefined
+				? null
+				: String(record.second_value).trim();
+
+		if (!field || !valueType || !operator || !conditionValue) {
+			throw new Error('Complete every instruction alert condition before saving.');
+		}
+		if (operator === 'between' && !secondValue) {
+			throw new Error('Both values are required for a between condition.');
+		}
+
+		return {
+			source: instructionConditionSource(record.source),
+			field,
+			value_type: valueType,
+			operator,
+			value: conditionValue,
+			second_value: secondValue
+		};
+	});
 }
 
 export const actions = {
@@ -364,6 +439,84 @@ export const actions = {
 		return {
 			message: 'Metric trigger saved.'
 		};
+	},
+	create_instruction_alert_rule: async ({ request, fetch, params, cookies }) => {
+		const token = actionToken(cookies, params.token);
+		const form = await request.formData();
+		const label = instructionAlertField(form, 'label');
+		const programId = instructionAlertField(form, 'program_id');
+		const instructionName = instructionAlertField(form, 'instruction_name');
+		const severityRaw = instructionAlertField(form, 'severity');
+		const conditionModeRaw = instructionAlertField(form, 'condition_mode');
+
+		if (!label || !programId || !instructionName) {
+			return fail(400, {
+				error: 'Rule label, program, and instruction are required.'
+			});
+		}
+		if (!SOLANA_ADDRESS_PATTERN.test(programId)) {
+			return fail(400, { error: 'Choose a valid Solana program.' });
+		}
+		if (!['standard', 'high', 'critical'].includes(severityRaw)) {
+			return fail(400, { error: 'Choose a valid alert level.' });
+		}
+		if (!['all', 'any'].includes(conditionModeRaw)) {
+			return fail(400, { error: 'Choose how alert conditions should be combined.' });
+		}
+
+		let conditions: IdlInstructionAlertCondition[];
+		try {
+			conditions = parseInstructionConditions(instructionAlertField(form, 'conditions_json'));
+		} catch (error) {
+			return fail(400, {
+				error: error instanceof Error ? error.message : 'Instruction alert conditions are invalid.'
+			});
+		}
+
+		const conditionMode: IdlInstructionAlertConditionMode =
+			conditions.length > 0 && conditionModeRaw === 'any' ? 'any' : 'all';
+		const severity = severityRaw as IdlInstructionAlertSeverity;
+		const response = await backendOriginRequest(
+			fetch,
+			`/api/config-sessions/by-token/${encodeURIComponent(token)}/instruction-alert-rules`,
+			{
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					label,
+					program_id: programId,
+					instruction_name: instructionName,
+					severity,
+					condition_mode: conditionMode,
+					conditions
+				})
+			}
+		);
+
+		if (!response.ok) {
+			return fail(response.status, { error: await readBackendError(response) });
+		}
+
+		return { message: 'Instruction alert saved.' };
+	},
+	delete_instruction_alert_rule: async ({ request, fetch, params, cookies }) => {
+		const token = actionToken(cookies, params.token);
+		const form = await request.formData();
+		const ruleId = instructionAlertField(form, 'rule_id');
+		if (!ruleId) {
+			return fail(400, { error: 'Choose an instruction alert to remove.' });
+		}
+
+		const response = await backendOriginRequest(
+			fetch,
+			`/api/config-sessions/by-token/${encodeURIComponent(token)}/instruction-alert-rules/${encodeURIComponent(ruleId)}`,
+			{ method: 'DELETE' }
+		);
+		if (!response.ok) {
+			return fail(response.status, { error: await readBackendError(response) });
+		}
+
+		return { message: 'Instruction alert removed.' };
 	},
 	create_checkout: async ({ request, fetch, params, cookies }) => {
 		const token = actionToken(cookies, params.token);
