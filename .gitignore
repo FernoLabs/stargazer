@@ -4,6 +4,7 @@ backend/data/*
 !backend/data/defillama_solana_protocols_snapshot.json
 !backend/data/solana_onchain_presence_snapshot.json
 /data/
+ingester/fixtures/
 frontend/build/
 frontend/.svelte-kit/
 frontend/.wrangler/

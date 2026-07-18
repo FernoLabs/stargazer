@@ -1,0 +1,346 @@
+{
+  "schema_version": 1,
+  "network": "public",
+  "network_passphrase": "Public Global Stellar Network ; September 2015",
+  "observed_at": "2026-07-18",
+  "scope": "Selected security-monitoring roots and explicitly published strategy/reference deployments. This is not an all-contract registry; child pools and vaults must be expanded from protocol manifests, APIs, historical factory events, and on-chain state.",
+  "roots": [
+    {
+      "protocol": "blend-v2",
+      "role": "blnd-token",
+      "contract_id": "CD25MNVTZDL4Y3XBCPCJXGXATV5WUHHOWMYFF4YBEGU5FCPGMYTVG5JY",
+      "source_url": "https://github.com/blend-capital/blend-utils/blob/b05242df30b6b6caf9d317646f754541824a5a8b/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "blend-v2",
+      "role": "emitter",
+      "contract_id": "CCOQM6S7ICIUWA225O5PSJWUBEMXGFSSW2PQFO6FP4DQEKMS5DASRGRR",
+      "source_url": "https://github.com/blend-capital/blend-utils/blob/b05242df30b6b6caf9d317646f754541824a5a8b/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "blend-v2",
+      "role": "backstop",
+      "contract_id": "CAQQR5SWBXKIGZKPBZDH3KM5GQ5GUTPKB7JAFCINLZBC5WXPJKRG3IM7",
+      "source_url": "https://github.com/blend-capital/blend-utils/blob/b05242df30b6b6caf9d317646f754541824a5a8b/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "blend-v2",
+      "role": "pool-factory",
+      "contract_id": "CDSYOAVXFY7SM5S64IZPPPYB4GVGGLMQVFREPSQQEZVIWXX5R23G4QSU",
+      "source_url": "https://github.com/blend-capital/blend-utils/blob/b05242df30b6b6caf9d317646f754541824a5a8b/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative",
+      "expansion": "Replay the factory deploy event and verify every candidate with is_pool; the factory has no list-all method."
+    },
+    {
+      "protocol": "blend-v2",
+      "role": "backstop-lp-comet",
+      "contract_id": "CAS3FL6TLZKDGGSISDBWGGPXT3NRR4DYTZD7YOD3HMYO6LTJUVGRVEAM",
+      "source_url": "https://github.com/blend-capital/blend-utils/blob/b05242df30b6b6caf9d317646f754541824a5a8b/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "blend-v2",
+      "role": "pool-bootstrapper",
+      "contract_id": "CBUTN4KJSULJAUZYTYIGSMYAOO7PBJSAQ5OP6UTGYHOXA6UQYBAEOBB3",
+      "claimed_wasm_hash": "8d954489999199e21e677281cc03bc7882764d6c208fb60cdd552e823c224018",
+      "source_url": "https://github.com/blend-capital/blend-utils/blob/b05242df30b6b6caf9d317646f754541824a5a8b/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "blend-v2",
+      "role": "backstop-lp-comet-factory",
+      "contract_id": "CA2LVIPU6HJHHPPD6EDDYJTV2QEUBPGOAVJ4VIYNTMFUCRM4LFK3TJKF",
+      "claimed_wasm_hash": "bf7adb09076853eb3aa569278754111d86e161e35e7dc6a984ecde2b9d6700ae",
+      "source_url": "https://github.com/blend-capital/blend-utils/blob/b05242df30b6b6caf9d317646f754541824a5a8b/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "blend-v2",
+      "role": "reference-pool-fixed-v2",
+      "contract_id": "CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD",
+      "claimed_wasm_hash": "baf978f10efdbcd85747868bef8832845ea6809f7643b67a4ac0cd669327fc2c",
+      "source_url": "https://github.com/blend-capital/blend-utils/blob/b05242df30b6b6caf9d317646f754541824a5a8b/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "soroswap",
+      "role": "factory",
+      "contract_id": "CA4HEQTL2WPEUYKYKCDOHCDNIV4QHNJ7EL4J4NQ6VADP7SYHVRYZ7AW2",
+      "source_url": "https://github.com/soroswap/core/blob/bb90a65556d8eee0dc698ac75de0f280e547fedc/public/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative",
+      "expansion": "Replay SoroswapFactory/new_pair events and reconcile with all_pairs_length/all_pairs."
+    },
+    {
+      "protocol": "soroswap",
+      "role": "router",
+      "contract_id": "CAG5LRYQ5JVEUI5TEID72EYOVX44TTUJT5BQR2J6J77FH65PCCFAJDDH",
+      "source_url": "https://github.com/soroswap/core/blob/bb90a65556d8eee0dc698ac75de0f280e547fedc/public/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "soroswap",
+      "role": "aggregator",
+      "contract_id": "CAYP3UWLJM7ZPTUKL6R6BFGTRWLZ46LRKOXTERI2K6BIJAWGYY62TXTO",
+      "source_url": "https://github.com/soroswap/aggregator/blob/84de10e0f8d26168b4a76f8c23b963e50917517c/public/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "soroswap",
+      "role": "soroswap-adapter",
+      "contract_id": "CC6KQUATUBCIFZRDJL5X5PHCYGOHLPHKZQPUOTZTQTASGU5AUQ6DS7SC",
+      "source_url": "https://github.com/soroswap/aggregator/blob/84de10e0f8d26168b4a76f8c23b963e50917517c/public/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "soroswap",
+      "role": "phoenix-adapter",
+      "contract_id": "CCEBUGFV3D73OMV7MUXXA43AREY53MUHVD5SMUM7YZODNGY4NZBA2TSC",
+      "source_url": "https://github.com/soroswap/aggregator/blob/84de10e0f8d26168b4a76f8c23b963e50917517c/public/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "soroswap",
+      "role": "aquarius-adapter",
+      "contract_id": "CDHDUKHFZB6FORHEBZCNYI3GGVNVOLEITSGI7OKU4UIQND5QG75KGSRR",
+      "source_url": "https://github.com/soroswap/aggregator/blob/84de10e0f8d26168b4a76f8c23b963e50917517c/public/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "soroswap",
+      "role": "aggregator-deployer",
+      "contract_id": "CALUZAZZ6FHENZJBQLSTPBZBZOZMACRIHMAEGSCGJYRC35RA5ZDXTKP2",
+      "claimed_wasm_hash": "845414782b49c2ba195940707a54e85c53d7ecd541185afd3bf86e07a4f10694",
+      "source_url": "https://github.com/soroswap/aggregator/blob/84de10e0f8d26168b4a76f8c23b963e50917517c/public/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "aquarius",
+      "role": "amm-router",
+      "contract_id": "CBQDHNBFBZYE4MKPWBSJOPIYLW4SFSXAXUTSXJN76GNKYVYPCKWC6QUK",
+      "source_url": "https://docs.aqua.network/developers/code-examples/prerequisites-and-basics",
+      "source_response_sha256": "c4637caa6504f4f2f1dffc3f1e5cd584ab3ef6650a1a358b133cc1eda7ca36eb",
+      "source_type": "protocol-docs",
+      "confidence": "authoritative",
+      "expansion": "Use router state/events and reconcile with the paginated Aquarius external pools API."
+    },
+    {
+      "protocol": "phoenix",
+      "role": "factory",
+      "contract_id": "CB4SVAWJA6TSRNOJZ7W2AWFW46D5VR4ZMFZKDIKXEINZCZEGZCJZCKMI",
+      "source_url": "https://github.com/Phoenix-Protocol-Group/phoenix-contracts/blob/aa9bfc000166e3ccdc30281b5181bbd8046fd35d/scripts/upgrade_mainnet.sh",
+      "source_type": "protocol-deployment-script",
+      "confidence": "authoritative",
+      "expansion": "Use create/liquidity_pool events and query_pools; reconcile against the Phoenix stats API."
+    },
+    {
+      "protocol": "phoenix",
+      "role": "multihop-router",
+      "contract_id": "CCLZRD4E72T7JCZCN3P7KNPYNXFYKQCL64ECLX7WP5GNVYPYJGU2IO2G",
+      "source_url": "https://github.com/Phoenix-Protocol-Group/phoenix-contracts/blob/aa9bfc000166e3ccdc30281b5181bbd8046fd35d/scripts/upgrade_mainnet.sh",
+      "source_type": "protocol-deployment-script",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "phoenix",
+      "role": "vesting",
+      "contract_id": "CDEGWCGEMNFZT3UUQD7B4TTPDHXZLGEDB6WIP4PWNTXOR5EZD34HJ64O",
+      "source_url": "https://github.com/Phoenix-Protocol-Group/phoenix-contracts/blob/aa9bfc000166e3ccdc30281b5181bbd8046fd35d/scripts/upgrade_mainnet.sh",
+      "source_type": "protocol-deployment-script",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "defindex",
+      "role": "factory",
+      "contract_id": "CDKFHFJIET3A73A2YN4KV7NSV32S6YGQMUFH3DNJXLBWL4SKEGVRNFKI",
+      "source_url": "https://github.com/paltalabs/defindex/blob/a0fcabfae38f1c7b0c9c2f10ff51d225f8edc2f1/public/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative",
+      "expansion": "Replay DeFindexFactory/create events as completeness evidence. total_vaults is a creation counter; indexed entries can expire and require restore, so do not assume every index is currently callable. Reconcile curated products with the discover API."
+    },
+    {
+      "protocol": "defindex",
+      "role": "strategy-usdc-blend-autocompound-fixed",
+      "contract_id": "CDB2WMKQQNVZMEBY7Q7GZ5C7E7IAFSNMZ7GGVD6WKTCEWK7XOIAVZSAP",
+      "claimed_wasm_hash": "11329c2469455f5a3815af1383c0cdddb69215b1668a17ef097516cde85da988",
+      "source_url": "https://github.com/paltalabs/defindex/blob/a0fcabfae38f1c7b0c9c2f10ff51d225f8edc2f1/public/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "defindex",
+      "role": "strategy-eurc-blend-autocompound-fixed",
+      "contract_id": "CC5CE6MWISDXT3MLNQ7R3FVILFVFEIH3COWGH45GJKL6BD2ZHF7F7JVI",
+      "claimed_wasm_hash": "11329c2469455f5a3815af1383c0cdddb69215b1668a17ef097516cde85da988",
+      "source_url": "https://github.com/paltalabs/defindex/blob/a0fcabfae38f1c7b0c9c2f10ff51d225f8edc2f1/public/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "defindex",
+      "role": "strategy-xlm-blend-autocompound-fixed",
+      "contract_id": "CDPWNUW7UMCSVO36VAJSQHQECISPJLCVPDASKHRC5SEROAAZDUQ5DG2Z",
+      "claimed_wasm_hash": "11329c2469455f5a3815af1383c0cdddb69215b1668a17ef097516cde85da988",
+      "source_url": "https://github.com/paltalabs/defindex/blob/a0fcabfae38f1c7b0c9c2f10ff51d225f8edc2f1/public/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "defindex",
+      "role": "strategy-usdc-blend-autocompound-etherfuse",
+      "contract_id": "CCBTSHPUVNKCT5V675AAVYNANHXBU26PTZK2QLS7ZLFNYRJZT5HW3VL6",
+      "claimed_wasm_hash": "11329c2469455f5a3815af1383c0cdddb69215b1668a17ef097516cde85da988",
+      "source_url": "https://github.com/paltalabs/defindex/blob/a0fcabfae38f1c7b0c9c2f10ff51d225f8edc2f1/public/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "defindex",
+      "role": "strategy-cetes-blend-autocompound-etherfuse",
+      "contract_id": "CAZ3LLLKPWEOVK6K4G5NCQ2VXWABLFIPKKNMN5GLKMZKEN7JSKTEMIKN",
+      "claimed_wasm_hash": "11329c2469455f5a3815af1383c0cdddb69215b1668a17ef097516cde85da988",
+      "source_url": "https://github.com/paltalabs/defindex/blob/a0fcabfae38f1c7b0c9c2f10ff51d225f8edc2f1/public/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "defindex",
+      "role": "strategy-ustry-blend-autocompound-etherfuse",
+      "contract_id": "CA3SO5RRKOONAPWVR5XY6CMOYZGN4M4QKVIGX5DFRIIJUJW2SFSELBXL",
+      "claimed_wasm_hash": "11329c2469455f5a3815af1383c0cdddb69215b1668a17ef097516cde85da988",
+      "source_url": "https://github.com/paltalabs/defindex/blob/a0fcabfae38f1c7b0c9c2f10ff51d225f8edc2f1/public/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "defindex",
+      "role": "strategy-tesouro-blend-autocompound-etherfuse",
+      "contract_id": "CDSCVJHJWUZQMR64FVK3XMND5NKSN7Z23KPRCHKFHVGOEJBWPVH5B5XA",
+      "claimed_wasm_hash": "11329c2469455f5a3815af1383c0cdddb69215b1668a17ef097516cde85da988",
+      "source_url": "https://github.com/paltalabs/defindex/blob/a0fcabfae38f1c7b0c9c2f10ff51d225f8edc2f1/public/mainnet.contracts.json",
+      "source_type": "protocol-manifest",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "reflector",
+      "role": "crypto-usd-oracle",
+      "contract_id": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+      "source_url": "https://orchestrator.reflector.network/config",
+      "source_response_sha256": "fd9d0d37641754894309cd86fcabb0ede569253d9cc294adfe823a76987e20b7",
+      "source_type": "protocol-runtime-config",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "reflector",
+      "role": "stellar-assets-usdc-oracle",
+      "contract_id": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+      "source_url": "https://orchestrator.reflector.network/config",
+      "source_response_sha256": "fd9d0d37641754894309cd86fcabb0ede569253d9cc294adfe823a76987e20b7",
+      "source_type": "protocol-runtime-config",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "reflector",
+      "role": "forex-usd-oracle",
+      "contract_id": "CBKGPWGKSKZF52CFHMTRR23TBWTPMRDIYZ4O2P5VS65BMHYH4DXMCJZC",
+      "source_url": "https://orchestrator.reflector.network/config",
+      "source_response_sha256": "fd9d0d37641754894309cd86fcabb0ede569253d9cc294adfe823a76987e20b7",
+      "source_type": "protocol-runtime-config",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "reflector",
+      "role": "subscriptions",
+      "contract_id": "CBNGTWIVRCD4FOJ24FGAKI6I5SDAXI7A4GWKSQS7E6UYSR4E4OHRI2JX",
+      "source_url": "https://orchestrator.reflector.network/config",
+      "source_response_sha256": "fd9d0d37641754894309cd86fcabb0ede569253d9cc294adfe823a76987e20b7",
+      "source_type": "protocol-runtime-config",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "reflector",
+      "role": "dao",
+      "contract_id": "CBQSUF57OYX4RIMCZV62DKN6JFOTEKPHIZASMJYOUOCNHGNG2P3XQLSE",
+      "source_url": "https://orchestrator.reflector.network/config",
+      "source_response_sha256": "fd9d0d37641754894309cd86fcabb0ede569253d9cc294adfe823a76987e20b7",
+      "source_type": "protocol-runtime-config",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "reflector",
+      "role": "xrf-token",
+      "contract_id": "CBLLEW7HD2RWATVSMLAGWM4G3WCHSHDJ25ALP4DI6LULV5TU35N2CIZA",
+      "source_url": "https://orchestrator.reflector.network/config",
+      "source_response_sha256": "fd9d0d37641754894309cd86fcabb0ede569253d9cc294adfe823a76987e20b7",
+      "source_type": "protocol-runtime-config",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "fxdao",
+      "role": "oracle",
+      "contract_id": "CB5OTV4GV24T5USEZHFVYGC3F4A4MPUQ3LN56E76UK2IT7MJ6QXW4TFS",
+      "source_url": "https://fxdao.io/docs/addresses/",
+      "source_response_sha256": "a64613e6deafc3f9905e3f83ed71b699ffe5f05602d76d42a55a5b0597313202",
+      "source_type": "protocol-docs",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "fxdao",
+      "role": "vaults",
+      "contract_id": "CCUN4RXU5VNDHSF4S4RKV4ZJYMX2YWKOH6L4AKEKVNVDQ7HY5QIAO4UB",
+      "source_url": "https://fxdao.io/docs/addresses/",
+      "source_response_sha256": "a64613e6deafc3f9905e3f83ed71b699ffe5f05602d76d42a55a5b0597313202",
+      "source_type": "protocol-docs",
+      "confidence": "authoritative"
+    },
+    {
+      "protocol": "fxdao",
+      "role": "locking-pool",
+      "contract_id": "CDCART6WRSM2K4CKOAOB5YKUVBSJ6KLOVS7ZEJHA4OAQ2FXX7JOHLXIP",
+      "source_url": "https://fxdao.io/docs/addresses/",
+      "source_response_sha256": "a64613e6deafc3f9905e3f83ed71b699ffe5f05602d76d42a55a5b0597313202",
+      "source_type": "protocol-docs",
+      "confidence": "authoritative"
+    }
+  ],
+  "incident_contracts": [
+    {
+      "incident": "yieldblox-oracle-manipulation-2026-02-22",
+      "protocol": "yieldblox-blend-v2-pool",
+      "role": "lending-pool",
+      "contract_id": "CCCCIQSDILITHMM7PBSLVDT5MISSY7R26MNZXCX4H7J5JQ5FPIYOGYFS",
+      "source_url": "https://blocksec.com/blog/yieldblox-dao-incident-on-stellar-oracle-misconfiguration-enabled-a-10m-drain",
+      "source_response_sha256": "24a5316bc16b8b576cedca7e95000a5ae851bb3aff3a95695f348a76772df7e5",
+      "source_type": "incident-postmortem",
+      "confidence": "high"
+    },
+    {
+      "incident": "yieldblox-oracle-manipulation-2026-02-22",
+      "protocol": "yieldblox",
+      "role": "soroban-governor",
+      "contract_id": "CANSYFVMIP7JVYEZQ463Y2I2VLEVNLDJJ4QNZTDBGLOOGKURPTW4A6FQ",
+      "source_url": "https://mainnet.governance.script3.io/CANSYFVMIP7JVYEZQ463Y2I2VLEVNLDJJ4QNZTDBGLOOGKURPTW4A6FQ/proposals/",
+      "source_response_sha256": "0f848dd6f6b2ca32e2fd1358cc4c6b47beba17b311715042c1ed8441f4bd57f1",
+      "source_type": "third-party-governance-ui",
+      "confidence": "high",
+      "on_chain_evidence": "The YieldBlox Blend v2 pool admin() resolved to this contract near ledger 63,535,4xx; retain the observation ledger when importing."
+    }
+  ]
+}
