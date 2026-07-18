@@ -70,7 +70,8 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: frontend
-          command: pages deploy .svelte-kit/cloudflare --project-name firewatch-frontend --branch ${{ steps.pages_branch.outputs.name }}
+          command: pages deploy .svelte-kit/cloudflare --project-name ferno-pulsar --branch ${{ steps.pages_branch.outputs.name }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Skip deploy
         if: steps.cloudflare_secrets.outputs.present != 'true'
