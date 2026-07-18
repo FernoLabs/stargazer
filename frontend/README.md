@@ -1,17 +1,20 @@
-# FireWatch Frontend
+# Ferno Pulsar web
 
-SvelteKit dashboard for FireWatch.
+SvelteKit website for Ferno Pulsar.
+
+The public product page is served at `/`. The grant working page is served at
+`/scf/application` with `noindex`, `nofollow`, and `noarchive` headers.
 
 ## Developing
 
-```sh
-npm install
+```bash
+npm ci
 npm run dev
 ```
 
 ## Verification
 
-```sh
+```bash
 npm run check
 npm run build
 ```

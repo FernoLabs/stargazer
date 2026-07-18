@@ -107,7 +107,7 @@
 					id: 'D3',
 					title: 'Evidence delivery and hardening',
 					detail:
-						'Expose the same committed finding through the API and dashboard and deliver it once through Telegram; harden the inherited control plane.',
+						'Expose the same committed finding through the API and dashboard, deliver it once through Telegram, and build a deny-by-default Stellar control plane.',
 					acceptance:
 						'API, UI, and alert evidence agree; missing or invalid origin and admin credentials fail closed in integration tests.',
 					allocation: '$10k'
@@ -191,7 +191,7 @@
 		'Publish the reviewer repository, architecture brief, reproducible POC, and short demo.',
 		'Complete five interviews, three permissioned quotes, and two pilot or LOI statements.',
 		'Name delivery owners and reconcile dates, days, rates, and costs to exactly $100,000.',
-		'Fix inherited control-plane security blockers and publish the negative authorization tests.',
+		'Publish the control-plane threat model and negative authorization tests.',
 		'Define free access, revenue, infrastructure cost, support, and post-grant maintenance ownership.'
 	] as const;
 </script>

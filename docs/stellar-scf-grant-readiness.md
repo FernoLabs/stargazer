@@ -4,7 +4,7 @@ Research and repository review snapshot: **2026-07-18**
 
 ## Decision
 
-Ferno Pulsar is **not ready for a full $100k SCF Build submission today**, but it has a credible foundation. The inherited FireWatch product is tested and feature-rich, and the Stellar architecture is unusually well thought through. The blocking issue is evidence: the repository does not yet run any Stellar code, has no Stellar demo or usage, and does not document team capacity, customer validation, differentiation, or grant economics.
+Ferno Pulsar is **not ready for a full $100k SCF Build submission today**, but it has a credible research foundation and a deployed product website. The blocking issue is evidence: the repository does not yet run a Stellar indexer, has no end-to-end Stellar demo or usage, and does not document team capacity, customer validation, differentiation, or grant economics.
 
 The right immediate move is to **submit the SCF interest form now**, while building one narrow Stellar end-to-end proof and collecting protocol validation before the full application.
 
@@ -42,25 +42,23 @@ Official sources:
 
 | Area | Current evidence | Readiness |
 | --- | --- | --- |
-| Existing product | FireWatch has a Rust indexer/API, SQLite persistence, alert rules, Telegram delivery, Svelte dashboard, deployment and backup workflows | Strong inherited base |
-| Tests/build | 152 backend tests pass; Svelte check reports no errors or warnings; production frontend build succeeds | Strong, but tests are predominantly Solana-specific |
+| Existing product | Pulsar has a deployed product website and unlisted application working page; the monitoring runtime is not implemented | Useful presentation, not product proof |
+| Tests/build | Svelte checks and production build pass; CI validates the Stellar registry seed and ingestion shell scripts | Green but limited to current artifacts |
 | Stellar architecture | Detailed ingestion, replay, data-model, upgrade, registry, and multisig decisions exist | Strong design |
 | Stellar implementation | The README says it does not index Stellar; `ingester/` has no executable, fixture, or Go module | Blocking |
-| Public proof | No Stellar contract indexed, no Wasm/version history, no upgrade alert, no demo URL | Blocking |
+| Public proof | The website is deployed, but no Stellar contract is indexed and no Wasm/version history or upgrade finding is produced | Blocking |
 | Validation | No Stellar interviews, pilot letters, testimonials, or usage data are recorded | Blocking |
 | Team | No bios, roles, FTE allocation, relevant credentials, or availability are recorded | Blocking |
 | Differentiation | No application-ready comparison with already funded Stellar security and data products | Blocking |
 | Grant plan | No SCF-specific milestones, budget basis, KPIs, adoption plan, or sustainability case | Blocking |
-| Repository presentation | Stellar work is uncommitted, `main` still points to the FireWatch baseline, and there is no writable Ferno Pulsar `origin` | Blocking for reviewer confidence |
-| Security hygiene | MIT license and CI exist; two inherited authorization/origin-control issues were found, the frontend audit reports 1 low and 5 high findings, and strict Clippy currently fails | Blocking remediation |
+| Repository presentation | A Ferno Pulsar origin, Stellar-focused tree, CI, and Cloudflare deployment exist; reviewer access and a working POC remain pending | Improved |
+| Security hygiene | MIT license and CI exist; no inactive legacy runtime or runtime secrets are shipped in the active tree | Define the POC threat model before adding services |
 
 Key local evidence:
 
-- [README](../README.md) honestly describes the migration status and first vertical slice.
-- [Stellar fork plan](stellar-fork-plan.md) defines the architecture, event identity, data model, and phased exit criteria.
+- [README](../README.md) honestly describes the current pre-POC status and first vertical slice.
 - [Archive/live indexing plan](stellar-archive-and-live-indexing.md) defines continuity, replay, idempotency, and operational invariants.
 - [Registry research](stellar-contract-registry-research.md) defines evidence-backed protocol attribution.
-- [Migration inventory](stellar-migration-inventory.md) separates reusable product capability from Solana-specific code.
 - [Ingestion boundary](../ingester/README.md) is currently design-only.
 
 ## Recommended positioning
@@ -112,22 +110,17 @@ This classification is uncertain because the Open Track also directs developer t
 
 ## Critical path to the application
 
-### P0 — inherited security blockers
+### P0 — security boundary before the POC
 
-These findings are in the FireWatch baseline. They should be fixed and regression-tested before exposing or reusing the admin/API surface for a Ferno Pulsar demo.
+The active repository does not ship an API or monitoring backend. The first executable
+must establish its security boundary before any administrative surface is exposed.
 
-1. **Backend admin authorization is not enforced as route middleware.** The backend registers destructive `/api/admin/*` mutation routes in `backend/src/http.rs`, but Basic Auth is checked only by the separate `/api/admin/auth/check` handler. The frontend proxy protects a hard-coded subset of routes and currently omits cleanup, sync, and backfill paths. A caller reaching those proxy paths can receive the trusted origin header without first passing the frontend admin-password check.
-2. **Origin protection fails open.** `require_origin_token` allows every API request when `ORIGIN_API_TOKEN` is unset, while the environment example describes that token as optional. An exposed or misconfigured backend therefore loses its origin boundary silently.
-
-- [ ] Move admin authentication/authorization into backend middleware covering **all** `/api/admin/*` routes; default-deny the namespace.
-- [ ] Keep the frontend check only as UX/defense in depth, not as the security boundary.
-- [ ] Add negative integration tests for every admin route: no credentials, bad credentials, valid credentials, and missing backend admin configuration.
-- [ ] Require `ORIGIN_API_TOKEN` in production/exposed modes or refuse startup; make any local-development bypass explicit and loopback-only.
-- [ ] Add tests proving missing, malformed, and incorrect origin tokens fail closed.
-- [ ] Rotate the origin token after deploying the fix and review logs for unexpected calls if the inherited service has been publicly reachable.
+- [ ] Document acquisition, ingestion, persistence, administration, delivery, and registry trust boundaries.
+- [ ] Require explicit authentication for private ingestion and administrative routes; missing configuration must fail closed.
+- [ ] Add negative integration tests for missing, malformed, and incorrect credentials.
+- [ ] Keep browser-side checks as UX and defense in depth, never as the authorization boundary.
+- [ ] Prevent historical replay from delivering live alerts.
 - [ ] Perform a focused authorization review before presenting Ferno Pulsar as a security product.
-
-Evidence: `backend/src/http.rs` routes around lines 193–222, `admin_auth_check` around lines 692–715, and `require_origin_token` around lines 3677–3698; `frontend/src/routes/api/backend/[...path]/+server.ts` allowlist around lines 139–153; `backend/.env.example` around lines 14–20.
 
 ### P0 — within 72 hours
 
@@ -136,8 +129,8 @@ Evidence: `backend/src/http.rs` routes around lines 193–222, `admin_auth_check
 - [ ] Confirm every participant is eligible under the official rules and can complete KYC/KYB.
 - [ ] Confirm there is no overlapping active SDF grant, Matching Fund/Enterprise Fund investment, or outstanding SCF tranche.
 - [ ] If applying solo, ask SCF to clarify the apparent handbook inconsistency between individual eligibility and language requiring two available team members.
-- [ ] Create a writable Ferno Pulsar repository and `origin`; preserve FireWatch provenance and ownership/licensing evidence.
-- [ ] Commit the current Stellar plans so reviewers see a coherent project rather than an uncommitted Solana fork.
+- [x] Create a writable Ferno Pulsar repository and `origin`.
+- [x] Commit the Stellar plans and publish the product website.
 - [ ] Name the project lead, backend/ingestion owner, product/frontend owner, and protocol-security/adoption owner. Record weekly availability for the grant period.
 - [ ] Create a private application data sheet with legal names, emails, locations, entity details, prior SDF funding, GitHub/LinkedIn profiles, and referrer details.
 
@@ -167,8 +160,8 @@ Minimum proof gate:
 - [ ] Ask what they monitor today, how they learn about upgrades/admin changes, their incident-response channel, required alert latency, false-positive tolerance, and missing evidence.
 - [ ] Obtain at least three permissioned quotes and two pilot/letter-of-intent statements.
 - [ ] Ask pilots for actual contract IDs, admin/treasury accounts, alert rules, and preferred delivery channels.
-- [ ] Quantify inherited FireWatch traction: ledgers/transactions processed, protocols monitored, alerts delivered, subscribers/users, uptime, revenue, and any incident caught. Use only verifiable figures.
-- [ ] Produce one FireWatch case study showing the team's ability to turn chain data into a useful operational security alert.
+- [ ] Quantify prior Ferno monitoring traction: ledgers/transactions processed, protocols monitored, alerts delivered, subscribers/users, uptime, revenue, and any incident caught. Use only verifiable figures.
+- [ ] Produce one prior-execution case study showing the team's ability to turn chain data into a useful operational security alert.
 - [ ] Do not invent traction or count internal test accounts as users.
 
 ### P0 — application narrative
@@ -178,7 +171,7 @@ Minimum proof gate:
 - [ ] Add a comparison table covering Bevor, Solarkraft, Cyvers, Obsrvr Flow, StellarExpert/Lab, and Ferno Pulsar.
 - [ ] Explain the complementary boundary: observable control-plane changes and evidence, not source-code audit, formal verification, generic data plumbing, or AML scoring.
 - [ ] Explain why Stellar is core: LedgerCloseMeta, Wasm/contract-instance history, system events, auth trees, and classic account signer/threshold state are the product's source of truth.
-- [ ] Separate completed FireWatch/research work from future Stellar work requested from SCF.
+- [ ] Separate completed prior monitoring and research work from future Stellar work requested from SCF.
 - [ ] Define what remains free/open and what can support long-term revenue.
 - [ ] Explain post-grant ownership, hosting, incident support, protocol adapter maintenance, and upgrade compatibility.
 - [ ] Show how security confidence can support onchain growth: safer launches, faster detection, protected TVL, and lower operational burden. Do not claim that indexed-ledger counts alone equal ecosystem growth.
@@ -263,11 +256,10 @@ Do not include an external audit fee in this budget; SCF directs eligible audit 
 
 ### Before submission
 
-- [ ] Rename packages, deploy services, environment variables, routes, assets, bot identity, and documentation from FireWatch/Solana to Ferno Pulsar/Stellar where they are part of the demo.
-- [ ] Make the backend start without Solana/Yellowstone configuration.
-- [ ] Remove Solana payment defaults, secrets, active snapshots, and provider assumptions from the Ferno runtime.
-- [ ] Add Go tests to CI and run Rust formatting, Clippy, locked tests, Svelte checks, and production build. `cargo fmt --check` currently passes, but `cargo clippy --locked --all-targets -- -D warnings` currently fails across the inherited codebase and needs either remediation or a documented, ratcheted lint baseline.
-- [ ] Remediate or explicitly disposition the current npm audit findings: 1 low and 5 high.
+- [x] Remove the inactive prior-chain runtime, routes, assets, dependencies, deployment configuration, and operational data from the active Pulsar tree.
+- [ ] Add the Go module and Stellar fixture tests to CI when the first executable lands.
+- [ ] Add the facts/rules service checks to CI when that service is introduced.
+- [x] Run Svelte checks, a production build, and a dependency audit for the website.
 - [ ] Add dependency-update automation, secret scanning, and a dependency/SBOM review.
 - [ ] Add `SECURITY.md`, vulnerability reporting instructions, a threat model, and a data-integrity model.
 - [ ] Document trust boundaries between acquisition, Go normalization, Rust commit/rules, delivery, and external registries.
@@ -295,7 +287,7 @@ Do not include an external audit fee in this budget; SCF directs eligible audit 
 - [ ] Meaningful Stellar integration and why another chain/data source cannot substitute.
 - [ ] Honest current status and a clear boundary around prior work.
 - [ ] Competitor/differentiation matrix.
-- [ ] Verifiable FireWatch and Stellar prototype traction.
+- [ ] Verifiable prior-execution and Stellar prototype traction.
 - [ ] Team bios, roles, relevant work, availability, and delivery ownership.
 - [ ] Three tranches with dates, costs, verification links, and acceptance criteria.
 - [ ] Line-item budget based on people, time, and rates.
