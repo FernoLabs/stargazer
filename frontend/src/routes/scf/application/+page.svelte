@@ -1,5 +1,5 @@
 <script lang="ts">
-	import PulsarApplication from '$lib/components/landing/PulsarApplication.svelte';
+	import StellarWatchApplication from '$lib/components/landing/StellarWatchApplication.svelte';
 </script>
 
-<PulsarApplication />
+<StellarWatchApplication />

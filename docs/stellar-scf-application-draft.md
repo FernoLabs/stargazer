@@ -1,4 +1,4 @@
-# Ferno Pulsar — SCF Build application draft
+# Stellar Watch — SCF Build application draft
 
 Working draft: **2026-07-18**  
 Target request: **$100,000 worth of XLM**  
@@ -20,13 +20,13 @@ Official references:
 
 | Field | Current answer | Status |
 | --- | --- | --- |
-| Project | Ferno Pulsar | Ready |
+| Project | Stellar Watch | Ready |
 | Submission title | Stellar contract security history | Draft |
 | Request | $100,000 worth of XLM | Draft; cost basis incomplete |
 | Duration | 6 months | Draft |
 | Track | Open Track | Provisional; obtain written SCF confirmation |
 | Applicant | `TODO: individual, team, or legal entity` | Blocking |
-| Public repository | `TODO: writable Ferno Pulsar origin` | Blocking |
+| Public repository | `TODO: writable Stellar Watch origin` | Blocking |
 | Product URL | `TODO: deployed landing/product URL` | Blocking |
 | Architecture URL | `TODO: public architecture brief` | Blocking |
 | Demo URL | `TODO: 2–3 minute Stellar POC video` | Blocking |
@@ -38,7 +38,7 @@ Official references:
 
 ### One sentence
 
-Ferno Pulsar builds a replayable Stellar security history of contract code, administrative authority, signer changes, and DeFi incidents, then delivers evidence-backed findings through an API, dashboard, and Telegram.
+Stellar Watch builds a replayable Stellar security history of contract code, administrative authority, signer changes, and DeFi incidents, then delivers evidence-backed findings through an API, dashboard, and Telegram.
 
 ### Short description
 
@@ -48,13 +48,13 @@ Every Stellar contract change, turned into a security signal.
 
 Stellar protocols can be audited before deployment and still change afterward. Contract Wasm can be upgraded, administrative roles can rotate, account signer thresholds can weaken, and an authorized oracle update can carry an unsafe price. The evidence exists across ledger-entry changes, system events, Soroban authorization trees, classic account state, and protocol-specific storage, but operators do not have a joined-up, replayable security history.
 
-Ferno Pulsar is a post-deployment security monitor for Stellar protocol operations teams. It ingests live and historical `LedgerCloseMeta`, verifies ledger continuity, versions contracts and Wasm, reconstructs account and contract control surfaces where the evidence supports it, and correlates protocol changes with runtime events. Each finding retains chain coordinates, raw evidence provenance, parser version, applicable Wasm version, and confidence. Findings are exposed through a public API, dashboard, and Telegram after they are committed; historical replay never sends live alerts.
+Stellar Watch is a post-deployment security monitor for Stellar protocol operations teams. It ingests live and historical `LedgerCloseMeta`, verifies ledger continuity, versions contracts and Wasm, reconstructs account and contract control surfaces where the evidence supports it, and correlates protocol changes with runtime events. Each finding retains chain coordinates, raw evidence provenance, parser version, applicable Wasm version, and confidence. Findings are exposed through a public API, dashboard, and Telegram after they are committed; historical replay never sends live alerts.
 
 The product complements audits, formal verification, explorers, and generic data pipelines. It does not claim to prove arbitrary contract governance or automatically identify every administrator. Its wedge is deterministic change-control evidence and actionable post-deployment monitoring.
 
 ### Problem and primary user
 
-The primary user is a Stellar protocol security or operations team responsible for upgrades, privileged roles, treasury controls, oracle configuration, and incident response. Today those teams must join several evidence surfaces manually and may learn about a dangerous change only after capital has moved. Ferno Pulsar reduces that blind spot by preserving what changed, who or what authorized it, which executable version applied, and the exact ledger evidence behind the finding.
+The primary user is a Stellar protocol security or operations team responsible for upgrades, privileged roles, treasury controls, oracle configuration, and incident response. Today those teams must join several evidence surfaces manually and may learn about a dangerous change only after capital has moved. Stellar Watch reduces that blind spot by preserving what changed, who or what authorized it, which executable version applied, and the exact ledger evidence behind the finding.
 
 `TODO before submission:` Replace the generalized problem statement with at least three permissioned operator quotes and summarize how each team detects upgrades and administrative changes today.
 
@@ -68,11 +68,11 @@ Stellar is not a deployment target added to an existing generic monitor. Its led
 - classic account entries expose signer weights and operation thresholds used by protocol-linked accounts;
 - contract data, events, token movements, and source-backed manifests make time-versioned protocol attribution possible.
 
-Ferno's prior monitoring work informs persistence, rules, delivery, and operations design, but its runtime is not shipped as Pulsar. The active repository is Stellar-focused, and the funded implementation starts from explicit Stellar ingestion and evidence boundaries.
+Ferno's prior monitoring work informs persistence, rules, delivery, and operations design, but its runtime is not shipped as Stellar Watch. The active repository is Stellar-focused, and the funded implementation starts from explicit Stellar ingestion and evidence boundaries.
 
 ### Ecosystem value
 
-Ferno Pulsar is intended to give Stellar protocols and infrastructure teams:
+Stellar Watch is intended to give Stellar protocols and infrastructure teams:
 
 1. independently verified contract and Wasm upgrade history;
 2. observable changes to protocol-linked account signers and thresholds;
@@ -85,14 +85,14 @@ Final impact claims must use operator validation, measured product telemetry, an
 
 ### Current traction and proof
 
-Ferno Pulsar is in pre-application proof development and is not yet a production Stellar monitor. Current verified work is technical evidence rather than user traction:
+Stellar Watch is in pre-application proof development and is not yet a production Stellar monitor. Current verified work is technical evidence rather than user traction:
 
 - 36 selected Mainnet deployments are source-attributed across seven protocol families;
 - 38 seed and incident contract IDs resolve on Mainnet;
 - seven YieldBlox incident checkpoint ledgers have been fetched and hash-validated;
 - live and archive RPC providers returned matching hashes for tested ledgers;
 - ingestion, replay, registry, governance, multisig, incident, and decoder boundaries are documented;
-- the deployed Pulsar website, Stellar registry seed, provider probes, and research plans are public-facing reviewer artifacts; no prior-chain runtime is presented as Stellar functionality.
+- the deployed Stellar Watch website, Stellar registry seed, provider probes, and research plans are public-facing reviewer artifacts; no prior-chain runtime is presented as Stellar functionality.
 
 The first pre-award proof will let a reviewer clone the repository, run one command, replay a real Stellar fixture twice, and observe exactly one verified upgrade finding with old/new Wasm evidence.
 
@@ -100,13 +100,13 @@ The first pre-award proof will let a reviewer clone the repository, run one comm
 
 ### Track answer
 
-Provisional selection: **Open Track**. Ferno Pulsar is a differentiated end-user security product for Stellar protocol operators, not a general-purpose data pipeline. It consumes core Stellar data sources but does not yet make an approved Integration Track building block central to the funded scope.
+Provisional selection: **Open Track**. Stellar Watch is a differentiated end-user security product for Stellar protocol operators, not a general-purpose data pipeline. It consumes core Stellar data sources but does not yet make an approved Integration Track building block central to the funded scope.
 
 `TODO before submission:` Ask SCF in writing whether this post-deployment monitoring product belongs in Open Track or should wait for a security/indexing RFP. Use SCF's answer as authoritative.
 
 ### Security model
 
-Acquisition can fail or change providers without changing committed fact identity. Ferno Pulsar verifies network, ledger sequence, hash, and parent continuity before advancing a checkpoint. Raw evidence is retained when a parser fails. Facts are committed atomically with the checkpoint, alerts are queued only after commit, and replay delivery is disabled by default. Contract upgrade findings require the executable-update system event and contract-instance ledger diff to agree. Protocol attribution always carries a source and confidence value, and arbitrary contract-account governance is not labeled as multisig without a verified decoder.
+Acquisition can fail or change providers without changing committed fact identity. Stellar Watch verifies network, ledger sequence, hash, and parent continuity before advancing a checkpoint. Raw evidence is retained when a parser fails. Facts are committed atomically with the checkpoint, alerts are queued only after commit, and replay delivery is disabled by default. Contract upgrade findings require the executable-update system event and contract-instance ledger diff to agree. Protocol attribution always carries a source and confidence value, and arbitrary contract-account governance is not labeled as multisig without a verified decoder.
 
 The public POC must introduce a deny-by-default control plane: ingestion and administrative endpoints require explicit authentication, missing configuration fails closed, and negative authorization paths are covered by integration tests.
 
@@ -214,7 +214,7 @@ Targets without a measured baseline remain explicitly provisional. Do not conver
 
 Keep these sentences consistent across the landing page, interest form, full submission, demo, and interviews:
 
-- Ferno Pulsar **is building** a Stellar monitor; it is not live on Stellar today.
+- Stellar Watch **is building** a Stellar monitor; it is not live on Stellar today.
 - The 36 / 7 / 38 / 7 figures describe research coverage and verified fixtures, not users, customers, production coverage, or adoption.
 - The YieldBlox sequence is a regression case the parser must reproduce; the parser has not produced it yet.
 - The $100,000 figure is a planned request, not an award.
@@ -228,7 +228,7 @@ Submit the full application only when all boxes are checked:
 
 - [ ] SCF has confirmed the track and invited the applicant to submit.
 - [ ] Applicant/entity, participant eligibility, KYC/KYB, tax, and XLM address plans are recorded privately.
-- [ ] The Ferno Pulsar repository has a writable public origin and reviewer-presentable history.
+- [ ] The Stellar Watch repository has a writable public origin and reviewer-presentable history.
 - [ ] One real Stellar upgrade fixture runs end to end with deterministic replay.
 - [ ] Public architecture, POC, demo, product, and CI URLs work without private access.
 - [ ] Five discovery interviews, three permissioned quotes, and two pilot/LOI statements exist.

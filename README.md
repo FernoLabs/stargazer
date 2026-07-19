@@ -1,6 +1,6 @@
-# Ferno Pulsar
+# Stellar Watch
 
-Ferno Pulsar is a Stellar security monitoring project for turning contract deployments,
+Stellar Watch by Ferno is a Stellar security monitoring project for turning contract deployments,
 Wasm changes, upgrades, administrative activity, multisig changes, and DeFi runtime
 behavior into evidence-backed findings.
 
@@ -13,7 +13,7 @@ service.
 
 The active tree contains:
 
-- the deployable Ferno Pulsar product website;
+- the deployable Stellar Watch product website;
 - an unlisted, non-indexed SCF application working page;
 - Stellar archive, RPC, registry, multisig, and parser research;
 - provider-probing and ledger-fixture acquisition scripts;
@@ -21,7 +21,7 @@ The active tree contains:
 
 Only Stellar-facing product and research work belongs in this repository. Prior runtime
 implementations remain available through Git history but are not part of the active
-Pulsar codebase.
+Stellar Watch codebase.
 
 ## Architecture direction
 
@@ -99,6 +99,7 @@ jq empty ../ingester/data/stellar-mainnet-defi-roots.json
 
 Cloudflare Pages deployment runs through
 [`.github/workflows/cloudflare-pages.yml`](.github/workflows/cloudflare-pages.yml).
+The public product domain is [`stellarwatch.ferno.ag`](https://stellarwatch.ferno.ag/).
 
 ## License
 
