@@ -13,49 +13,49 @@
 
 <svelte:head>
 	<link rel="icon" href="/brand/ferno-logo-white.png" />
-	<meta property="og:site_name" content="Ferno Pulsar" />
+	<meta property="og:site_name" content="Stellar Watch by Ferno" />
 	<meta name="theme-color" content="#f4f5f2" />
 </svelte:head>
 
-<div class="pulsar-shell">
-	<header class="pulsar-masthead">
-		<div class="pulsar-masthead-inner">
-			<a class="pulsar-wordmark" href={resolve('/')} aria-label="Ferno Pulsar home">
+<div class="watch-shell">
+	<header class="watch-masthead">
+		<div class="watch-masthead-inner">
+			<a class="watch-wordmark" href={resolve('/')} aria-label="Stellar Watch by Ferno home">
 				<svg viewBox="0 0 36 24" aria-hidden="true">
 					<path d="M1 12h7l2.8-8 4.4 16 4.5-16 3.7 8H35" />
 				</svg>
-				<span><strong>FERNO</strong><i>/</i><strong>PULSAR</strong></span>
+				<span><strong>STELLAR WATCH</strong><i>BY FERNO</i></span>
 			</a>
 
-			<nav class="pulsar-nav" aria-label="Ferno Pulsar">
+			<nav class="watch-nav" aria-label="Stellar Watch">
 				{#each navigation as item (item.href)}
 					<a href={resolve(item.href)}>{item.label}</a>
 				{/each}
 			</nav>
 
-			<a class="pulsar-contact" href="https://x.com/ferno_ag" rel="noreferrer" target="_blank">
+			<a class="watch-contact" href="https://x.com/ferno_ag" rel="noreferrer" target="_blank">
 				Pilot enquiries ↗
 			</a>
 		</div>
 	</header>
 
-	<main class="pulsar-content">
+	<main class="watch-content">
 		{@render children()}
 	</main>
 
-	<footer class="pulsar-footer">
-		<div class="pulsar-footer-inner">
+	<footer class="watch-footer">
+		<div class="watch-footer-inner">
 			<div>
-				<strong>Ferno / Pulsar</strong>
+				<strong>Stellar Watch by Ferno</strong>
 				<p>Post-deployment monitoring for Stellar protocol changes and dependencies.</p>
 			</div>
-			<nav aria-label="Ferno Pulsar footer">
+			<nav aria-label="Stellar Watch footer">
 				{#each navigation as item (item.href)}
 					<a href={resolve(item.href)}>{item.label}</a>
 				{/each}
 				<a href="https://ferno.ag" rel="noreferrer" target="_blank">Ferno.ag ↗</a>
 			</nav>
-			<p class="pulsar-legal">
+			<p class="watch-legal">
 				Independent research project. Stellar is a trademark of the Stellar Development
 				Foundation.
 			</p>
@@ -92,30 +92,30 @@
 		font-family: 'Fragment Mono', monospace;
 	}
 
-	.pulsar-shell {
-		--pulsar-field: #f4f5f2;
-		--pulsar-ink: #151418;
-		--pulsar-rule: #d6d7d0;
-		--pulsar-violet: #6436e8;
+	.watch-shell {
+		--watch-field: #f4f5f2;
+		--watch-ink: #151418;
+		--watch-rule: #d6d7d0;
+		--watch-violet: #6436e8;
 		display: flex;
 		flex-direction: column;
 		min-height: 100dvh;
-		background: var(--pulsar-field);
-		color: var(--pulsar-ink);
+		background: var(--watch-field);
+		color: var(--watch-ink);
 	}
 
-	.pulsar-masthead {
-		border-bottom: 1px solid var(--pulsar-rule);
-		background: var(--pulsar-field);
+	.watch-masthead {
+		border-bottom: 1px solid var(--watch-rule);
+		background: var(--watch-field);
 	}
 
-	.pulsar-masthead-inner,
-	.pulsar-footer-inner {
+	.watch-masthead-inner,
+	.watch-footer-inner {
 		width: min(1320px, calc(100vw - 4rem));
 		margin: 0 auto;
 	}
 
-	.pulsar-masthead-inner {
+	.watch-masthead-inner {
 		display: grid;
 		grid-template-columns: auto minmax(0, 1fr) auto;
 		align-items: center;
@@ -123,7 +123,7 @@
 		min-height: 4.25rem;
 	}
 
-	.pulsar-wordmark {
+	.watch-wordmark {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.7rem;
@@ -131,17 +131,17 @@
 		text-decoration: none;
 	}
 
-	.pulsar-wordmark svg {
+	.watch-wordmark svg {
 		width: 2.15rem;
 		height: 1.45rem;
 		fill: none;
-		stroke: var(--pulsar-violet);
+		stroke: var(--watch-violet);
 		stroke-linecap: square;
 		stroke-linejoin: miter;
 		stroke-width: 2;
 	}
 
-	.pulsar-wordmark span {
+	.watch-wordmark span {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.45rem;
@@ -149,61 +149,63 @@
 		letter-spacing: 0.035em;
 	}
 
-	.pulsar-wordmark i {
-		color: var(--pulsar-violet);
+	.watch-wordmark i {
+		color: var(--watch-violet);
+		font-size: 0.62rem;
 		font-style: normal;
-		font-weight: 400;
+		font-weight: 600;
+		letter-spacing: 0.08em;
 	}
 
-	.pulsar-nav {
+	.watch-nav {
 		display: flex;
 		justify-content: center;
 		gap: 1.5rem;
 	}
 
-	.pulsar-nav a,
-	.pulsar-contact,
-	.pulsar-footer a {
+	.watch-nav a,
+	.watch-contact,
+	.watch-footer a {
 		font-size: 0.8rem;
 		font-weight: 600;
 		text-decoration: none;
 	}
 
-	.pulsar-nav a:hover,
-	.pulsar-contact:hover,
-	.pulsar-footer a:hover {
-		color: var(--pulsar-violet);
+	.watch-nav a:hover,
+	.watch-contact:hover,
+	.watch-footer a:hover {
+		color: var(--watch-violet);
 		text-decoration: underline;
 		text-underline-offset: 0.2em;
 	}
 
-	.pulsar-contact {
+	.watch-contact {
 		justify-self: end;
 	}
 
-	.pulsar-content {
+	.watch-content {
 		flex: 1 1 auto;
 	}
 
-	.pulsar-footer {
+	.watch-footer {
 		padding: 2.5rem 0;
-		border-top: 1px solid var(--pulsar-rule);
+		border-top: 1px solid var(--watch-rule);
 		background: #fff;
 	}
 
-	.pulsar-footer-inner {
+	.watch-footer-inner {
 		display: grid;
 		grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
 		gap: 2rem;
 		align-items: start;
 	}
 
-	.pulsar-footer strong {
+	.watch-footer strong {
 		font-family: 'Archivo SemiCondensed', sans-serif;
 		font-size: 1rem;
 	}
 
-	.pulsar-footer p {
+	.watch-footer p {
 		margin: 0.35rem 0 0;
 		max-width: 34rem;
 		color: #67636c;
@@ -211,79 +213,79 @@
 		line-height: 1.5;
 	}
 
-	.pulsar-footer nav {
+	.watch-footer nav {
 		display: flex;
 		flex-wrap: wrap;
 		justify-content: flex-end;
 		gap: 0.75rem 1.1rem;
 	}
 
-	.pulsar-footer .pulsar-legal {
+	.watch-footer .watch-legal {
 		grid-column: 1 / -1;
 		margin-top: 1rem;
 		padding-top: 1rem;
-		border-top: 1px solid var(--pulsar-rule);
+		border-top: 1px solid var(--watch-rule);
 		font-size: 0.7rem;
 	}
 
 	@media (max-width: 980px) {
-		.pulsar-masthead-inner {
+		.watch-masthead-inner {
 			grid-template-columns: auto minmax(0, 1fr);
 			padding-top: 0.75rem;
 		}
 
-		.pulsar-nav {
+		.watch-nav {
 			grid-column: 1 / -1;
 			grid-row: 2;
 			justify-content: flex-start;
 			padding: 0.7rem 0;
-			border-top: 1px solid var(--pulsar-rule);
+			border-top: 1px solid var(--watch-rule);
 		}
 
-		.pulsar-contact {
+		.watch-contact {
 			grid-column: 2;
 			grid-row: 1;
 		}
 	}
 
 	@media (max-width: 560px) {
-		.pulsar-masthead-inner,
-		.pulsar-footer-inner {
+		.watch-masthead-inner,
+		.watch-footer-inner {
 			width: min(100vw - 2rem, 1320px);
 		}
 
-		.pulsar-masthead-inner {
+		.watch-masthead-inner {
 			gap: 0.75rem;
 		}
 
-		.pulsar-wordmark span {
+		.watch-wordmark span {
 			font-size: 0.78rem;
 		}
 
-		.pulsar-nav {
+		.watch-nav {
 			gap: 1rem;
 			overflow-x: auto;
 			white-space: nowrap;
 			scrollbar-width: none;
 		}
 
-		.pulsar-nav::-webkit-scrollbar {
+		.watch-nav::-webkit-scrollbar {
 			display: none;
 		}
 
-		.pulsar-contact {
+		.watch-contact {
 			font-size: 0.72rem;
 		}
 
-		.pulsar-footer-inner {
+		.watch-footer-inner {
 			grid-template-columns: 1fr;
 		}
 
-		.pulsar-footer nav {
+		.watch-footer nav {
 			justify-content: flex-start;
 		}
 
-		.pulsar-footer .pulsar-legal {
+		.watch-footer .watch-legal {
 			grid-column: 1;
 		}
 	}

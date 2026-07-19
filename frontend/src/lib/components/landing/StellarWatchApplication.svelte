@@ -45,7 +45,7 @@
 			id: 'repository',
 			artifact: 'Reviewer repository',
 			detail:
-				'A writable Ferno Pulsar origin, reviewable history, green CI, security policy, and one-command setup must be public.',
+				'A writable Stellar Watch origin, reviewable history, green CI, security policy, and one-command setup must be public.',
 			state: 'Required'
 		},
 		{
@@ -197,10 +197,10 @@
 </script>
 
 <svelte:head>
-	<title>Ferno Pulsar — SCF Build application working draft</title>
+	<title>Stellar Watch — SCF Build application working draft</title>
 	<meta
 		name="description"
-		content="Unlisted working draft of the Ferno Pulsar Stellar Community Fund Build application."
+		content="Unlisted working draft of the Stellar Watch Stellar Community Fund Build application."
 	/>
 	<meta name="robots" content="noindex, nofollow, noarchive" />
 	<meta name="googlebot" content="noindex, nofollow, noarchive" />
@@ -219,7 +219,7 @@
 			<a class="back-link" href={resolve('/')}>← Product homepage</a>
 			<div class="cover-grid">
 				<div>
-					<h1 id="application-title">Ferno Pulsar<br />SCF Build application</h1>
+					<h1 id="application-title">Stellar Watch<br />SCF Build application</h1>
 				</div>
 				<div class="cover-copy">
 					<p>
@@ -251,7 +251,7 @@
 				</p>
 				<div>
 					<p>
-						Ferno Pulsar builds a replayable history of contract code, control surfaces, and
+						Stellar Watch builds a replayable history of contract code, control surfaces, and
 						protocol activity, then delivers findings through an API, dashboard, and Telegram.
 						Each finding retains chain coordinates, raw evidence provenance, parser version,
 						applicable Wasm version, and confidence.
