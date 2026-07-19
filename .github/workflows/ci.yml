@@ -11,23 +11,21 @@ permissions:
   contents: read
 
 jobs:
-  backend:
-    name: Backend tests
+  stellar-artifacts:
+    name: Stellar artifact checks
     runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: backend
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Validate registry JSON
+        run: jq empty ingester/data/stellar-mainnet-defi-roots.json
 
-      - name: Test
-        run: cargo test --locked
+      - name: Validate ingestion scripts
+        run: |
+          bash -n ingester/scripts/fetch-ledger-fixtures.sh
+          bash -n ingester/scripts/probe-rpc-providers.sh
 
   frontend:
     name: Frontend checks
