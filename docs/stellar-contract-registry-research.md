@@ -79,7 +79,7 @@ These contract endpoints are used by the official Lab but are not present in Ste
 
 Stellar's contract lifecycle documentation recommends StellarExpert source validation. A project's GitHub Action builds the Wasm, publishes release artifacts and hashes, and submits an attestation. The Lab warns that “Build Verified” means the build was attested; it does not mean the source code or behavior is safe.
 
-For Ferno Pulsar, keep these claims separate:
+For Stellar Watch, keep these claims separate:
 
 - `code_hash_matches_attested_build`
 - `source_repository_known`
@@ -148,7 +148,7 @@ Useful automated checks:
 
 ## Security opportunities from registry data
 
-Once registry records are linked to on-chain facts, Ferno Pulsar can alert on:
+Once registry records are linked to on-chain facts, Stellar Watch can alert on:
 
 - an official deployment manifest changing to a new contract;
 - a known contract moving to an unattested Wasm hash;

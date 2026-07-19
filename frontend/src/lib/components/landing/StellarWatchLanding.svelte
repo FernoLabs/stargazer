@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { page } from "$app/state";
-
   type Capability = {
     id: string;
     title: string;
@@ -134,7 +132,7 @@
   const faq = [
     {
       id: "live",
-      question: "Is Ferno Pulsar live on Stellar today?",
+      question: "Is Stellar Watch live on Stellar today?",
       answer:
         "No. The first product release—verified contract-change monitoring—is in development. Historical replay, live alert delivery, and broader dependency coverage are not production services yet.",
     },
@@ -142,19 +140,19 @@
       id: "protocol-wide",
       question: "What does protocol-wide monitoring include?",
       answer:
-        "Pulsar is designed to follow the mapped contracts, pools, vaults, oracles, admin and treasury accounts, signers, and token flows a protocol relies on. Every relationship keeps a source and confidence level; unknown or unsupported dependencies remain visible as coverage gaps.",
+        "Stellar Watch is designed to follow the mapped contracts, pools, vaults, oracles, admin and treasury accounts, signers, and token flows a protocol relies on. Every relationship keeps a source and confidence level; unknown or unsupported dependencies remain visible as coverage gaps.",
     },
     {
       id: "wallets",
-      question: "Can Pulsar monitor a wallet live?",
+      question: "Can Stellar Watch monitor a wallet live?",
       answer:
-        "That is a planned pilot capability. A public Stellar account or contract address can be watched for confirmed transfers, material balance movements, signer-policy changes, and new protocol interactions. Pulsar cannot protect private keys or determine the off-chain cause of an authorized transaction.",
+        "That is a planned pilot capability. A public Stellar account or contract address can be watched for confirmed transfers, material balance movements, signer-policy changes, and new protocol interactions. Stellar Watch cannot protect private keys or determine the off-chain cause of an authorized transaction.",
     },
     {
       id: "audit",
       question: "Does it replace an audit or formal verification?",
       answer:
-        "No. Audits evaluate code and assumptions at a point in time. Ferno Pulsar is intended to preserve and alert on observable post-deployment changes and runtime evidence.",
+        "No. Audits evaluate code and assumptions at a point in time. Stellar Watch is intended to preserve and alert on observable post-deployment changes and runtime evidence.",
     },
     {
       id: "admins",
@@ -164,7 +162,7 @@
     },
     {
       id: "registry",
-      question: "Which protocols will Pulsar cover?",
+      question: "Which protocols will Stellar Watch cover?",
       answer:
         "The first planned protocol-specific decoders cover Blend, Reflector, and SDEX activity. Generic contract, account, and transfer monitoring can extend further, while deeper dependency coverage will be published with sources and explicit limits.",
     },
@@ -172,12 +170,12 @@
 </script>
 
 <svelte:head>
-  <title>Ferno Pulsar — Stellar protocol and wallet monitoring</title>
+  <title>Stellar Watch — Stellar protocol and wallet monitoring</title>
   <meta
     name="description"
-    content="Ferno Pulsar is building post-deployment security monitoring for Stellar protocols: mapped dependencies, confirmed changes, and evidence-backed alerts."
+    content="Stellar Watch by Ferno is building post-deployment security monitoring for Stellar protocols: mapped dependencies, confirmed changes, and evidence-backed alerts."
   />
-  <link rel="canonical" href={`${page.url.origin}${page.url.pathname}`} />
+  <link rel="canonical" href="https://stellarwatch.ferno.ag/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link
     rel="preconnect"
@@ -190,18 +188,19 @@
   />
   <meta
     property="og:title"
-    content="Ferno Pulsar — Stellar protocol and wallet monitoring"
+    content="Stellar Watch — Stellar protocol and wallet monitoring"
   />
   <meta
     property="og:description"
     content="Know when a Stellar protocol changes, what else may be at risk, and which ledger evidence proves it."
   />
   <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://stellarwatch.ferno.ag/" />
   <meta name="theme-color" content="#f4f5f2" />
   <meta name="twitter:card" content="summary" />
   <meta
     name="twitter:title"
-    content="Ferno Pulsar — Stellar protocol and wallet monitoring"
+    content="Stellar Watch — Stellar protocol and wallet monitoring"
   />
   <meta
     name="twitter:description"
@@ -221,14 +220,14 @@
         </div>
         <div class="cover-copy">
           <p>
-            A live protocol can change after its audit. Pulsar maps its known
+            A live protocol can change after its audit. Stellar Watch maps its known
             contracts, control accounts, signers, oracles, pools, treasuries,
             and dependencies; follows confirmed Stellar ledgers; and turns
             important code, authority, configuration, and capital changes into
             one evidence-linked alert.
           </p>
           <div class="cover-actions">
-            <a class="primary-link" href="#solution">How Pulsar works</a>
+            <a class="primary-link" href="#solution">How Stellar Watch works</a>
             <a href="https://x.com/ferno_ag" rel="noreferrer" target="_blank"
               >Join the pilot ↗</a
             >
@@ -242,7 +241,7 @@
         </div>
       </div>
 
-      <ol class="outcome-ledger" aria-label="Ferno Pulsar operator outcomes">
+      <ol class="outcome-ledger" aria-label="Stellar Watch operator outcomes">
         {#each outcomes as outcome, index (outcome.id)}
           <li>
             <span>{String(index + 1).padStart(2, "0")}</span>
@@ -366,7 +365,7 @@
         </div>
         <div class="chapter-copy">
           <p class="lead-copy">
-            Pulsar turns scattered ledger facts into a time-versioned security
+            Stellar Watch turns scattered ledger facts into a time-versioned security
             history for one monitored protocol surface.
           </p>
           <p>
@@ -397,7 +396,7 @@
         <p>
           Watch selected public Stellar accounts for confirmed transfers,
           material balance movements, signer-policy changes, and new protocol
-          interactions. Pulsar observes ledger activity; it does not protect
+          interactions. Stellar Watch observes ledger activity; it does not protect
           private keys or infer an off-chain compromise.
         </p>
       </div>
@@ -409,7 +408,7 @@
         </div>
         <p>
           Audits review code. Explorers expose transactions. Data services make
-          ledgers queryable. Pulsar is being built to join change, authority,
+          ledgers queryable. Stellar Watch is being built to join change, authority,
           dependency, and capital into an operational finding.
         </p>
       </div>
@@ -438,8 +437,8 @@
                 >Security interpretation and operator delivery</td
               ></tr
             >
-            <tr class="pulsar-row"
-              ><th>Pulsar</th><td
+            <tr class="watch-row"
+              ><th>Stellar Watch</th><td
                 >Connect change, authority, dependencies, and capital</td
               ><td>Evidence and coverage limits are part of the finding</td></tr
             >
@@ -463,7 +462,7 @@
           </h2>
         </div>
         <p class="architecture-intro">
-          The live tail and historical replay use the same evidence path. Pulsar
+          The live tail and historical replay use the same evidence path. Stellar Watch
           verifies the ledger, resolves the monitored protocol or wallet
           context, evaluates the change, and routes the finding only after the
           evidence is committed.
@@ -471,7 +470,7 @@
       </div>
 
       <figure class="system-map">
-        <ol aria-label="Ferno Pulsar processing stages">
+        <ol aria-label="Stellar Watch processing stages">
           {#each pipeline as step, index (step.id)}
             <li>
               <span>{String(index + 1).padStart(2, "0")}</span>
@@ -482,7 +481,7 @@
         </ol>
         <figcaption>
           One monitoring policy can follow a protocol and its mapped
-          dependencies. Pulsar retains ledger coordinates, raw evidence
+          dependencies. Stellar Watch retains ledger coordinates, raw evidence
           location, source provenance, parser version, and applicable Wasm
           version; historical replay stays separate from live delivery.
         </figcaption>
@@ -550,8 +549,8 @@
         </ol>
         <footer>
           <p>
-            Pulsar did not detect this incident live. It is now a product
-            regression case: the timeline Pulsar must be able to reconstruct
+            Stellar Watch did not detect this incident live. It is now a product
+            regression case: the timeline Stellar Watch must be able to reconstruct
             and, once live, recognize from confirmed ledger evidence.
           </p>
           <div>
@@ -585,7 +584,7 @@
           </h2>
         </div>
         <p class="architecture-intro">
-          Pulsar starts with verified contract changes, then adds history,
+          Stellar Watch starts with verified contract changes, then adds history,
           dependencies, operational wallets, and protocol-specific context.
           Every release keeps the same evidence-backed finding format and
           explicit coverage limits.
@@ -1147,11 +1146,11 @@
     font-size: 0.95rem;
   }
 
-  .comparison-frame .pulsar-row {
+  .comparison-frame .watch-row {
     background: var(--atlas-violet-soft);
   }
 
-  .comparison-frame .pulsar-row > *:first-child {
+  .comparison-frame .watch-row > *:first-child {
     padding-left: 0.8rem;
     color: var(--atlas-violet);
   }

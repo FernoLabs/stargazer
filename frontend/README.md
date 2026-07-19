@@ -1,9 +1,12 @@
-# Ferno Pulsar web
+# Stellar Watch web
 
-SvelteKit website for Ferno Pulsar.
+SvelteKit website for Stellar Watch by Ferno.
 
 The public product page is served at `/`. The grant working page is served at
 `/scf/application` with `noindex`, `nofollow`, and `noarchive` headers.
+
+Production is published at [`stellarwatch.ferno.ag`](https://stellarwatch.ferno.ag/). The
+Cloudflare Pages project retains its existing `ferno-pulsar` technical identifier.
 
 ## Developing
 
