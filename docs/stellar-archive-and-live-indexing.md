@@ -6,7 +6,7 @@ Status: proposed runbook and architecture, 2026-07-18
 
 Do **not** begin by operating a Stellar validator or by setting `CATCHUP_COMPLETE=true`.
 
-For the first Ferno Pulsar release:
+For the first Stellar Watch release:
 
 - use a Galexie-compatible public data lake for historical `LedgerCloseMeta`;
 - use a Stellar RPC `getLedgers` source for recent catch-up, development, and a simple live tail;

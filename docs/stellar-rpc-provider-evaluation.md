@@ -54,7 +54,7 @@ Gateway, Ankr, OnFinality, and Lightsail archive returned the same historical ha
 be8a973e4f8272f8733ad545b4e73ef411e72599946a9679c9cc9c3e9357c487
 ```
 
-Ankr and Lightsail archive also returned ledger 2. Gateway and OnFinality returned an object-missing error for ledger 2 during this probe, although both worked for Soroban-era history. Ferno Pulsar does not need pre-Soroban history for its first milestone.
+Ankr and Lightsail archive also returned ledger 2. Gateway and OnFinality returned an object-missing error for ledger 2 during this probe, although both worked for Soroban-era history. Stellar Watch does not need pre-Soroban history for its first milestone.
 
 Re-run the same checks with:
 
@@ -68,7 +68,7 @@ An optional first argument changes the historical ledger used by the probe.
 
 Standard Stellar RPC retains a provider-configured recent window, commonly seven days. Archive mode extends **only** `getLedgers`; it does not make old `getEvents`, `getTransaction`, `getTransactions`, or state queries historical.
 
-This is sufficient for Ferno Pulsar because `getLedgers` returns the ledger header and complete `LedgerCloseMeta`, including transactions, results, events, and ledger-entry changes. The ingester must decode that XDR rather than depend on historical `getEvents` calls.
+This is sufficient for Stellar Watch because `getLedgers` returns the ledger header and complete `LedgerCloseMeta`, including transactions, results, events, and ledger-entry changes. The ingester must decode that XDR rather than depend on historical `getEvents` calls.
 
 The source router should:
 
