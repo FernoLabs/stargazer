@@ -1,9 +1,4 @@
-# Keep Ferno Pulsar isolated from the Solana watcher at watch.ferno.ag.
 name = "ferno-pulsar"
 compatibility_date = "2026-05-22"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = ".svelte-kit/cloudflare"
-
-[vars]
-PUBLIC_BACKEND_BASE_URL = "/api/backend"
-PUBLIC_SOLANA_EXPLORER_CLUSTER = "mainnet-beta"

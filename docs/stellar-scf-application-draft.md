@@ -68,7 +68,7 @@ Stellar is not a deployment target added to an existing generic monitor. Its led
 - classic account entries expose signer weights and operation thresholds used by protocol-linked accounts;
 - contract data, events, token movements, and source-backed manifests make time-versioned protocol attribution possible.
 
-The inherited FireWatch product shell contributes persistence, rules, API, dashboard, Telegram delivery, deployment, and backup patterns. Solana ingestion and vocabulary are being replaced rather than presented as Stellar functionality.
+Ferno's prior monitoring work informs persistence, rules, delivery, and operations design, but its runtime is not shipped as Pulsar. The active repository is Stellar-focused, and the funded implementation starts from explicit Stellar ingestion and evidence boundaries.
 
 ### Ecosystem value
 
@@ -92,11 +92,11 @@ Ferno Pulsar is in pre-application proof development and is not yet a production
 - seven YieldBlox incident checkpoint ledgers have been fetched and hash-validated;
 - live and archive RPC providers returned matching hashes for tested ledgers;
 - ingestion, replay, registry, governance, multisig, incident, and decoder boundaries are documented;
-- the inherited FireWatch product provides a tested Rust API, persistence, alert, Telegram, and Svelte product baseline.
+- the deployed Pulsar website, Stellar registry seed, provider probes, and research plans are public-facing reviewer artifacts; no prior-chain runtime is presented as Stellar functionality.
 
 The first pre-award proof will let a reviewer clone the repository, run one command, replay a real Stellar fixture twice, and observe exactly one verified upgrade finding with old/new Wasm evidence.
 
-`TODO before submission:` Add the public repository, POC, demo, architecture, CI, FireWatch case study, operator interviews, pilot commitments, and only verifiable historical usage figures.
+`TODO before submission:` Make the repository reviewer-accessible and add the POC, demo, architecture brief, prior-execution case study, operator interviews, pilot commitments, and only verifiable historical usage figures.
 
 ### Track answer
 
@@ -108,7 +108,7 @@ Provisional selection: **Open Track**. Ferno Pulsar is a differentiated end-user
 
 Acquisition can fail or change providers without changing committed fact identity. Ferno Pulsar verifies network, ledger sequence, hash, and parent continuity before advancing a checkpoint. Raw evidence is retained when a parser fails. Facts are committed atomically with the checkpoint, alerts are queued only after commit, and replay delivery is disabled by default. Contract upgrade findings require the executable-update system event and contract-instance ledger diff to agree. Protocol attribution always carries a source and confidence value, and arbitrary contract-account governance is not labeled as multisig without a verified decoder.
 
-Before the public POC, inherited admin routes and origin-token handling must be hardened so the product's own control plane defaults to deny.
+The public POC must introduce a deny-by-default control plane: ingestion and administrative endpoints require explicit authentication, missing configuration fails closed, and negative authorization paths are covered by integration tests.
 
 ### Sustainability
 
@@ -142,7 +142,7 @@ The nine-deliverable structure below is application-shaped but not yet submit-re
 | --- | --- | --- | --- | --- | ---: |
 | D1 | Restart-safe recent-ledger ingestion | A published Mainnet range ingests through a documented source adapter; network, sequence, hash, and parent continuity are checked; interruption resumes from the last atomic checkpoint; a deliberate gap and conflicting hash stop progress visibly; raw evidence survives a forced parser failure. | `TODO` | `TODO` | $12,000 |
 | D2 | Contract, Wasm, and verified upgrade history | The public corpus includes contract creation, Wasm upload, contract-version relationships, and at least one real executable upgrade. Event and contract-instance diff agree on the new executable. Replaying twice produces identical facts and zero duplicate findings. | `TODO` | `TODO` | $14,000 |
-| D3 | Evidence API, dashboard, Telegram, and control-plane hardening | A reviewer can inspect the same committed finding through API and dashboard and deliver it once through Telegram. Admin routes are protected by backend authorization middleware; missing or invalid origin/admin credentials fail closed in integration tests. | `TODO` | `TODO` | $10,000 |
+| D3 | Evidence API, dashboard, Telegram, and control-plane hardening | A reviewer can inspect the same committed finding through API and dashboard and deliver it once through Telegram. Ingestion and administration routes default to deny; missing or invalid credentials fail closed in integration tests. | `TODO` | `TODO` | $10,000 |
 |  | **Tranche 1 cost basis** | `TODO: attach role/day calculation` |  |  | **$36,000** |
 
 ### Tranche 2 — historical and operator readiness
@@ -207,7 +207,7 @@ Targets without a measured baseline remain explicitly provisional. Do not conver
 | Operator validation | Permissioned quotes, anonymized notes where required, pilot/LOI statements | `TODO` |
 | Team proof | Bios, profiles, availability, ownership, prior execution | `TODO` |
 | Budget workbook | Deliverable, person, role, days, rate, due date, totals | `TODO` |
-| Security evidence | Threat model, inherited blocker fixes, CI and negative authorization tests | `TODO` |
+| Security evidence | Threat model, trust boundaries, CI and negative authorization tests | `TODO` |
 | Sustainability brief | Public/commercial boundary, annual cost, maintenance and support ownership | `TODO` |
 
 ## Claim controls
@@ -238,4 +238,3 @@ Submit the full application only when all boxes are checked:
 - [ ] Sustainability, infrastructure cost, support, and maintenance ownership are credible.
 - [ ] Every application claim has an evidence URL or is clearly labeled as a target.
 - [ ] A final red-team pass finds no stale totals, unsupported traction, vague acceptance criteria, or hidden essential facts.
-
