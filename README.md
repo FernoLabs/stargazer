@@ -99,7 +99,8 @@ jq empty ../ingester/data/stellar-mainnet-defi-roots.json
 
 Cloudflare Pages deployment runs through
 [`.github/workflows/cloudflare-pages.yml`](.github/workflows/cloudflare-pages.yml).
-The public product domain is [`stellarwatch.ferno.ag`](https://stellarwatch.ferno.ag/).
+The public product domain is [`stargazer.ferno.ag`](https://stargazer.ferno.ag/).
+The previous `stellarwatch.ferno.ag` hostname remains available as a legacy alias.
 
 ## License
 
