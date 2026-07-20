@@ -1,5 +1,5 @@
 <script lang="ts">
-	import StellarWatchLanding from '$lib/components/landing/StellarWatchLanding.svelte';
+	import StargazerLanding from '$lib/components/landing/StargazerLanding.svelte';
 </script>
 
-<StellarWatchLanding />
+<StargazerLanding />

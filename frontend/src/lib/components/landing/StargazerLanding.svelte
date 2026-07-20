@@ -29,18 +29,18 @@
   const outcomes: Outcome[] = [
     {
       id: "detect-sooner",
-      title: "Detect sooner",
-      body: "Follow confirmed code, authority, configuration, and capital changes as one operational surface.",
+      title: "Catch meaningful change",
+      body: "Follow contract upgrades, deployments, governance, repositories, SDKs, and package releases without watching every source by hand.",
     },
     {
       id: "affected-surface",
-      title: "See what is affected",
-      body: "Connect a change to mapped contracts, control accounts, oracles, pools, wallets, and value flows.",
+      title: "See what it touches",
+      body: "Connect a change to the contracts, control accounts, oracles, pools, wallets, libraries, and value flows your application depends on.",
     },
     {
       id: "verify",
-      title: "Verify from the ledger",
-      body: "Start the investigation with the transaction, before-and-after state, source evidence, and parser version.",
+      title: "Act with evidence",
+      body: "Receive a concise impact summary linked to the transaction, release, repository change, before-and-after state, and known coverage limits.",
     },
   ];
 
@@ -53,12 +53,12 @@
     {
       id: "changed",
       title: "What changed?",
-      body: "Confirmed code, authority, signer-policy, configuration, contract-call, and token-movement changes across that mapped surface.",
+      body: "Confirmed code, authority, configuration, contract-call, and token-movement changes, joined with governance, repository, SDK, and package signals.",
     },
     {
       id: "affected",
-      title: "What else may be affected?",
-      body: "The changed component is traced to known downstream dependencies and value flows so operators can see where to investigate next.",
+      title: "Why does it matter to me?",
+      body: "The changed component is traced to known downstream dependencies and value flows, then summarized so a developer can see where to investigate next.",
     },
     {
       id: "proof",
@@ -71,7 +71,7 @@
     {
       id: "acquire",
       label: "Acquire",
-      detail: "RPC, archive RPC, Captive Core, or Galexie",
+      detail: "Stellar ledgers, repositories, governance, SDKs, and releases",
     },
     {
       id: "verify",
@@ -90,8 +90,8 @@
     },
     {
       id: "detect",
-      label: "Detect",
-      detail: "Generic invariants and Wasm-versioned protocol rules",
+      label: "Interpret",
+      detail: "Deterministic rules plus evidence-grounded AI impact analysis",
     },
     {
       id: "deliver",
@@ -106,16 +106,16 @@
       phase: "First release",
       window: "Verified contract changes",
       status: "Building",
-      body: "Code and Wasm history, evidence-backed upgrade findings, and delivery through API, dashboard, and Telegram.",
+      body: "Code and Wasm history, trusted protocol sources, evidence-backed upgrade findings, and delivery through API, dashboard, and Telegram.",
       outcome:
         "Know exactly what changed and verify it directly from the ledger.",
     },
     {
       id: "context",
       phase: "Broader coverage",
-      window: "Dependencies and operational wallets",
+      window: "Dependency intelligence",
       status: "Planned",
-      body: "Reconciled historical backfill, signer and control history, mapped dependencies, operational-wallet rules, and first Blend, Reflector, and SDEX decoders.",
+      body: "Historical backfill, signer and control history, governance and release feeds, mapped SDK and protocol dependencies, AI-assisted impact summaries, wallet rules, and first protocol decoders.",
       outcome:
         "Monitor the system around a protocol instead of maintaining separate address lists.",
     },
@@ -132,27 +132,33 @@
   const faq = [
     {
       id: "live",
-      question: "Is Stellar Watch live on Stellar today?",
+      question: "Is Stargazer live on Stellar today?",
       answer:
-        "No. The first product release—verified contract-change monitoring—is in development. Historical replay, live alert delivery, and broader dependency coverage are not production services yet.",
+        "No. The first product release—verified contract-change monitoring—is in development. Historical replay, repository and SDK monitoring, AI-assisted impact analysis, live alert delivery, and broader dependency coverage are not production services yet.",
     },
     {
       id: "protocol-wide",
       question: "What does protocol-wide monitoring include?",
       answer:
-        "Stellar Watch is designed to follow the mapped contracts, pools, vaults, oracles, admin and treasury accounts, signers, and token flows a protocol relies on. Every relationship keeps a source and confidence level; unknown or unsupported dependencies remain visible as coverage gaps.",
+        "Stargazer is designed to follow the mapped contracts, pools, vaults, oracles, admin and treasury accounts, signers, and token flows a protocol relies on. Every relationship keeps a source and confidence level; unknown or unsupported dependencies remain visible as coverage gaps.",
     },
     {
       id: "wallets",
-      question: "Can Stellar Watch monitor a wallet live?",
+      question: "Can Stargazer monitor a wallet live?",
       answer:
-        "That is a planned pilot capability. A public Stellar account or contract address can be watched for confirmed transfers, material balance movements, signer-policy changes, and new protocol interactions. Stellar Watch cannot protect private keys or determine the off-chain cause of an authorized transaction.",
+        "That is a planned pilot capability. A public Stellar account or contract address can be watched for confirmed transfers, material balance movements, signer-policy changes, and new protocol interactions. Stargazer cannot protect private keys or determine the off-chain cause of an authorized transaction.",
     },
     {
       id: "audit",
       question: "Does it replace an audit or formal verification?",
       answer:
-        "No. Audits evaluate code and assumptions at a point in time. Stellar Watch is intended to preserve and alert on observable post-deployment changes and runtime evidence.",
+        "No. Audits evaluate code and assumptions at a point in time. Stargazer is intended to preserve and alert on observable post-deployment changes and runtime evidence.",
+    },
+    {
+      id: "ai",
+      question: "What does AI do in Stargazer?",
+      answer:
+        "AI is planned for correlation, prioritization, and concise impact summaries. It does not replace ledger verification or invent certainty: every alert keeps its source evidence, parser version, confidence, and coverage limits so a developer can verify the conclusion.",
     },
     {
       id: "admins",
@@ -162,7 +168,7 @@
     },
     {
       id: "registry",
-      question: "Which protocols will Stellar Watch cover?",
+      question: "Which protocols will Stargazer cover?",
       answer:
         "The first planned protocol-specific decoders cover Blend, Reflector, and SDEX activity. Generic contract, account, and transfer monitoring can extend further, while deeper dependency coverage will be published with sources and explicit limits.",
     },
@@ -170,10 +176,10 @@
 </script>
 
 <svelte:head>
-  <title>Stellar Watch — Stellar protocol and wallet monitoring</title>
+  <title>Stargazer — Stellar protocol intelligence for developers</title>
   <meta
     name="description"
-    content="Stellar Watch by Ferno is building post-deployment security monitoring for Stellar protocols: mapped dependencies, confirmed changes, and evidence-backed alerts."
+    content="Stargazer by Ferno is building live protocol intelligence for Stellar developers: monitor contract, governance, repository, SDK, and dependency changes from one evidence-backed feed."
   />
   <link rel="canonical" href="https://stellarwatch.ferno.ag/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -188,11 +194,11 @@
   />
   <meta
     property="og:title"
-    content="Stellar Watch — Stellar protocol and wallet monitoring"
+    content="Stargazer — Stellar protocol intelligence for developers"
   />
   <meta
     property="og:description"
-    content="Know when a Stellar protocol changes, what else may be at risk, and which ledger evidence proves it."
+    content="Know when a Stellar dependency changes, why it matters to your application, and which evidence supports the alert."
   />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://stellarwatch.ferno.ag/" />
@@ -200,11 +206,11 @@
   <meta name="twitter:card" content="summary" />
   <meta
     name="twitter:title"
-    content="Stellar Watch — Stellar protocol and wallet monitoring"
+    content="Stargazer — Stellar protocol intelligence for developers"
   />
   <meta
     name="twitter:description"
-    content="Post-deployment monitoring for the contracts, controls, wallets, and dependencies behind a Stellar protocol."
+    content="Monitor the contracts, governance, repositories, SDKs, wallets, and protocols your Stellar application depends on."
   />
 </svelte:head>
 
@@ -214,34 +220,33 @@
       <div class="cover-grid">
         <div class="cover-title">
           <p class="cover-kicker">
-            For Stellar protocol security, operations, and treasury teams
+            Live protocol intelligence for Stellar developers and operators
           </p>
-          <h1 id="hero-title">Know what changed. See what is at risk.</h1>
+          <h1 id="hero-title">Know what changed before it breaks your app.</h1>
         </div>
         <div class="cover-copy">
           <p>
-            A live protocol can change after its audit. Stellar Watch maps its known
-            contracts, control accounts, signers, oracles, pools, treasuries,
-            and dependencies; follows confirmed Stellar ledgers; and turns
-            important code, authority, configuration, and capital changes into
-            one evidence-linked alert.
+            Your application depends on contracts, protocol infrastructure,
+            repositories, SDKs, governance, and packages that keep changing.
+            Stargazer monitors those sources, connects meaningful changes to
+            your dependency map, and sends a concise, evidence-linked impact alert.
           </p>
           <div class="cover-actions">
-            <a class="primary-link" href="#solution">How Stellar Watch works</a>
+            <a class="primary-link" href="#solution">How Stargazer works</a>
             <a href="https://x.com/ferno_ag" rel="noreferrer" target="_blank"
               >Join the pilot ↗</a
             >
           </div>
           <p class="poc-note">
             Private pilot in development. Verified contract-change monitoring
-            comes first; dependency mapping, live Mainnet alerts, and
-            operational-wallet monitoring are planned—not production services
-            today.
+            comes first; repository and SDK signals, dependency mapping,
+            AI-assisted impact analysis, live Mainnet alerts, and wallet
+            monitoring are planned—not production services today.
           </p>
         </div>
       </div>
 
-      <ol class="outcome-ledger" aria-label="Stellar Watch operator outcomes">
+      <ol class="outcome-ledger" aria-label="Stargazer developer outcomes">
         {#each outcomes as outcome, index (outcome.id)}
           <li>
             <span>{String(index + 1).padStart(2, "0")}</span>
@@ -291,7 +296,7 @@
           </li>
           <li>
             <span>04</span><strong>Dependencies</strong>
-            <p>Oracles, tokens, and upstream contracts</p>
+            <p>Oracles, tokens, contracts, SDKs, and packages</p>
           </li>
         </ol>
         <figcaption>
@@ -315,27 +320,28 @@
         <div class="chapter-title">
           <span aria-hidden="true">01</span>
           <h2 id="problem-title">
-            Post-deployment risk is fragmented across the ledger.
+            Your dependency graph never stops changing.
           </h2>
         </div>
         <div class="chapter-copy">
           <p class="lead-copy">
-            An audit can assess code and assumptions at a point in time. It does
-            not continuously tell an operator when Wasm changes later, signer
-            thresholds weaken, an oracle input creates downstream exposure, or a
-            treasury moves funds.
+            A contract can upgrade, an SDK can ship a breaking release, a
+            governance proposal can change control, or an oracle dependency can
+            create downstream exposure. Developers discover these events across
+            different channels, often only after their application is affected.
           </p>
           <p>
-            The evidence exists, but it is split across contract state, classic
-            accounts, Soroban authorization, events, and token flows. Each event
-            may look legitimate alone; the risk often appears only when the
-            sequence and dependencies are joined.
+            The signals exist across contract state, classic accounts, Soroban
+            authorization, governance, source repositories, release feeds, and
+            package registries. The missing layer is the connection between a
+            change, the application that depends on it, and the evidence needed
+            to respond.
           </p>
           <ul class="risk-register">
-            <li>Audits capture a moment</li>
-            <li>Explorers expose separate transactions</li>
+            <li>On-chain and off-chain signals are separated</li>
+            <li>Release notes do not map impact to your application</li>
             <li>Address lists lose dependency context</li>
-            <li>Incident timelines are rebuilt by hand</li>
+            <li>Important changes compete with routine noise</li>
           </ul>
         </div>
       </div>
@@ -360,24 +366,26 @@
         <div class="chapter-title">
           <span aria-hidden="true">02</span>
           <h2 id="solution-title">
-            One monitored system. Four questions answered.
+            One dependency view. Four questions answered.
           </h2>
         </div>
         <div class="chapter-copy">
           <p class="lead-copy">
-            Stellar Watch turns scattered ledger facts into a time-versioned security
-            history for one monitored protocol surface.
+            Stargazer turns scattered on-chain and off-chain signals into a
+            time-versioned intelligence feed for the infrastructure your
+            application relies on.
           </p>
           <p>
-            Map the system, follow confirmed change, trace the known affected
-            surface, and send one finding with the evidence needed to verify it.
-            Unknown and unsupported dependencies remain visible as coverage
-            gaps.
+            Map the system, follow trusted change sources, trace the known
+            affected surface, and use AI to summarize what changed and why it may
+            matter. Unknown and unsupported dependencies remain visible as
+            coverage gaps; source evidence remains available for verification.
           </p>
           <p class="first-release">
             <strong>First release</strong> Deterministic Wasm-upgrade monitoring
-            through API, dashboard, and Telegram. Dependency and wallet rules expand
-            from that verified base.
+            through API, dashboard, and Telegram. Repository, governance, SDK,
+            package, dependency, and wallet intelligence expands from that
+            verified base.
           </p>
         </div>
       </div>
@@ -396,7 +404,7 @@
         <p>
           Watch selected public Stellar accounts for confirmed transfers,
           material balance movements, signer-policy changes, and new protocol
-          interactions. Stellar Watch observes ledger activity; it does not protect
+          interactions. Stargazer observes ledger activity; it does not protect
           private keys or infer an off-chain compromise.
         </p>
       </div>
@@ -407,9 +415,9 @@
           <h3>Different tools answer different questions.</h3>
         </div>
         <p>
-          Audits review code. Explorers expose transactions. Data services make
-          ledgers queryable. Stellar Watch is being built to join change, authority,
-          dependency, and capital into an operational finding.
+          Audits review code. Explorers expose transactions. Release feeds report
+          versions. Data services make ledgers queryable. Stargazer is being built
+          to connect each change to the dependency and application it may affect.
         </p>
       </div>
       <div class="comparison-frame">
@@ -437,9 +445,14 @@
                 >Security interpretation and operator delivery</td
               ></tr
             >
+            <tr
+              ><th>Release feed</th><td>Announce repository, SDK, or package updates</td><td
+                >Application-specific dependency impact</td
+              ></tr
+            >
             <tr class="watch-row"
-              ><th>Stellar Watch</th><td
-                >Connect change, authority, dependencies, and capital</td
+              ><th>Stargazer</th><td
+                >Connect protocol change to developer dependencies</td
               ><td>Evidence and coverage limits are part of the finding</td></tr
             >
           </tbody>
@@ -458,19 +471,19 @@
         <div class="chapter-title">
           <span aria-hidden="true">03</span>
           <h2 id="architecture-title">
-            From confirmed ledger to useful alert.
+            From scattered signals to one useful alert.
           </h2>
         </div>
         <p class="architecture-intro">
-          The live tail and historical replay use the same evidence path. Stellar Watch
-          verifies the ledger, resolves the monitored protocol or wallet
-          context, evaluates the change, and routes the finding only after the
-          evidence is committed.
+          Stargazer correlates verified ledger facts with trusted governance,
+          repository, SDK, and release sources. It resolves the monitored
+          dependency context, evaluates the change, and routes the finding with
+          the evidence used to produce it.
         </p>
       </div>
 
       <figure class="system-map">
-        <ol aria-label="Stellar Watch processing stages">
+        <ol aria-label="Stargazer processing stages">
           {#each pipeline as step, index (step.id)}
             <li>
               <span>{String(index + 1).padStart(2, "0")}</span>
@@ -480,10 +493,11 @@
           {/each}
         </ol>
         <figcaption>
-          One monitoring policy can follow a protocol and its mapped
-          dependencies. Stellar Watch retains ledger coordinates, raw evidence
-          location, source provenance, parser version, and applicable Wasm
-          version; historical replay stays separate from live delivery.
+          One monitoring policy can follow an application and its mapped
+          dependencies. Stargazer retains ledger coordinates or source links,
+          raw evidence location, provenance, parser version, applicable Wasm
+          version, and analysis confidence; historical replay stays separate
+          from live delivery.
         </figcaption>
       </figure>
     </div>
@@ -549,8 +563,8 @@
         </ol>
         <footer>
           <p>
-            Stellar Watch did not detect this incident live. It is now a product
-            regression case: the timeline Stellar Watch must be able to reconstruct
+            Stargazer did not detect this incident live. It is now a product
+            regression case: the timeline Stargazer must be able to reconstruct
             and, once live, recognize from confirmed ledger evidence.
           </p>
           <div>
@@ -584,10 +598,10 @@
           </h2>
         </div>
         <p class="architecture-intro">
-          Stellar Watch starts with verified contract changes, then adds history,
-          dependencies, operational wallets, and protocol-specific context.
-          Every release keeps the same evidence-backed finding format and
-          explicit coverage limits.
+          Stargazer starts with verified contract changes, then adds historical
+          context, governance and release sources, developer dependencies,
+          operational wallets, and protocol-specific intelligence. Every release
+          keeps the same evidence-backed finding format and explicit limits.
         </p>
       </div>
 
@@ -632,12 +646,12 @@
 
   <section class="closing-chapter" aria-labelledby="closing-title">
     <div class="atlas-width closing-grid">
-      <h2 id="closing-title">Bring one protocol surface into the pilot.</h2>
+      <h2 id="closing-title">Bring your Stellar dependency map into the pilot.</h2>
       <div>
         <p>
-          We will map the contracts, control accounts, treasury wallets,
-          oracles, and alerts your team needs—and publish the coverage limits
-          before monitoring begins.
+          We will map the contracts, protocols, repositories, SDKs, control
+          accounts, wallets, and release signals your application depends on—and
+          publish the coverage limits before monitoring begins.
         </p>
         <a href="https://x.com/ferno_ag" rel="noreferrer" target="_blank"
           >Join the private pilot ↗</a
