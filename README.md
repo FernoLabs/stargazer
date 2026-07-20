@@ -1,10 +1,10 @@
-# Stellar Watch
+# Stargazer
 
-Stellar Watch by Ferno is a Stellar security monitoring project for turning contract deployments,
-Wasm changes, upgrades, administrative activity, multisig changes, and DeFi runtime
-behavior into evidence-backed findings.
+Stargazer by Ferno is a Stellar protocol intelligence project for monitoring contract
+deployments, Wasm upgrades, governance, administrative activity, repositories, SDKs,
+packages, dependencies, wallets, and DeFi runtime behavior from one evidence-backed feed.
 
-> Every Stellar contract change, turned into a security signal.
+> Know when a Stellar dependency changes, why it matters, and what proves it.
 
 ## Current status
 
@@ -13,7 +13,7 @@ service.
 
 The active tree contains:
 
-- the deployable Stellar Watch product website;
+- the deployable Stargazer product website for future developers and protocol teams;
 - an unlisted, non-indexed SCF application working page;
 - Stellar archive, RPC, registry, multisig, and parser research;
 - provider-probing and ledger-fixture acquisition scripts;
@@ -21,7 +21,7 @@ The active tree contains:
 
 Only Stellar-facing product and research work belongs in this repository. Prior runtime
 implementations remain available through Git history but are not part of the active
-Stellar Watch codebase.
+Stargazer codebase.
 
 ## Architecture direction
 
