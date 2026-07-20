@@ -42,10 +42,17 @@
 			state: 'Ready locally'
 		},
 		{
+			id: 'predecessor',
+			artifact: 'Production predecessor evidence',
+			detail:
+				'The interest-form draft cites Firewatch usage by dozens of Solana developers and teams. Add stable product, usage, and notification evidence before relying on that traction claim.',
+			state: 'Required'
+		},
+		{
 			id: 'repository',
 			artifact: 'Reviewer repository',
 			detail:
-				'A writable Stellar Watch origin, reviewable history, green CI, security policy, and one-command setup must be public.',
+				'A writable Stargazer origin, reviewable history, green CI, security policy, and one-command setup must be public.',
 			state: 'Required'
 		},
 		{
@@ -105,11 +112,11 @@
 				},
 				{
 					id: 'D3',
-					title: 'Evidence delivery and hardening',
+					title: 'Evidence delivery and source feeds',
 					detail:
-						'Expose the same committed finding through the API and dashboard, deliver it once through Telegram, and build a deny-by-default Stellar control plane.',
+						'Expose the same committed finding through the API, dashboard, and Telegram; ingest selected repository, SDK, package, and governance release sources; and build a deny-by-default Stellar control plane.',
 					acceptance:
-						'API, UI, and alert evidence agree; missing or invalid origin and admin credentials fail closed in integration tests.',
+						'API, UI, and alert evidence agree; sample release events retain source links; missing or invalid origin and admin credentials fail closed in integration tests.',
 					allocation: '$10k'
 				}
 			]
@@ -131,20 +138,20 @@
 				},
 				{
 					id: 'D5',
-					title: 'Control-plane history',
+					title: 'Dependency and control history',
 					detail:
-						'Version classic account signers and thresholds plus supported contract governance and protocol role attribution.',
+						'Version classic account signers and thresholds, supported contract governance, protocol roles, and known contract, repository, SDK, and package dependencies.',
 					acceptance:
-						'Ten protocol families carry time-versioned role attribution with source and confidence; unsupported governance remains unknown.',
+						'The funded protocol set carries time-versioned role and dependency attribution with source and confidence; unsupported governance remains unknown.',
 					allocation: '$14k'
 				},
 				{
 					id: 'D6',
-					title: 'Protocol decoders and pilots',
+					title: 'Impact analysis and pilots',
 					detail:
-						'Run initial Blend, Reflector, and SDEX sequences and calibrate findings with protocol operators.',
+						'Run initial Blend, Reflector, and SDEX sequences, generate AI-assisted impact summaries grounded in retained evidence, and calibrate findings with developers and protocol operators.',
 					acceptance:
-						'Three pilot teams configure real contracts or accounts and participate in documented false-positive and actionability review.',
+						'Pilot teams configure real contracts or dependencies and participate in documented accuracy, false-positive, and actionability review.',
 					allocation: '$7k'
 				}
 			]
@@ -166,9 +173,9 @@
 				},
 				{
 					id: 'D8',
-					title: 'Public API and onboarding',
+					title: 'Developer subscriptions and onboarding',
 					detail:
-						'Publish versioned API documentation, a discoverable dashboard, and an assisted or self-service protocol onboarding path.',
+						'Publish versioned API documentation, a discoverable dashboard, and an assisted path for developers to subscribe to contracts, protocols, repositories, SDKs, and packages.',
 					acceptance:
 						'Five willing pilot or protocol teams are onboarded and Mainnet accounts, evidence URLs, and coverage are visible to reviewers.',
 					allocation: '$12k'
@@ -187,7 +194,7 @@
 	];
 
 	const submissionGates = [
-		'Obtain written SCF confirmation that Open Track is the correct route.',
+		'Obtain written SCF confirmation that Integration Track is the correct route for this monitoring and intelligence layer.',
 		'Publish the reviewer repository, architecture brief, reproducible POC, and short demo.',
 		'Complete five interviews, three permissioned quotes, and two pilot or LOI statements.',
 		'Name delivery owners and reconcile dates, days, rates, and costs to exactly $100,000.',
@@ -197,10 +204,10 @@
 </script>
 
 <svelte:head>
-	<title>Stellar Watch — SCF Build application working draft</title>
+	<title>Stargazer — SCF Build application working draft</title>
 	<meta
 		name="description"
-		content="Unlisted working draft of the Stellar Watch Stellar Community Fund Build application."
+		content="Unlisted working draft of the Stargazer Stellar Community Fund Build application."
 	/>
 	<meta name="robots" content="noindex, nofollow, noarchive" />
 	<meta name="googlebot" content="noindex, nofollow, noarchive" />
@@ -219,17 +226,17 @@
 			<a class="back-link" href={resolve('/')}>← Product homepage</a>
 			<div class="cover-grid">
 				<div>
-					<h1 id="application-title">Stellar Watch<br />SCF Build application</h1>
+					<h1 id="application-title">Stargazer<br />SCF Build application</h1>
 				</div>
 				<div class="cover-copy">
 					<p>
-						Working draft for a Stellar-specific post-deployment security monitor. This page is
+						Working draft for a Stellar developer monitoring and intelligence layer. This page is
 						unlisted and excluded from search indexing; it contains no private applicant data.
 					</p>
 					<dl>
 						<div><dt>Request</dt><dd>$100,000 worth of XLM</dd></div>
 						<div><dt>Duration</dt><dd>Six months</dd></div>
-						<div><dt>Track</dt><dd>Open — provisional</dd></div>
+						<div><dt>Track</dt><dd>Integration — provisional</dd></div>
 						<div><dt>Status</dt><dd>Not ready to submit</dd></div>
 					</dl>
 				</div>
@@ -245,21 +252,23 @@
 			</div>
 			<div class="narrative-grid">
 				<p class="lead">
-					Stellar protocols can be audited before deployment and still change afterward. Wasm
-					can be upgraded, administrative roles can rotate, signer thresholds can weaken, and
-					an authorized oracle update can still carry an unsafe price.
+					Stellar applications depend on contracts, protocol infrastructure, repositories,
+					SDKs, packages, and governance that evolve continuously. A breaking or unsafe change
+					can reach downstream developers before they understand what moved or why it matters.
 				</p>
 				<div>
 					<p>
-						Stellar Watch builds a replayable history of contract code, control surfaces, and
-						protocol activity, then delivers findings through an API, dashboard, and Telegram.
-						Each finding retains chain coordinates, raw evidence provenance, parser version,
-						applicable Wasm version, and confidence.
+						Stargazer correlates replayable contract and control history with trusted governance,
+						repository, SDK, and package signals. AI helps prioritize meaningful events and
+						summarize their possible dependency impact; findings are delivered through an API,
+						dashboard, and Telegram with source provenance, parser version, confidence, and
+						explicit limits.
 					</p>
 					<p>
-						The product complements audits, formal verification, explorers, and generic data
-						pipelines. Its wedge is deterministic post-deployment change-control evidence for
-						protocol security and operations teams.
+						The product complements audits, formal verification, explorers, and generic release
+						feeds. Its wedge is a single dependency-aware intelligence layer for Stellar
+						developers. The interest form cites Firewatch as production predecessor traction;
+						Stargazer itself remains in development and that traction needs reviewer-ready proof.
 					</p>
 				</div>
 			</div>

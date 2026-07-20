@@ -1,10 +1,10 @@
-# Stellar Watch — SCF $100k grant-readiness plan
+# Stargazer — SCF $100k grant-readiness plan
 
 Research and repository review snapshot: **2026-07-18**
 
 ## Decision
 
-Stellar Watch is **not ready for a full $100k SCF Build submission today**, but it has a credible research foundation and a deployed product website. The blocking issue is evidence: the repository does not yet run a Stellar indexer, has no end-to-end Stellar demo or usage, and does not document team capacity, customer validation, differentiation, or grant economics.
+Stargazer is **not ready for a full $100k SCF Build submission today**, but it has a credible research foundation and a deployed product website. The blocking issue is evidence: the repository does not yet run a Stellar indexer, has no end-to-end Stellar demo or usage, and does not document team capacity, customer validation, differentiation, or grant economics.
 
 The right immediate move is to **submit the SCF interest form now**, while building one narrow Stellar end-to-end proof and collecting protocol validation before the full application.
 
@@ -42,7 +42,7 @@ Official sources:
 
 | Area | Current evidence | Readiness |
 | --- | --- | --- |
-| Existing product | Stellar Watch has a deployed product website and unlisted application working page; the monitoring runtime is not implemented | Useful presentation, not product proof |
+| Existing product | Stargazer has a deployed product website and unlisted application working page; the monitoring runtime is not implemented | Useful presentation, not product proof |
 | Tests/build | Svelte checks and production build pass; CI validates the Stellar registry seed and ingestion shell scripts | Green but limited to current artifacts |
 | Stellar architecture | Detailed ingestion, replay, data-model, upgrade, registry, and multisig decisions exist | Strong design |
 | Stellar implementation | The README says it does not index Stellar; `ingester/` has no executable, fixture, or Go module | Blocking |
@@ -51,7 +51,7 @@ Official sources:
 | Team | No bios, roles, FTE allocation, relevant credentials, or availability are recorded | Blocking |
 | Differentiation | No application-ready comparison with already funded Stellar security and data products | Blocking |
 | Grant plan | No SCF-specific milestones, budget basis, KPIs, adoption plan, or sustainability case | Blocking |
-| Repository presentation | A Stellar Watch origin, Stellar-focused tree, CI, and Cloudflare deployment exist; reviewer access and a working POC remain pending | Improved |
+| Repository presentation | A Stargazer origin, Stellar-focused tree, CI, and Cloudflare deployment exist; reviewer access and a working POC remain pending | Improved |
 | Security hygiene | MIT license and CI exist; no inactive legacy runtime or runtime secrets are shipped in the active tree | Define the POC threat model before adding services |
 
 Key local evidence:
@@ -65,11 +65,11 @@ Key local evidence:
 
 ### One sentence
 
-> Stellar Watch is a Stellar mainnet security control-plane monitor that builds a replayable history of contract and Wasm deployments, upgrades, authorization changes, account signer/threshold changes, and protocol administration events, then turns those facts into evidence-backed API, dashboard, and Telegram alerts.
+> Stargazer monitors the contracts, protocol infrastructure, governance, repositories, SDKs, and packages Stellar developers depend on, then turns meaningful changes into evidence-grounded API, dashboard, and Telegram alerts.
 
 ### The wedge
 
-Stellar Watch should not be pitched as another explorer, generic indexer, audit tool, or AI vulnerability scanner. Its defensible wedge is **post-deployment operational security**:
+Stargazer should not be pitched as another explorer, generic indexer, audit tool, or AI vulnerability scanner. Its defensible wedge is **post-deployment operational security**:
 
 - independently confirm upgrades using both the `executable_update` system event and the contract-instance ledger diff;
 - retain immutable old/new Wasm, spec, and metadata history;
@@ -92,18 +92,19 @@ The application must explain why protocol teams still need deterministic change-
 
 ## Track decision
 
-**Provisional choice: Open Track, subject to written confirmation from SCF.**
+**Interest-form choice: Integration Track, subject to written confirmation from SCF.**
 
 Why:
 
-- Integration Track expects an approved ecosystem building block to be central to the funded scope; merely consuming Stellar RPC or Galexie is unlikely to qualify.
-- RFP Track only accepts work answering an active published RFP. The relevant prior RFPs for a Soroban-first explorer and specialized reverse engineering are currently marked closed, and the currently visible open RFPs do not match Stellar Watch.
-- Open Track is the plausible route if Stellar Watch is presented as a differentiated security product for protocol operators rather than general-purpose developer infrastructure.
+- The interest-form draft categorizes Stargazer as Developer Tooling and selects Integration Track because it integrates Stellar protocols, Soroban projects, SDKs, and governance sources into one developer-facing service.
+- Integration Track may still expect an approved ecosystem building block to be central to the funded scope; merely consuming Stellar RPC or Galexie is unlikely to qualify.
+- RFP Track only accepts work answering an active published RFP. The relevant prior RFPs for a Soroban-first explorer and specialized reverse engineering are currently marked closed, and the currently visible open RFPs do not match Stargazer.
+- Open Track may remain the fallback if SCF treats Stargazer as a differentiated end-user product rather than an integration with existing ecosystem building blocks.
 
-This classification is uncertain because the Open Track also directs developer tooling toward RFPs. Resolve it before investing in a full application.
+This classification remains uncertain. Resolve it before submitting the full application.
 
-- [ ] Submit the interest form with the product sentence above and provisional Open Track selection.
-- [ ] Ask SCF directly: “Should a post-deployment protocol security monitoring product apply through Open, or wait for a security/indexing RFP?”
+- [x] Prepare the interest form with Developer Tooling and provisional Integration Track selection.
+- [ ] Ask SCF directly: “Should a Stellar dependency-monitoring and protocol-intelligence product apply through Integration, Open, or wait for a security/indexing RFP?”
 - [ ] Join the Stellar Developer Discord, share the architecture and ask in the SCF channel.
 - [ ] Seek a referrer code from an ecosystem participant who has reviewed the project; do not solicit a blind referral.
 - [ ] If SCF says the project is RFP-only, do not force an Open application. Propose the gap through the quarterly RFP/ideas process and target the next round.
@@ -120,7 +121,7 @@ must establish its security boundary before any administrative surface is expose
 - [ ] Add negative integration tests for missing, malformed, and incorrect credentials.
 - [ ] Keep browser-side checks as UX and defense in depth, never as the authorization boundary.
 - [ ] Prevent historical replay from delivering live alerts.
-- [ ] Perform a focused authorization review before presenting Stellar Watch as a security product.
+- [ ] Perform a focused authorization review before presenting Stargazer as a security product.
 
 ### P0 — within 72 hours
 
@@ -129,7 +130,7 @@ must establish its security boundary before any administrative surface is expose
 - [ ] Confirm every participant is eligible under the official rules and can complete KYC/KYB.
 - [ ] Confirm there is no overlapping active SDF grant, Matching Fund/Enterprise Fund investment, or outstanding SCF tranche.
 - [ ] If applying solo, ask SCF to clarify the apparent handbook inconsistency between individual eligibility and language requiring two available team members.
-- [x] Create a writable Stellar Watch repository and `origin`.
+- [x] Create a writable Stargazer repository and `origin`.
 - [x] Commit the Stellar plans and publish the product website.
 - [ ] Name the project lead, backend/ingestion owner, product/frontend owner, and protocol-security/adoption owner. Record weekly availability for the grant period.
 - [ ] Create a private application data sheet with legal names, emails, locations, entity details, prior SDF funding, GitHub/LinkedIn profiles, and referrer details.
@@ -166,9 +167,9 @@ Minimum proof gate:
 
 ### P0 — application narrative
 
-- [ ] Define the primary user narrowly: protocol security/operations teams, not “everyone on Stellar.”
+- [ ] Define the primary user narrowly: developers maintaining production Stellar applications and protocol operations teams, not “everyone on Stellar.”
 - [ ] Write the problem with evidence from interviews and concrete failure modes.
-- [ ] Add a comparison table covering Bevor, Solarkraft, Cyvers, Obsrvr Flow, StellarExpert/Lab, and Stellar Watch.
+- [ ] Add a comparison table covering Bevor, Solarkraft, Cyvers, Obsrvr Flow, StellarExpert/Lab, and Stargazer.
 - [ ] Explain the complementary boundary: observable control-plane changes and evidence, not source-code audit, formal verification, generic data plumbing, or AML scoring.
 - [ ] Explain why Stellar is core: LedgerCloseMeta, Wasm/contract-instance history, system events, auth trees, and classic account signer/threshold state are the product's source of truth.
 - [ ] Separate completed prior monitoring and research work from future Stellar work requested from SCF.
@@ -256,7 +257,7 @@ Do not include an external audit fee in this budget; SCF directs eligible audit 
 
 ### Before submission
 
-- [x] Remove the inactive prior-chain runtime, routes, assets, dependencies, deployment configuration, and operational data from the active Stellar Watch tree.
+- [x] Remove the inactive prior-chain runtime, routes, assets, dependencies, deployment configuration, and operational data from the active Stargazer tree.
 - [ ] Add the Go module and Stellar fixture tests to CI when the first executable lands.
 - [ ] Add the facts/rules service checks to CI when that service is introduced.
 - [x] Run Svelte checks, a production build, and a dependency audit for the website.

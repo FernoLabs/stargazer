@@ -1,6 +1,6 @@
-# Stellar Watch web
+# Stargazer web
 
-SvelteKit website for Stellar Watch by Ferno.
+SvelteKit website for Stargazer by Ferno, a Stellar protocol monitoring and intelligence layer.
 
 The public product page is served at `/`. The grant working page is served at
 `/scf/application` with `noindex`, `nofollow`, and `noarchive` headers.
