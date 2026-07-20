@@ -13,21 +13,21 @@
 
 <svelte:head>
 	<link rel="icon" href="/brand/ferno-logo-white.png" />
-	<meta property="og:site_name" content="Stellar Watch by Ferno" />
+	<meta property="og:site_name" content="Stargazer by Ferno" />
 	<meta name="theme-color" content="#f4f5f2" />
 </svelte:head>
 
 <div class="watch-shell">
 	<header class="watch-masthead">
 		<div class="watch-masthead-inner">
-			<a class="watch-wordmark" href={resolve('/')} aria-label="Stellar Watch by Ferno home">
+			<a class="watch-wordmark" href={resolve('/')} aria-label="Stargazer by Ferno home">
 				<svg viewBox="0 0 36 24" aria-hidden="true">
 					<path d="M1 12h7l2.8-8 4.4 16 4.5-16 3.7 8H35" />
 				</svg>
-				<span><strong>STELLAR WATCH</strong><i>BY FERNO</i></span>
+				<span><strong>STARGAZER</strong><i>BY FERNO</i></span>
 			</a>
 
-			<nav class="watch-nav" aria-label="Stellar Watch">
+			<nav class="watch-nav" aria-label="Stargazer">
 				{#each navigation as item (item.href)}
 					<a href={resolve(item.href)}>{item.label}</a>
 				{/each}
@@ -46,10 +46,10 @@
 	<footer class="watch-footer">
 		<div class="watch-footer-inner">
 			<div>
-				<strong>Stellar Watch by Ferno</strong>
-				<p>Post-deployment monitoring for Stellar protocol changes and dependencies.</p>
+				<strong>Stargazer by Ferno</strong>
+				<p>Live intelligence for the protocols, contracts, SDKs, and releases Stellar applications depend on.</p>
 			</div>
-			<nav aria-label="Stellar Watch footer">
+			<nav aria-label="Stargazer footer">
 				{#each navigation as item (item.href)}
 					<a href={resolve(item.href)}>{item.label}</a>
 				{/each}
