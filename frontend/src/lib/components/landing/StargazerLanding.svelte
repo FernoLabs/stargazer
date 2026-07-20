@@ -181,7 +181,7 @@
     name="description"
     content="Stargazer by Ferno is building live protocol intelligence for Stellar developers: monitor contract, governance, repository, SDK, and dependency changes from one evidence-backed feed."
   />
-  <link rel="canonical" href="https://stellarwatch.ferno.ag/" />
+  <link rel="canonical" href="https://stargazer.ferno.ag/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link
     rel="preconnect"
@@ -201,7 +201,7 @@
     content="Know when a Stellar dependency changes, why it matters to your application, and which evidence supports the alert."
   />
   <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://stellarwatch.ferno.ag/" />
+  <meta property="og:url" content="https://stargazer.ferno.ag/" />
   <meta name="theme-color" content="#f4f5f2" />
   <meta name="twitter:card" content="summary" />
   <meta
