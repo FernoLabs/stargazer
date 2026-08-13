@@ -1,0 +1,16 @@
+[Unit]
+Description=Stargazer Stellar controller watcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/stargazer/governance
+ExecStart=/srv/stargazer/runtime/node-v22.23.1-linux-x64/bin/node /srv/stargazer/governance/watcher.mjs --output-dir /srv/stargazer/governance/state
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=default.target

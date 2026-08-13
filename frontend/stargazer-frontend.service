@@ -1,0 +1,16 @@
+[Unit]
+Description=Stargazer NAS demo frontend
+After=network-online.target stargazer-read-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/stargazer/web/frontend
+ExecStart=/srv/stargazer/runtime/node-v22.23.1-linux-x64/bin/node ./node_modules/vite/bin/vite.js dev --host 0.0.0.0 --port 5173
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+UMask=0022
+
+[Install]
+WantedBy=default.target

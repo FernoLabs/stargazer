@@ -1,0 +1,14 @@
+{
+  "captured_at": "2026-07-24",
+  "network": "pubnet",
+  "source_partition": "FC3645FF--63552000-63615999",
+  "first_ledger": 63615000,
+  "last_ledger": 63615999,
+  "ledger_files": 1000,
+  "compressed_bytes": 207908078,
+  "decoded_xdr_bytes": 2176103416,
+  "transactions": 404555,
+  "operations": 696491,
+  "direct_contract_calls": 188315,
+  "contract_touches": 794044
+}

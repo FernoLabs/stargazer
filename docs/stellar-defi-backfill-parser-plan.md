@@ -228,6 +228,7 @@ Decoder output must contain a `decoder_version`, recognized Wasm hash set, raw e
 
 ### P2 — YieldBlox detector
 
+- [x] Expose a bounded, read-only known-incident correlation in the wallet API. The POC verifies the seven checkpoint ledger times, the exact setup and USDC-drain transactions, and the principal borrower → affected pool plus pool/oracle edges before returning a finding. This is historical IOC correlation, not the generalized behavior detector below, and delivery remains disabled.
 - [ ] Implement SDEX thin-market price deviation/depth facts.
 - [ ] Implement Reflector feed updates and trailing/reference deviation.
 - [ ] Implement Blend reserve, collateral, borrow and pool-cash facts.

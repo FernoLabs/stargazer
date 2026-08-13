@@ -1,80 +1,107 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 
 	let { children } = $props();
+	let isProductApp = $derived(page.url.pathname === '/app' || page.url.pathname.startsWith('/app/'));
+	let isDocs = $derived(page.url.pathname === '/docs' || page.url.pathname.startsWith('/docs/'));
 
 	const navigation = [
-		{ href: '/#problem', label: 'Problem' },
-		{ href: '/#solution', label: 'Solution' },
-		{ href: '/#evidence', label: 'Evidence' },
+		{ href: '/#product', label: 'Product' },
+		{ href: '/#signals', label: 'How it works' },
+		{ href: '/docs', label: 'Documentation' },
 		{ href: '/#roadmap', label: 'Roadmap' }
 	] as const;
 </script>
 
 <svelte:head>
-	<link rel="icon" href="/brand/ferno-logo-white.png" />
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+	<link
+		href="https://fonts.googleapis.com/css2?family=Archivo+SemiCondensed:wght@500;600&family=Fragment+Mono&family=Source+Sans+3:wght@400;500;600&display=swap"
+		rel="stylesheet"
+	/>
 	<meta property="og:site_name" content="Stargazer by Ferno" />
-	<meta name="theme-color" content="#f4f5f2" />
+	<meta name="theme-color" content="#03040b" />
 </svelte:head>
 
-<div class="watch-shell">
-	<header class="watch-masthead">
-		<div class="watch-masthead-inner">
-			<a class="watch-wordmark" href={resolve('/')} aria-label="Stargazer by Ferno home">
-				<svg viewBox="0 0 36 24" aria-hidden="true">
-					<path d="M1 12h7l2.8-8 4.4 16 4.5-16 3.7 8H35" />
-				</svg>
-				<span><strong>STARGAZER</strong><i>BY FERNO</i></span>
-			</a>
+{#if isProductApp}
+	{@render children()}
+{:else}
+	<div class={['watch-shell', { 'docs-mode': isDocs }]}>
+		{#if !isDocs}
+			<header class="watch-masthead">
+			<div class="watch-masthead-inner">
+				<a class="watch-wordmark" href={resolve('/')} aria-label="Stargazer by Ferno home">
+					<svg viewBox="0 0 32 32" aria-hidden="true">
+						<path d="M16 1c0 8.7-4 13-13 14 9 1 13 5.3 13 14 0-8.7 4-13 13-14-9-1-13-5.3-13-14Z" />
+						<circle cx="25.5" cy="6.5" r="1.6" />
+					</svg>
+					<span><strong>STARGAZER</strong><i>BY FERNO</i></span>
+				</a>
 
-			<nav class="watch-nav" aria-label="Stargazer">
-				{#each navigation as item (item.href)}
-					<a href={resolve(item.href)}>{item.label}</a>
-				{/each}
-			</nav>
+				<nav class="watch-nav" aria-label="Stargazer">
+					{#each navigation as item (item.href)}
+						<a
+							href={resolve(item.href)}
+							aria-current={item.href === '/docs' && page.url.pathname.startsWith('/docs')
+								? 'page'
+								: undefined}
+						>
+							{item.label}
+						</a>
+					{/each}
+				</nav>
 
-			<a class="watch-contact" href="https://x.com/ferno_ag" rel="noreferrer" target="_blank">
-				Pilot enquiries ↗
-			</a>
-		</div>
-	</header>
-
-	<main class="watch-content">
-		{@render children()}
-	</main>
-
-	<footer class="watch-footer">
-		<div class="watch-footer-inner">
-			<div>
-				<strong>Stargazer by Ferno</strong>
-				<p>Live intelligence for the protocols, contracts, SDKs, and releases Stellar applications depend on.</p>
+				<a class="watch-contact" href={resolve('/app/alerts')}>Explore demo <span>→</span></a>
 			</div>
-			<nav aria-label="Stargazer footer">
-				{#each navigation as item (item.href)}
-					<a href={resolve(item.href)}>{item.label}</a>
-				{/each}
-				<a href="https://ferno.ag" rel="noreferrer" target="_blank">Ferno.ag ↗</a>
-			</nav>
-			<p class="watch-legal">
-				Independent research project. Stellar is a trademark of the Stellar Development
-				Foundation.
-			</p>
-		</div>
-	</footer>
-</div>
+			</header>
+		{/if}
+
+		{#if isDocs}
+			{@render children()}
+		{:else}
+			<main class="watch-content">
+				{@render children()}
+			</main>
+		{/if}
+
+		{#if !isDocs}
+			<footer class="watch-footer">
+			<div class="watch-footer-inner">
+				<div class="footer-brand">
+					<strong>STARGAZER</strong>
+					<p>Protocol intelligence for the infrastructure Stellar applications depend on.</p>
+				</div>
+				<nav aria-label="Stargazer footer">
+					{#each navigation as item (item.href)}
+						<a href={resolve(item.href)}>{item.label}</a>
+					{/each}
+					<a href={resolve('/app/alerts')}>Stellar demo</a>
+					<a href="https://ferno.ag" rel="noreferrer" target="_blank">Ferno.ag ↗</a>
+				</nav>
+				<p class="watch-legal">
+					Independent research project. Stellar is a trademark of the Stellar Development Foundation.
+				</p>
+			</div>
+			</footer>
+		{/if}
+	</div>
+{/if}
 
 <style>
 	:global(html),
 	:global(body) {
 		min-height: 100%;
+		scroll-behavior: smooth;
 	}
 
 	:global(body) {
 		margin: 0;
 		min-width: 320px;
 		min-height: 100dvh;
-		background: #f4f5f2;
-		color: #151418;
+		background: #03040b;
+		color: #e8ecf6;
 		font-family: 'Source Sans 3', sans-serif;
 		-webkit-font-smoothing: antialiased;
 		text-rendering: optimizeLegibility;
@@ -92,21 +119,41 @@
 		font-family: 'Fragment Mono', monospace;
 	}
 
+	@media (prefers-reduced-motion: reduce) {
+		:global(html) {
+			scroll-behavior: auto;
+		}
+	}
+
 	.watch-shell {
-		--watch-field: #f4f5f2;
-		--watch-ink: #151418;
-		--watch-rule: #d6d7d0;
-		--watch-violet: #6436e8;
+		--watch-field: #03040b;
+		--watch-deep: #000209;
+		--watch-surface: #080d1b;
+		--watch-ink: #e8ecf6;
+		--watch-muted: #99a3b8;
+		--watch-rule: #182440;
+		--watch-rule-strong: #2a3c68;
+		--watch-blue: #617fe8;
+		--watch-blue-soft: #a7c2ff;
 		display: flex;
 		flex-direction: column;
 		min-height: 100dvh;
-		background: var(--watch-field);
+		background:
+			radial-gradient(circle at 85% 8%, rgba(70, 98, 202, 0.13), transparent 24rem),
+			var(--watch-field);
 		color: var(--watch-ink);
 	}
 
+	.watch-shell.docs-mode {
+		background: #07090f;
+	}
+
 	.watch-masthead {
+		position: relative;
+		z-index: 10;
 		border-bottom: 1px solid var(--watch-rule);
-		background: var(--watch-field);
+		background: rgba(3, 4, 11, 0.94);
+		backdrop-filter: blur(14px);
 	}
 
 	.watch-masthead-inner,
@@ -132,35 +179,32 @@
 	}
 
 	.watch-wordmark svg {
-		width: 2.15rem;
-		height: 1.45rem;
-		fill: none;
-		stroke: var(--watch-violet);
-		stroke-linecap: square;
-		stroke-linejoin: miter;
-		stroke-width: 2;
+		width: 1.8rem;
+		height: 1.8rem;
+		fill: var(--watch-blue-soft);
+		filter: drop-shadow(0 0 0.45rem rgba(97, 127, 232, 0.55));
 	}
 
 	.watch-wordmark span {
 		display: inline-flex;
-		align-items: center;
-		gap: 0.45rem;
+		align-items: baseline;
+		gap: 0.55rem;
 		font-size: 0.9rem;
-		letter-spacing: 0.035em;
+		letter-spacing: 0.14em;
 	}
 
 	.watch-wordmark i {
-		color: var(--watch-violet);
-		font-size: 0.62rem;
+		color: var(--watch-blue-soft);
+		font-size: 0.58rem;
 		font-style: normal;
 		font-weight: 600;
-		letter-spacing: 0.08em;
+		letter-spacing: 0.1em;
 	}
 
 	.watch-nav {
 		display: flex;
 		justify-content: center;
-		gap: 1.5rem;
+		gap: 1.65rem;
 	}
 
 	.watch-nav a,
@@ -171,16 +215,30 @@
 		text-decoration: none;
 	}
 
+	.watch-nav a {
+		color: var(--watch-muted);
+	}
+
 	.watch-nav a:hover,
-	.watch-contact:hover,
 	.watch-footer a:hover {
-		color: var(--watch-violet);
-		text-decoration: underline;
-		text-underline-offset: 0.2em;
+		color: var(--watch-blue-soft);
+	}
+
+	.watch-nav a[aria-current='page'] {
+		color: var(--watch-blue-soft);
 	}
 
 	.watch-contact {
+		display: inline-flex;
 		justify-self: end;
+		gap: 1.15rem;
+		padding: 0.65rem 0.8rem;
+		border: 1px solid var(--watch-rule-strong);
+	}
+
+	.watch-contact:hover {
+		border-color: var(--watch-blue-soft);
+		color: var(--watch-blue-soft);
 	}
 
 	.watch-content {
@@ -188,9 +246,9 @@
 	}
 
 	.watch-footer {
-		padding: 2.5rem 0;
+		padding: 3rem 0;
 		border-top: 1px solid var(--watch-rule);
-		background: #fff;
+		background: var(--watch-deep);
 	}
 
 	.watch-footer-inner {
@@ -200,15 +258,15 @@
 		align-items: start;
 	}
 
-	.watch-footer strong {
-		font-family: 'Archivo SemiCondensed', sans-serif;
-		font-size: 1rem;
+	.footer-brand strong {
+		font: 600 0.95rem/1.3 'Archivo SemiCondensed', sans-serif;
+		letter-spacing: 0.14em;
 	}
 
 	.watch-footer p {
-		margin: 0.35rem 0 0;
 		max-width: 34rem;
-		color: #67636c;
+		margin: 0.5rem 0 0;
+		color: var(--watch-muted);
 		font-size: 0.8rem;
 		line-height: 1.5;
 	}
@@ -262,8 +320,12 @@
 			font-size: 0.78rem;
 		}
 
+		.watch-wordmark i {
+			display: none;
+		}
+
 		.watch-nav {
-			gap: 1rem;
+			gap: 1.1rem;
 			overflow-x: auto;
 			white-space: nowrap;
 			scrollbar-width: none;

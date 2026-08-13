@@ -4,6 +4,9 @@ frontend/.svelte-kit/
 frontend/.wrangler/
 frontend/node_modules/
 frontend/data/
+target/
+**/.wrangler/
+output/
 .DS_Store
 *.db
 *.db-shm

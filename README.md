@@ -8,16 +8,17 @@ packages, dependencies, wallets, and DeFi runtime behavior from one evidence-bac
 
 ## Current status
 
-This repository is pre-POC. It does not yet run a Stellar indexer or production alerting
-service.
+This repository contains a working archive-index and wallet-monitoring POC. It is not yet a
+production alerting service.
 
 The active tree contains:
 
-- the deployable Stargazer product website for future developers and protocol teams;
+- the deployable Stargazer product website and real-data wallet dashboard;
 - an unlisted, non-indexed SCF application working page;
-- Stellar archive, RPC, registry, multisig, and parser research;
-- provider-probing and ledger-fixture acquisition scripts;
-- a source-attributed Stellar Mainnet DeFi registry seed.
+- a bounded-memory Rust archive reader, compact SQLite reverse index, and read-only API;
+- a separate Telegram pairing and alert-policy control plane with fail-closed billing;
+- Stellar RPC, registry, multisig, parser, and incident research;
+- a source-attributed Stellar Mainnet DeFi registry seed and governance watcher.
 
 Only Stellar-facing product and research work belongs in this repository. Prior runtime
 implementations remain available through Git history but are not part of the active
@@ -29,16 +30,19 @@ Stargazer codebase.
 Stellar RPC / Captive Core / Galexie
                   |
                   v
-      Go Stellar ingestion service
+       Archive / live acquisition
                   |
                   v
       Versioned ledger fact envelope
                   |
                   v
-       Facts, rules, storage, and API
+      Facts, rules, compact index
           |                 |
           v                 v
-      Dashboard       Alert delivery
+    Read-only API      Alert control DB
+          |                 |
+          v                 v
+      Dashboard        Telegram bot
 ```
 
 The official Stellar Ingest SDK provides the common `LedgerCloseMeta` model for live
@@ -49,7 +53,7 @@ delivery remain separate trust boundaries.
 
 ```text
 frontend/       SvelteKit product site and SCF working page
-ingester/       Stellar ingestion boundary, provider probes, and registry seed
+ingester/       Archive indexer, read API, alert control, provider probes, and registry seed
 docs/           Architecture, provider, protocol, parser, and grant research
 ```
 
@@ -63,9 +67,9 @@ docs/           Architecture, provider, protocol, parser, and grant research
 6. [SCF grant-readiness plan](docs/stellar-scf-grant-readiness.md)
 7. [SCF Build application draft](docs/stellar-scf-application-draft.md)
 
-## First vertical slice
+## Current vertical slice
 
-The first implementation milestone is deliberately narrow:
+The implemented POC slice is deliberately narrow:
 
 1. ingest a captured Mainnet ledger range;
 2. discover contract creation and Wasm uploads;
@@ -74,8 +78,9 @@ The first implementation milestone is deliberately narrow:
 5. expose one evidence-backed upgrade finding;
 6. replay the same range and prove idempotency.
 
-Only after this path works should the project begin complete smart-contract history
-replay.
+The wallet product now builds exact wallet-to-contract coverage and retrospective incident
+findings from this foundation. Telegram account pairing and policy persistence are separate from
+the archive databases; a live event dispatcher and paid settlement rail remain future work.
 
 ## Website development
 

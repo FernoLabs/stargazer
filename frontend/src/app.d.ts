@@ -6,7 +6,13 @@ declare global {
 		// interface Locals {}
 		// interface PageData {}
 		// interface PageState {}
-		// interface Platform {}
+		interface Platform {
+			env: {
+				STARGAZER_NAS_GATEWAY?: {
+					fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+				};
+			};
+		}
 	}
 }
 
