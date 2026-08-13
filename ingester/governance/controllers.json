@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "network": "public",
+  "observedAt": "2026-07-27T19:31:33Z",
+  "observationLedger": 63676623,
+  "controllers": [
+    {
+      "accountId": "GAV5FBMKD2ZF4X2MGWDNQYUP7KFL7MRM6HZBY7HKQLB4BRHSCCX5J6VS",
+      "protocol": "Aquarius",
+      "role": "root-admin",
+      "expectedClassification": "strict",
+      "sources": [
+        "https://docs.aqua.network/developers/code-examples/prerequisites-and-basics",
+        "https://docs.aqua.network/developers/aquarius-soroban-functions",
+        "https://horizon.stellar.org/accounts/GAV5FBMKD2ZF4X2MGWDNQYUP7KFL7MRM6HZBY7HKQLB4BRHSCCX5J6VS"
+      ]
+    },
+    {
+      "accountId": "GCNPDMUMRXBFHMM7KSXU3KVYNM73EDHBFMDK4O33HPY7DA2LXZOZQRDB",
+      "protocol": "Phoenix",
+      "role": "protocol-admin",
+      "expectedClassification": "weighted",
+      "sources": [
+        "https://github.com/Phoenix-Protocol-Group/phoenix-contracts/blob/aa9bfc000166e3ccdc30281b5181bbd8046fd35d/scripts/upgrade_mainnet.sh",
+        "https://horizon.stellar.org/accounts/GCNPDMUMRXBFHMM7KSXU3KVYNM73EDHBFMDK4O33HPY7DA2LXZOZQRDB"
+      ]
+    },
+    {
+      "accountId": "GCJ2RDQLOVNOYBD2LELEGEVIDZ3LRLPHGANVOFJZXTUQHKHVZX2LMRFB",
+      "protocol": "Reflector",
+      "role": "crypto-usd-oracle-admin",
+      "expectedClassification": "strict",
+      "sources": [
+        "https://orchestrator.reflector.network/config",
+        "https://horizon.stellar.org/accounts/GCJ2RDQLOVNOYBD2LELEGEVIDZ3LRLPHGANVOFJZXTUQHKHVZX2LMRFB"
+      ]
+    },
+    {
+      "accountId": "GC2M2UTZ57GSENZBTPMLPB6QSAL2USIPHMXSUCT2I3V24GYWF3EI6RFA",
+      "protocol": "Reflector",
+      "role": "stellar-assets-oracle-admin",
+      "expectedClassification": "strict",
+      "sources": [
+        "https://orchestrator.reflector.network/config",
+        "https://horizon.stellar.org/accounts/GC2M2UTZ57GSENZBTPMLPB6QSAL2USIPHMXSUCT2I3V24GYWF3EI6RFA"
+      ]
+    },
+    {
+      "accountId": "GCSJ7NZKNRP2NXUOOPHGNNPGOEMUKGUNPLQ4NOW2B2L4X7WEO6NQFXRF",
+      "protocol": "Reflector",
+      "role": "forex-oracle-admin",
+      "expectedClassification": "strict",
+      "sources": [
+        "https://orchestrator.reflector.network/config",
+        "https://horizon.stellar.org/accounts/GCSJ7NZKNRP2NXUOOPHGNNPGOEMUKGUNPLQ4NOW2B2L4X7WEO6NQFXRF"
+      ]
+    },
+    {
+      "accountId": "GBSLWQGVZTCACYLAHN4QIZWI4H7JNCW43PAQKBBMRZGF46AMU7EARFSS",
+      "protocol": "Reflector",
+      "role": "subscriptions-admin",
+      "expectedClassification": "strict",
+      "sources": [
+        "https://orchestrator.reflector.network/config",
+        "https://horizon.stellar.org/accounts/GBSLWQGVZTCACYLAHN4QIZWI4H7JNCW43PAQKBBMRZGF46AMU7EARFSS"
+      ]
+    },
+    {
+      "accountId": "GDSRHC7U5XWNGHDML6SBU7HXLH67ILO7PCCCFMN55PPBYYCZEAU4FXRF",
+      "protocol": "Reflector",
+      "role": "dao-admin",
+      "expectedClassification": "strict",
+      "sources": [
+        "https://orchestrator.reflector.network/config",
+        "https://reflector.network/dao/blueprint",
+        "https://horizon.stellar.org/accounts/GDSRHC7U5XWNGHDML6SBU7HXLH67ILO7PCCCFMN55PPBYYCZEAU4FXRF"
+      ]
+    },
+    {
+      "accountId": "GBCAS7XIGDRZY4BMABJMGGW7J3YTITRRV5BTEMFQE5ZZSSVWHHX2ZSS4",
+      "protocol": "YieldBlox",
+      "role": "governor-council",
+      "expectedClassification": "strict",
+      "sources": [
+        "https://mainnet.governance.script3.io/CANSYFVMIP7JVYEZQ463Y2I2VLEVNLDJJ4QNZTDBGLOOGKURPTW4A6FQ/proposals/",
+        "https://github.com/script3/soroban-governor/blob/a2ac6de81055be5bd13e31f922c9546309bfdb8a/docs/architecture.md",
+        "https://horizon.stellar.org/accounts/GBCAS7XIGDRZY4BMABJMGGW7J3YTITRRV5BTEMFQE5ZZSSVWHHX2ZSS4"
+      ]
+    }
+  ]
+}

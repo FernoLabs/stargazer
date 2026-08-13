@@ -1,0 +1,70 @@
+{
+  "network": "Public Global Stellar Network ; September 2015",
+  "source_partitions": [
+    "FC3933FF--63360000-63423999",
+    "FC354BFF--63616000-63679999"
+  ],
+  "selection": "large compressed ledgers, a consecutive hash-chain pair, and a canonical executable upgrade",
+  "fixtures": [
+    {
+      "file": "FC3857A7--63416408.xdr.zst",
+      "sequence": 63416408,
+      "compressed_sha256": "2bfadc2ca58ef082f56f9a71b46987e92c8c74efbd201aed29a04e7a38ef50cf",
+      "compressed_bytes": 220530,
+      "xdr_bytes": 2360780,
+      "transactions": 366,
+      "operations": 770,
+      "direct_contract_calls": 207,
+      "contract_touches": 854,
+      "reason": "canonical contract executable upgrade with old and new Wasm hashes in ledger changes"
+    },
+    {
+      "file": "FC354A1E--63616481.xdr.zst",
+      "sequence": 63616481,
+      "compressed_sha256": "31e90dbc535b168652401c3a0a5a2d135bb0e1b32d6f246c687a3894acf82945",
+      "compressed_bytes": 382906,
+      "xdr_bytes": 3255968,
+      "transactions": 926,
+      "operations": 1105,
+      "direct_contract_calls": 197,
+      "contract_touches": 1464,
+      "reason": "third-largest compressed ledger in initial scan"
+    },
+    {
+      "file": "FC352E49--63623606.xdr.zst",
+      "sequence": 63623606,
+      "compressed_sha256": "534dff72d9756242c64354b1615f31334a9389cce4f66d5401df30662e8b1cc4",
+      "compressed_bytes": 394048,
+      "xdr_bytes": 3362232,
+      "transactions": 998,
+      "operations": 1164,
+      "direct_contract_calls": 211,
+      "contract_touches": 1576,
+      "reason": "largest compressed and highest-transaction fixture"
+    },
+    {
+      "file": "FC352CF3--63623948.xdr.zst",
+      "sequence": 63623948,
+      "compressed_sha256": "821dcc38143685c9c63e6d46e39834d3d8b853e9de330770abe4ebfd4997b989",
+      "compressed_bytes": 375768,
+      "xdr_bytes": 3490880,
+      "transactions": 899,
+      "operations": 1086,
+      "direct_contract_calls": 199,
+      "contract_touches": 1440,
+      "reason": "predecessor used for hash-chain verification"
+    },
+    {
+      "file": "FC352CF2--63623949.xdr.zst",
+      "sequence": 63623949,
+      "compressed_sha256": "fe358bed51adc46872632a198c345b61a196869d0d53a339f8e433f8d49e204b",
+      "compressed_bytes": 392811,
+      "xdr_bytes": 3398704,
+      "transactions": 940,
+      "operations": 1026,
+      "direct_contract_calls": 171,
+      "contract_touches": 1523,
+      "reason": "second-largest compressed ledger and hash-chain successor"
+    }
+  ]
+}

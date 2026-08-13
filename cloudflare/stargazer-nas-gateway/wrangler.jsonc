@@ -1,0 +1,19 @@
+{
+	"$schema": "../../frontend/node_modules/wrangler/config-schema.json",
+	"name": "stargazer-nas-gateway",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-08-01",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": false,
+	"preview_urls": false,
+	"observability": {
+		"enabled": true,
+		"head_sampling_rate": 1
+	},
+	"vpc_networks": [
+		{
+			"binding": "STARGAZER_NAS",
+			"tunnel_id": "0759f2df-729a-4d8c-a2eb-54bd5d16dac7"
+		}
+	]
+}

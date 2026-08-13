@@ -1,1725 +1,1240 @@
 <script lang="ts">
-  type Capability = {
-    id: string;
-    title: string;
-    body: string;
-  };
+	import { resolve } from '$app/paths';
 
-  type Outcome = {
-    id: string;
-    title: string;
-    body: string;
-  };
+	type Signal = {
+		index: string;
+		title: string;
+		body: string;
+	};
 
-  type PipelineStep = {
-    id: string;
-    label: string;
-    detail: string;
-  };
+	const signals: readonly Signal[] = [
+		{
+			index: '01',
+			title: 'Protocol changes',
+			body: 'Soroban contract upgrades, new deployments, governance actions, and control changes.'
+		},
+		{
+			index: '02',
+			title: 'Developer dependencies',
+			body: 'Repository activity, SDK releases, packages, and infrastructure your application builds on.'
+		},
+		{
+			index: '03',
+			title: 'Application impact',
+			body: 'A versioned map connects each meaningful event to the protocols, contracts, and wallets you use.'
+		},
+		{
+			index: '04',
+			title: 'Evidence-backed alerts',
+			body: 'Concise, AI-assisted analysis explains what changed, why it matters, and where to verify it.'
+		}
+	];
 
-  type RoadmapPhase = {
-    id: string;
-    phase: string;
-    window: string;
-    status: "Building" | "Planned";
-    body: string;
-    outcome: string;
-  };
+	const workflow = [
+		{
+			index: '01',
+			verb: 'Observe',
+			text: 'Trusted ledger, governance, repository, SDK, package, and release sources.'
+		},
+		{
+			index: '02',
+			verb: 'Correlate',
+			text: 'Events joined to a versioned protocol and application dependency map.'
+		},
+		{
+			index: '03',
+			verb: 'Assess',
+			text: 'Deterministic rules and evidence-grounded AI identify material changes.'
+		},
+		{
+			index: '04',
+			verb: 'Deliver',
+			text: 'Actionable intelligence through the dashboard, API, and notification channels.'
+		}
+	] as const;
 
-  const outcomes: Outcome[] = [
-    {
-      id: "detect-sooner",
-      title: "Catch meaningful change",
-      body: "Follow contract upgrades, deployments, governance, repositories, SDKs, and package releases without watching every source by hand.",
-    },
-    {
-      id: "affected-surface",
-      title: "See what it touches",
-      body: "Connect a change to the contracts, control accounts, oracles, pools, wallets, libraries, and value flows your application depends on.",
-    },
-    {
-      id: "verify",
-      title: "Act with evidence",
-      body: "Receive a concise impact summary linked to the transaction, release, repository change, before-and-after state, and known coverage limits.",
-    },
-  ];
+	const demoProof = [
+		'Wallet-to-contract relationships reconstructed from indexed Stellar data',
+		'Known protocols attributed without hiding unknown on-chain contracts',
+		'Exact executable changes with ledger and transaction evidence',
+		'Historical incidents connected to exposed wallets and protocol surfaces'
+	] as const;
 
-  const capabilities: Capability[] = [
-    {
-      id: "belongs",
-      title: "What belongs to the protocol?",
-      body: "A source-backed map of known contracts, pools, vaults, oracles, control accounts, signers, treasuries, and upstream dependencies.",
-    },
-    {
-      id: "changed",
-      title: "What changed?",
-      body: "Confirmed code, authority, configuration, contract-call, and token-movement changes, joined with governance, repository, SDK, and package signals.",
-    },
-    {
-      id: "affected",
-      title: "Why does it matter to me?",
-      body: "The changed component is traced to known downstream dependencies and value flows, then summarized so a developer can see where to investigate next.",
-    },
-    {
-      id: "proof",
-      title: "What proves it?",
-      body: "Ledger coordinates, before-and-after state, raw evidence provenance, parser version, applicable Wasm version, and explicit coverage limits.",
-    },
-  ];
+	const grantScope = [
+		'Continuous Soroban deployment, upgrade, and protocol-control monitoring',
+		'Repository, governance, SDK, package, and release signals',
+		'AI-assisted dependency impact analysis and concise summaries',
+		'Subscribable real-time delivery through Telegram, API, and dashboard'
+	] as const;
 
-  const pipeline: PipelineStep[] = [
-    {
-      id: "acquire",
-      label: "Acquire",
-      detail: "Stellar ledgers, repositories, governance, SDKs, and releases",
-    },
-    {
-      id: "verify",
-      label: "Verify",
-      detail: "Network, sequence, hash, and ledger continuity",
-    },
-    {
-      id: "normalize",
-      label: "Normalize",
-      detail: "Contracts, Wasm, auth, accounts, events, and token flows",
-    },
-    {
-      id: "attribute",
-      label: "Attribute",
-      detail: "Time-versioned protocol roles with source and confidence",
-    },
-    {
-      id: "detect",
-      label: "Interpret",
-      detail: "Deterministic rules plus evidence-grounded AI impact analysis",
-    },
-    {
-      id: "deliver",
-      label: "Deliver",
-      detail: "Evidence through API, dashboard, and alerts",
-    },
-  ];
+	const roadmap = [
+		{
+			phase: '01',
+			title: 'Map the ecosystem',
+			body: 'Onboard key Stellar protocols, Soroban contracts, developer tooling, controllers, and trusted sources.'
+		},
+		{
+			phase: '02',
+			title: 'Monitor continuously',
+			body: 'Tail on-chain changes and connect them with governance, repositories, SDKs, packages, and releases.'
+		},
+		{
+			phase: '03',
+			title: 'Explain the impact',
+			body: 'Correlate changes with application dependencies and produce concise, evidence-grounded analysis.'
+		},
+		{
+			phase: '04',
+			title: 'Deliver the signal',
+			body: 'Let teams subscribe to the dependencies they use and receive timely dashboard, API, and Telegram alerts.'
+		}
+	] as const;
 
-  const roadmap: RoadmapPhase[] = [
-    {
-      id: "proof",
-      phase: "First release",
-      window: "Verified contract changes",
-      status: "Building",
-      body: "Code and Wasm history, trusted protocol sources, evidence-backed upgrade findings, and delivery through API, dashboard, and Telegram.",
-      outcome:
-        "Know exactly what changed and verify it directly from the ledger.",
-    },
-    {
-      id: "context",
-      phase: "Broader coverage",
-      window: "Dependency intelligence",
-      status: "Planned",
-      body: "Historical backfill, signer and control history, governance and release feeds, mapped SDK and protocol dependencies, AI-assisted impact summaries, wallet rules, and first protocol decoders.",
-      outcome:
-        "Monitor the system around a protocol instead of maintaining separate address lists.",
-    },
-    {
-      id: "launch",
-      phase: "Operational service",
-      window: "Live Mainnet monitoring",
-      status: "Planned",
-      body: "Protocol onboarding, reconciled backfill and live tail, source failover, recovery testing, and visible coverage and data-quality reporting.",
-      outcome: "Rely on a measured monitoring and recovery path.",
-    },
-  ];
-
-  const faq = [
-    {
-      id: "live",
-      question: "Is Stargazer live on Stellar today?",
-      answer:
-        "No. The first product release—verified contract-change monitoring—is in development. Historical replay, repository and SDK monitoring, AI-assisted impact analysis, live alert delivery, and broader dependency coverage are not production services yet.",
-    },
-    {
-      id: "protocol-wide",
-      question: "What does protocol-wide monitoring include?",
-      answer:
-        "Stargazer is designed to follow the mapped contracts, pools, vaults, oracles, admin and treasury accounts, signers, and token flows a protocol relies on. Every relationship keeps a source and confidence level; unknown or unsupported dependencies remain visible as coverage gaps.",
-    },
-    {
-      id: "wallets",
-      question: "Can Stargazer monitor a wallet live?",
-      answer:
-        "That is a planned pilot capability. A public Stellar account or contract address can be watched for confirmed transfers, material balance movements, signer-policy changes, and new protocol interactions. Stargazer cannot protect private keys or determine the off-chain cause of an authorized transaction.",
-    },
-    {
-      id: "audit",
-      question: "Does it replace an audit or formal verification?",
-      answer:
-        "No. Audits evaluate code and assumptions at a point in time. Stargazer is intended to preserve and alert on observable post-deployment changes and runtime evidence.",
-    },
-    {
-      id: "ai",
-      question: "What does AI do in Stargazer?",
-      answer:
-        "AI is planned for correlation, prioritization, and concise impact summaries. It does not replace ledger verification or invent certainty: every alert keeps its source evidence, parser version, confidence, and coverage limits so a developer can verify the conclusion.",
-    },
-    {
-      id: "admins",
-      question: "Can every contract administrator be identified automatically?",
-      answer:
-        "For supported XDR, ledger-visible changes and available authorization context can be recorded. Parser gaps and arbitrary contract-account governance limit stronger claims, which require verified source or a versioned decoder.",
-    },
-    {
-      id: "registry",
-      question: "Which protocols will Stargazer cover?",
-      answer:
-        "The first planned protocol-specific decoders cover Blend, Reflector, and SDEX activity. Generic contract, account, and transfer monitoring can extend further, while deeper dependency coverage will be published with sources and explicit limits.",
-    },
-  ] as const;
+	const yieldBloxWallet = 'GBO7VUL2TOKPWFAWKATIW7K3QYA7WQ63VDY5CAE6AFUUX6BHZBOC2WXC';
 </script>
 
 <svelte:head>
-  <title>Stargazer — Stellar protocol intelligence for developers</title>
-  <meta
-    name="description"
-    content="Stargazer by Ferno is building live protocol intelligence for Stellar developers: monitor contract, governance, repository, SDK, and dependency changes from one evidence-backed feed."
-  />
-  <link rel="canonical" href="https://stargazer.ferno.ag/" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link
-    rel="preconnect"
-    href="https://fonts.gstatic.com"
-    crossorigin="anonymous"
-  />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Archivo+SemiCondensed:wght@500;600&family=Fragment+Mono&family=Source+Sans+3:wght@400;500;600&display=swap"
-    rel="stylesheet"
-  />
-  <meta
-    property="og:title"
-    content="Stargazer — Stellar protocol intelligence for developers"
-  />
-  <meta
-    property="og:description"
-    content="Know when a Stellar dependency changes, why it matters to your application, and which evidence supports the alert."
-  />
-  <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://stargazer.ferno.ag/" />
-  <meta name="theme-color" content="#f4f5f2" />
-  <meta name="twitter:card" content="summary" />
-  <meta
-    name="twitter:title"
-    content="Stargazer — Stellar protocol intelligence for developers"
-  />
-  <meta
-    name="twitter:description"
-    content="Monitor the contracts, governance, repositories, SDKs, wallets, and protocols your Stellar application depends on."
-  />
+	<title>Stargazer · Live protocol intelligence for Stellar developers</title>
+	<meta
+		name="description"
+		content="Stargazer connects Stellar and Soroban protocol changes to the applications that depend on them, then delivers concise, evidence-backed intelligence."
+	/>
+	<meta property="og:title" content="Stargazer · Protocol intelligence for Stellar" />
+	<meta
+		property="og:description"
+		content="See what changed across Stellar protocols and know what it affects."
+	/>
 </svelte:head>
 
-<div class="landing-page">
-  <section class="signal-cover" aria-labelledby="hero-title">
-    <div class="atlas-width">
-      <div class="cover-grid">
-        <div class="cover-title">
-          <p class="cover-kicker">
-            Live protocol intelligence for Stellar developers and operators
-          </p>
-          <h1 id="hero-title">Know what changed before it breaks your app.</h1>
-        </div>
-        <div class="cover-copy">
-          <p>
-            Your application depends on contracts, protocol infrastructure,
-            repositories, SDKs, governance, and packages that keep changing.
-            Stargazer monitors those sources, connects meaningful changes to
-            your dependency map, and sends a concise, evidence-linked impact alert.
-          </p>
-          <div class="cover-actions">
-            <a class="primary-link" href="#solution">How Stargazer works</a>
-            <a href="https://x.com/ferno_ag" rel="noreferrer" target="_blank"
-              >Join the pilot ↗</a
-            >
-          </div>
-          <p class="poc-note">
-            Private pilot in development. Verified contract-change monitoring
-            comes first; repository and SDK signals, dependency mapping,
-            AI-assisted impact analysis, live Mainnet alerts, and wallet
-            monitoring are planned—not production services today.
-          </p>
-        </div>
-      </div>
+<section class="hero" aria-labelledby="hero-title">
+	<div class="hero-copy">
+		<p class="kicker"><span aria-hidden="true"></span> Protocol intelligence for Stellar</p>
+		<h1 id="hero-title">See what changed.<br /><em>Know what it affects.</em></h1>
+		<p class="hero-lede">
+			Stargazer is building the live intelligence layer for Stellar developers. It follows the
+			contracts, protocols, governance, repositories, SDKs, and releases behind an application—and
+			turns meaningful changes into concise, actionable alerts.
+		</p>
 
-      <ol class="outcome-ledger" aria-label="Stargazer developer outcomes">
-        {#each outcomes as outcome, index (outcome.id)}
-          <li>
-            <span>{String(index + 1).padStart(2, "0")}</span>
-            <h2>{outcome.title}</h2>
-            <p>{outcome.body}</p>
-          </li>
-        {/each}
-      </ol>
+		<div class="hero-actions">
+			<a class="action action-primary" href={resolve('/app/alerts')}>
+				Explore the Stellar demo <span aria-hidden="true">→</span>
+			</a>
+			<a class="action action-secondary" href={resolve('/app/protocols')}>
+				See monitored protocols
+			</a>
+		</div>
 
-      <figure class="ledger-map">
-        <svg
-          viewBox="0 0 1440 310"
-          preserveAspectRatio="none"
-          aria-hidden="true"
-        >
-          <g class="map-grid">
-            <path
-              d="M0 52H1440 M0 104H1440 M0 156H1440 M0 208H1440 M0 260H1440"
-            />
-            <path
-              d="M120 0V310 M360 0V310 M600 0V310 M840 0V310 M1080 0V310 M1320 0V310"
-            />
-          </g>
-          <path
-            class="signal-line"
-            d="M0 178H118L140 178L158 88L177 250L196 178H408L430 178L448 126L466 211L486 178H734L754 178L775 46L799 278L822 178H1068L1087 178L1104 112L1121 224L1142 178H1440"
-          />
-          <g class="signal-points">
-            <circle cx="158" cy="88" r="5" />
-            <circle cx="448" cy="126" r="5" />
-            <circle cx="775" cy="46" r="5" />
-            <circle cx="1104" cy="112" r="5" />
-          </g>
-        </svg>
-        <ol class="map-annotations">
-          <li>
-            <span>01</span><strong>Contracts</strong>
-            <p>Code, interfaces, pools, and vaults</p>
-          </li>
-          <li>
-            <span>02</span><strong>Control plane</strong>
-            <p>Admins, guardians, signers, and thresholds</p>
-          </li>
-          <li>
-            <span>03</span><strong>Wallets and value</strong>
-            <p>Treasuries, transfers, and balance-impact moves</p>
-          </li>
-          <li>
-            <span>04</span><strong>Dependencies</strong>
-            <p>Oracles, tokens, contracts, SDKs, and packages</p>
-          </li>
-        </ol>
-        <figcaption>
-          <span>One monitored protocol surface</span>
-          <span
-            >Mapped system → confirmed change → affected surface →
-            evidence-backed alert</span
-          >
-        </figcaption>
-      </figure>
-    </div>
-  </section>
+		<div class="availability" aria-label="Current product status">
+			<div>
+				<strong>Available today</strong>
+				<span>Archive-backed Stellar evidence and real indexed events</span>
+			</div>
+			<div>
+				<strong>In development</strong>
+				<span>Continuous multi-source monitoring and real-time delivery</span>
+			</div>
+		</div>
+	</div>
 
-  <section
-    id="problem"
-    class="atlas-section problem-chapter"
-    aria-labelledby="problem-title"
-  >
-    <div class="atlas-width">
-      <div class="chapter-grid">
-        <div class="chapter-title">
-          <span aria-hidden="true">01</span>
-          <h2 id="problem-title">
-            Your dependency graph never stops changing.
-          </h2>
-        </div>
-        <div class="chapter-copy">
-          <p class="lead-copy">
-            A contract can upgrade, an SDK can ship a breaking release, a
-            governance proposal can change control, or an oracle dependency can
-            create downstream exposure. Developers discover these events across
-            different channels, often only after their application is affected.
-          </p>
-          <p>
-            The signals exist across contract state, classic accounts, Soroban
-            authorization, governance, source repositories, release feeds, and
-            package registries. The missing layer is the connection between a
-            change, the application that depends on it, and the evidence needed
-            to respond.
-          </p>
-          <ul class="risk-register">
-            <li>On-chain and off-chain signals are separated</li>
-            <li>Release notes do not map impact to your application</li>
-            <li>Address lists lose dependency context</li>
-            <li>Important changes compete with routine noise</li>
-          </ul>
-        </div>
-      </div>
-      <a class="problem-sequence" href="#evidence">
-        <span>Observed sequence</span>
-        <strong>Thin market → oracle → lending pool → reserve outflow</strong>
-        <p>
-          The YieldBlox case shows why one-address monitoring is not enough.
-          View the evidence ↓
-        </p>
-      </a>
-    </div>
-  </section>
+	<figure class="hero-visual" aria-label="Stargazer monitoring Stellar protocol signals">
+		<img src="/brand/stargazer-cosmic-hero.jpeg" alt="" />
+		<div class="visual-shade"></div>
+		<figcaption>
+			<span>Stellar Mainnet</span>
+			<strong>Protocol signal acquired</strong>
+			<small>Contract · governance · dependency</small>
+		</figcaption>
+	</figure>
+</section>
 
-  <section
-    id="solution"
-    class="atlas-section solution-chapter"
-    aria-labelledby="solution-title"
-  >
-    <div class="atlas-width">
-      <div class="chapter-grid">
-        <div class="chapter-title">
-          <span aria-hidden="true">02</span>
-          <h2 id="solution-title">
-            One dependency view. Four questions answered.
-          </h2>
-        </div>
-        <div class="chapter-copy">
-          <p class="lead-copy">
-            Stargazer turns scattered on-chain and off-chain signals into a
-            time-versioned intelligence feed for the infrastructure your
-            application relies on.
-          </p>
-          <p>
-            Map the system, follow trusted change sources, trace the known
-            affected surface, and use AI to summarize what changed and why it may
-            matter. Unknown and unsupported dependencies remain visible as
-            coverage gaps; source evidence remains available for verification.
-          </p>
-          <p class="first-release">
-            <strong>First release</strong> Deterministic Wasm-upgrade monitoring
-            through API, dashboard, and Telegram. Repository, governance, SDK,
-            package, dependency, and wallet intelligence expands from that
-            verified base.
-          </p>
-        </div>
-      </div>
-      <ol class="capability-ledger">
-        {#each capabilities as capability, index (capability.id)}
-          <li>
-            <span>{String(index + 1).padStart(2, "0")}</span>
-            <h3>{capability.title}</h3>
-            <p>{capability.body}</p>
-          </li>
-        {/each}
-      </ol>
+<section class="problem-section" id="problem" aria-labelledby="problem-title">
+	<div class="section-index">01 / Problem</div>
+	<div class="problem-copy">
+		<h2 id="problem-title">Your application can change even when your code does not.</h2>
+		<p>
+			A contract upgrades. An SDK introduces a breaking change. Governance moves control. A new
+			deployment replaces infrastructure your product relies on. The signals are scattered across
+			ledgers, repositories, release feeds, and community channels—so teams often discover them only
+			after something breaks.
+		</p>
+	</div>
+	<aside>
+		<span>The operational gap</span>
+		<strong>Critical dependencies evolve continuously. Monitoring them is still manual.</strong>
+	</aside>
+</section>
 
-      <div class="wallet-boundary">
-        <strong>Planned pilot: operational wallets</strong>
-        <p>
-          Watch selected public Stellar accounts for confirmed transfers,
-          material balance movements, signer-policy changes, and new protocol
-          interactions. Stargazer observes ledger activity; it does not protect
-          private keys or infer an off-chain compromise.
-        </p>
-      </div>
+<section class="signals-section" id="product" aria-labelledby="signals-title">
+	<header class="section-heading">
+		<div class="section-index">02 / Product</div>
+		<div>
+			<p class="eyebrow">One operational view</p>
+			<h2 id="signals-title">Follow the infrastructure behind your application.</h2>
+		</div>
+		<p>
+			Stargazer connects on-chain and off-chain evidence so developers can detect change, understand
+			the affected surface, and respond from primary sources.
+		</p>
+	</header>
 
-      <div class="comparison-block">
-        <div>
-          <p>Built for the gap after deployment</p>
-          <h3>Different tools answer different questions.</h3>
-        </div>
-        <p>
-          Audits review code. Explorers expose transactions. Release feeds report
-          versions. Data services make ledgers queryable. Stargazer is being built
-          to connect each change to the dependency and application it may affect.
-        </p>
-      </div>
-      <div class="comparison-frame">
-        <table>
-          <thead>
-            <tr
-              ><th>Tool</th><th>Primary job</th><th
-                >Operational context still needed</th
-              ></tr
-            >
-          </thead>
-          <tbody>
-            <tr
-              ><th>Audit</th><td
-                >Review code and assumptions at a point in time</td
-              ><td>Continuous post-deployment change</td></tr
-            >
-            <tr
-              ><th>Explorer</th><td>Inspect an address or transaction</td><td
-                >Joined protocol and dependency impact</td
-              ></tr
-            >
-            <tr
-              ><th>Data API</th><td>Query raw or normalized ledger data</td><td
-                >Security interpretation and operator delivery</td
-              ></tr
-            >
-            <tr
-              ><th>Release feed</th><td>Announce repository, SDK, or package updates</td><td
-                >Application-specific dependency impact</td
-              ></tr
-            >
-            <tr class="watch-row"
-              ><th>Stargazer</th><td
-                >Connect protocol change to developer dependencies</td
-              ><td>Evidence and coverage limits are part of the finding</td></tr
-            >
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </section>
+	<div class="signal-grid">
+		{#each signals as signal (signal.index)}
+			<article>
+				<span>{signal.index}</span>
+				<h3>{signal.title}</h3>
+				<p>{signal.body}</p>
+			</article>
+		{/each}
+	</div>
+</section>
 
-  <section
-    id="architecture"
-    class="atlas-section system-chapter"
-    aria-labelledby="architecture-title"
-  >
-    <div class="atlas-width">
-      <div class="chapter-grid compact-chapter">
-        <div class="chapter-title">
-          <span aria-hidden="true">03</span>
-          <h2 id="architecture-title">
-            From scattered signals to one useful alert.
-          </h2>
-        </div>
-        <p class="architecture-intro">
-          Stargazer correlates verified ledger facts with trusted governance,
-          repository, SDK, and release sources. It resolves the monitored
-          dependency context, evaluates the change, and routes the finding with
-          the evidence used to produce it.
-        </p>
-      </div>
+<section class="workflow-section" id="signals" aria-labelledby="workflow-title">
+	<div class="workflow-intro">
+		<div class="section-index">03 / Signal pipeline</div>
+		<p class="eyebrow">From change to action</p>
+		<h2 id="workflow-title">Less noise.<br />More consequence.</h2>
+		<p>
+			The objective is not another activity feed. Stargazer connects a technical event to the systems
+			that depend on it, then preserves the evidence behind every conclusion.
+		</p>
+	</div>
 
-      <figure class="system-map">
-        <ol aria-label="Stargazer processing stages">
-          {#each pipeline as step, index (step.id)}
-            <li>
-              <span>{String(index + 1).padStart(2, "0")}</span>
-              <strong>{step.label}</strong>
-              <p>{step.detail}</p>
-            </li>
-          {/each}
-        </ol>
-        <figcaption>
-          One monitoring policy can follow an application and its mapped
-          dependencies. Stargazer retains ledger coordinates or source links,
-          raw evidence location, provenance, parser version, applicable Wasm
-          version, and analysis confidence; historical replay stays separate
-          from live delivery.
-        </figcaption>
-      </figure>
-    </div>
-  </section>
+	<ol class="workflow-list">
+		{#each workflow as step (step.index)}
+			<li>
+				<span>{step.index}</span>
+				<strong>{step.verb}</strong>
+				<p>{step.text}</p>
+			</li>
+		{/each}
+	</ol>
+</section>
 
-  <section
-    id="evidence"
-    class="atlas-section casebook"
-    aria-labelledby="evidence-title"
-  >
-    <div class="atlas-width">
-      <div class="chapter-grid compact-chapter">
-        <div class="chapter-title">
-          <span aria-hidden="true">04</span>
-          <h2 id="evidence-title">One incident. Five connected surfaces.</h2>
-        </div>
-        <p class="architecture-intro">
-          A useful finding connects the first observable change to the capital
-          impact without flattening every event into “exploit.” This historical
-          YieldBlox sequence shows the cross-protocol context an operator needs
-          during an investigation.
-        </p>
-      </div>
+<section class="demo-section" id="evidence" aria-labelledby="demo-title">
+	<div class="demo-copy">
+		<div class="section-index">04 / Working demo</div>
+		<p class="eyebrow">Real Stellar archive data</p>
+		<h2 id="demo-title">See what Stargazer can prove today.</h2>
+		<p>
+			The current demo reconstructs protocol relationships and technical changes from indexed Stellar
+			data. It is an evidence-backed product preview—not yet a production notification service.
+		</p>
+		<ul>
+			{#each demoProof as item (item)}
+				<li>{item}</li>
+			{/each}
+		</ul>
+	</div>
 
-      <article
-        id="incident"
-        class="incident-record"
-        aria-labelledby="incident-title"
-      >
-        <header>
-          <p>The blind spot, in practice</p>
-          <h3 id="incident-title">YieldBlox, February 2026</h3>
-        </header>
-        <div class="incident-summary">
-          <p>
-            The sequence joins a thin USTRY/USDC market move, a Reflector price
-            publication, collateral entering an isolated Blend pool, and
-            subsequent USDC and XLM reserve outflows.
-          </p>
-          <p class="causal-finding">
-            Available evidence points to a YieldBlox pool and
-            oracle-configuration failure—not a Blend core-contract exploit or an
-            unauthorized Reflector update.
-          </p>
-        </div>
-        <ol class="incident-events" aria-label="YieldBlox incident sequence">
-          <li>
-            <span>01</span><strong>Thin market</strong>
-            <p>Small SDEX fill reprices USTRY</p>
-          </li>
-          <li>
-            <span>02</span><strong>Oracle publish</strong>
-            <p>Configured input reaches Reflector</p>
-          </li>
-          <li>
-            <span>03</span><strong>Collateral</strong>
-            <p>USTRY enters the isolated lending pool</p>
-          </li>
-          <li>
-            <span>04</span><strong>Reserve outflow</strong>
-            <p>USDC and XLM leave shortly afterward</p>
-          </li>
-        </ol>
-        <footer>
-          <p>
-            Stargazer did not detect this incident live. It is now a product
-            regression case: the timeline Stargazer must be able to reconstruct
-            and, once live, recognize from confirmed ledger evidence.
-          </p>
-          <div>
-            <a
-              href="https://blocksec.com/blog/yieldblox-dao-incident-on-stellar-oracle-misconfiguration-enabled-a-10m-drain"
-              rel="noreferrer"
-              target="_blank">BlockSec analysis ↗</a
-            >
-            <a
-              href="https://blockaid.io/blog/73-quarantined-how-blockaid-and-stellar-validators-contained-a-10m-price-manipulation-attack"
-              rel="noreferrer"
-              target="_blank">Blockaid response ↗</a
-            >
-          </div>
-        </footer>
-      </article>
-    </div>
-  </section>
+	<div class="demo-console">
+		<header>
+			<span>STARGAZER / STELLAR DEMO</span>
+			<i>ARCHIVE CONNECTED</i>
+		</header>
+		<div class="console-event">
+			<div class="event-meta">
+				<strong>CRITICAL · RETROSPECTIVE</strong>
+				<time datetime="2026-02-22">22 FEB 2026</time>
+			</div>
+			<p class="event-protocol">YieldBlox / Blend v2</p>
+			<h3>Oracle manipulation affected a protocol dependency.</h3>
+			<p>
+				Stargazer connects the verified incident surface to wallets that interacted with it, preserving
+				the contract and transaction evidence.
+			</p>
+			<a href={resolve('/app/wallet/[address]', { address: yieldBloxWallet })}>
+				Check wallet exposure <span aria-hidden="true">→</span>
+			</a>
+		</div>
+		<nav aria-label="Explore the product demo">
+			<a href={resolve('/app/alerts')}>Browse alerts <span>→</span></a>
+			<a href={resolve('/app/protocols')}>Inspect protocol versions <span>→</span></a>
+			<a href={resolve('/app')}>Check another wallet <span>→</span></a>
+		</nav>
+	</div>
+</section>
 
-  <section
-    id="roadmap"
-    class="atlas-section roadmap-chapter"
-    aria-labelledby="roadmap-title"
-  >
-    <div class="atlas-width">
-      <div class="chapter-grid compact-chapter">
-        <div class="chapter-title">
-          <span aria-hidden="true">05</span>
-          <h2 id="roadmap-title">
-            Start with one signal. Expand to the system.
-          </h2>
-        </div>
-        <p class="architecture-intro">
-          Stargazer starts with verified contract changes, then adds historical
-          context, governance and release sources, developer dependencies,
-          operational wallets, and protocol-specific intelligence. Every release
-          keeps the same evidence-backed finding format and explicit limits.
-        </p>
-      </div>
+<section class="firewatch-section" id="firewatch" aria-labelledby="firewatch-title">
+	<div class="firewatch-copy">
+		<div class="section-index">05 / Proven infrastructure</div>
+		<h2 id="firewatch-title">Proven infrastructure, adapted for Stellar.</h2>
+		<p>
+			Stargazer extends Firewatch, Ferno’s live protocol-intelligence platform for Solana. The
+			foundation is already used by developers, teams, and ecosystem contributors.
+		</p>
+	</div>
+	<div class="firewatch-evidence">
+		<div class="platform-lineage" aria-label="Firewatch on Solana extended into Stargazer on Stellar">
+			<div>
+				<span>Firewatch</span>
+				<strong>Solana</strong>
+				<em>Live in production</em>
+			</div>
+			<i aria-hidden="true">→</i>
+			<div>
+				<span>Stargazer</span>
+				<strong>Stellar</strong>
+				<em>Integration in development</em>
+			</div>
+		</div>
+		<p class="firewatch-description">
+			Firewatch tracks program upgrades, deployments, IDL changes, governance, repositories, and other
+			technical events that affect downstream applications. Stargazer adapts that operating model to
+			Soroban contracts and the wider Stellar developer stack.
+		</p>
+		<dl class="firewatch-facts">
+			<div><dt>Operational</dt><dd>Live protocol intelligence on Solana</dd></div>
+			<div><dt>Used in practice</dt><dd>Adopted by developers and ecosystem teams</dd></div>
+			<div><dt>Shared foundation</dt><dd>Monitoring, analysis, and notification infrastructure</dd></div>
+		</dl>
+	</div>
+</section>
 
-      <ol class="roadmap-track">
-        {#each roadmap as item, index (item.id)}
-          <li
-            class={["roadmap-phase", { current: item.status === "Building" }]}
-          >
-            <div class="phase-coordinate">
-              <span>{String(index + 1).padStart(2, "0")}</span>
-              <p>{item.status}</p>
-            </div>
-            <h3>{item.phase}</h3>
-            <p class="phase-window">{item.window}</p>
-            <p>{item.body}</p>
-            <div class="phase-gate">
-              <strong>User outcome</strong>
-              <p>{item.outcome}</p>
-            </div>
-          </li>
-        {/each}
-      </ol>
-    </div>
-  </section>
+<section class="scope-section" aria-labelledby="scope-title">
+	<header class="section-heading">
+		<div class="section-index">06 / Product status</div>
+		<div>
+			<p class="eyebrow">The next layer</p>
+			<h2 id="scope-title">From archive evidence to continuous intelligence.</h2>
+		</div>
+		<p>
+			Stargazer is onboarding key Stellar protocols and developer tooling, then making their
+			technical evolution subscribable.
+		</p>
+	</header>
 
-  <section class="atlas-section faq-chapter" aria-labelledby="faq-title">
-    <div class="atlas-width faq-grid">
-      <div class="chapter-title">
-        <span aria-hidden="true">06</span>
-        <h2 id="faq-title">Boundaries.</h2>
-      </div>
-      <div class="faq-list">
-        {#each faq as item (item.id)}
-          <details>
-            <summary>{item.question}</summary>
-            <p>{item.answer}</p>
-          </details>
-        {/each}
-      </div>
-    </div>
-  </section>
+	<div class="scope-columns">
+		<div>
+			<h3>Working in the demo</h3>
+			<ul>
+				{#each demoProof as item (item)}<li>{item}</li>{/each}
+			</ul>
+		</div>
+		<div>
+			<h3>In development</h3>
+			<ul>
+				{#each grantScope as item (item)}<li>{item}</li>{/each}
+			</ul>
+		</div>
+	</div>
+</section>
 
-  <section class="closing-chapter" aria-labelledby="closing-title">
-    <div class="atlas-width closing-grid">
-      <h2 id="closing-title">Bring your Stellar dependency map into the pilot.</h2>
-      <div>
-        <p>
-          We will map the contracts, protocols, repositories, SDKs, control
-          accounts, wallets, and release signals your application depends on—and
-          publish the coverage limits before monitoring begins.
-        </p>
-        <a href="https://x.com/ferno_ag" rel="noreferrer" target="_blank"
-          >Join the private pilot ↗</a
-        >
-      </div>
-    </div>
-  </section>
-</div>
+<section class="roadmap-section" id="roadmap" aria-labelledby="roadmap-title">
+	<header>
+		<div class="section-index">07 / Roadmap</div>
+		<p class="eyebrow">Stellar integration</p>
+		<h2 id="roadmap-title">A monitoring layer developers can rely on.</h2>
+	</header>
+	<ol>
+		{#each roadmap as item (item.phase)}
+			<li>
+				<span>{item.phase}</span>
+				<h3>{item.title}</h3>
+				<p>{item.body}</p>
+			</li>
+		{/each}
+	</ol>
+</section>
+
+<section class="team-section" aria-labelledby="team-title">
+	<div>
+		<div class="section-index">For protocol teams</div>
+		<h2 id="team-title">Need reviewed intelligence, not another unattended feed?</h2>
+		<p>
+			Ferno can define your dependency baseline, escalation channel, and analyst-review scope. Managed
+			monitoring pilots start at <strong>$10,000/year</strong>.
+		</p>
+	</div>
+	<a href="https://x.com/ferno_ag" rel="noreferrer" target="_blank">Discuss team coverage ↗</a>
+</section>
+
+<section class="closing-section" aria-labelledby="closing-title">
+	<p class="eyebrow">Start with the evidence</p>
+	<h2 id="closing-title">Explore real indexed events.<br />Then tell us what your application depends on.</h2>
+	<div>
+		<a class="action action-primary" href={resolve('/app/alerts')}>
+			Open the Stellar demo <span aria-hidden="true">→</span>
+		</a>
+		<a class="action action-secondary" href="https://x.com/ferno_ag" rel="noreferrer" target="_blank">
+			Join the Stellar pilot ↗
+		</a>
+	</div>
+</section>
 
 <style>
-  :global(html) {
-    scroll-behavior: smooth;
-    scroll-padding-top: 4.5rem;
-  }
-
-  :global(body) {
-    background: #f4f5f2;
-  }
-
-  .landing-page {
-    --atlas-field: #f4f5f2;
-    --atlas-paper: #ffffff;
-    --atlas-ink: #151418;
-    --atlas-muted: #67636c;
-    --atlas-rule: #d6d7d0;
-    --atlas-violet: #6436e8;
-    --atlas-violet-soft: #eeeaff;
-    --atlas-signal: #ddfe55;
-    --atlas-anomaly: #d9546b;
-    background: var(--atlas-field);
-    color: var(--atlas-ink);
-    font-family: "Source Sans 3", sans-serif;
-  }
-
-  .atlas-width {
-    width: min(1320px, calc(100vw - 4rem));
-    margin: 0 auto;
-  }
-
-  h1,
-  h2,
-  h3,
-  p,
-  figure,
-  figcaption {
-    margin: 0;
-  }
-
-  h1,
-  h2,
-  h3 {
-    font-family: "Archivo SemiCondensed", sans-serif;
-    font-weight: 600;
-  }
-
-  h1 {
-    max-width: 10.5ch;
-    font-size: clamp(4rem, 7vw, 6.8rem);
-    line-height: 0.88;
-    letter-spacing: -0.055em;
-  }
-
-  h2 {
-    max-width: 16ch;
-    font-size: clamp(2.5rem, 4.2vw, 4.5rem);
-    line-height: 0.96;
-    letter-spacing: -0.045em;
-  }
-
-  h3 {
-    font-size: 1.35rem;
-    line-height: 1.15;
-    letter-spacing: -0.02em;
-  }
-
-  p {
-    color: var(--atlas-muted);
-    font-size: 1rem;
-    line-height: 1.6;
-  }
-
-  a {
-    color: inherit;
-    text-underline-offset: 0.2em;
-  }
-
-  .map-annotations span,
-  .outcome-ledger > li > span,
-  .chapter-title > span,
-  .capability-ledger > li > span,
-  .system-map li > span,
-  .phase-coordinate,
-  .incident-events span {
-    font-family: "Fragment Mono", monospace;
-  }
-
-  .signal-cover {
-    padding: clamp(4rem, 7vw, 7rem) 0 0;
-    border-bottom: 1px solid var(--atlas-rule);
-  }
-
-  .cover-grid {
-    display: grid;
-    grid-template-columns: repeat(12, minmax(0, 1fr));
-    gap: 1.5rem;
-    align-items: end;
-  }
-
-  .cover-title {
-    grid-column: 1 / span 8;
-    display: grid;
-    gap: 1rem;
-  }
-
-  .cover-kicker {
-    max-width: 32rem;
-    color: var(--atlas-violet);
-    font-family: "Fragment Mono", monospace;
-    font-size: 0.72rem;
-    font-weight: 500;
-    letter-spacing: 0.02em;
-    line-height: 1.45;
-    text-transform: uppercase;
-  }
-
-  .cover-copy {
-    grid-column: 9 / -1;
-    display: grid;
-    gap: 1.4rem;
-    padding-bottom: 0.3rem;
-  }
-
-  .cover-copy > p:first-child {
-    color: #37323d;
-    font-size: 1.16rem;
-    line-height: 1.55;
-  }
-
-  .cover-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 1rem 1.4rem;
-  }
-
-  .cover-actions a {
-    font-size: 0.9rem;
-    font-weight: 600;
-  }
-
-  .cover-actions .primary-link {
-    padding: 0.7rem 0.9rem;
-    border: 1px solid var(--atlas-violet);
-    border-radius: 3px;
-    background: var(--atlas-violet);
-    color: #fff;
-    text-decoration: none;
-  }
-
-  .poc-note {
-    font-family: "Fragment Mono", monospace;
-    font-size: 0.72rem;
-  }
-
-  .outcome-ledger {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    margin: clamp(3rem, 5vw, 4.5rem) 0 0;
-    padding: 0;
-    border-top: 1px solid var(--atlas-ink);
-    border-bottom: 1px solid var(--atlas-rule);
-    list-style: none;
-  }
-
-  .outcome-ledger li {
-    display: grid;
-    grid-template-columns: 2rem minmax(0, 1fr);
-    align-content: start;
-    gap: 0.35rem 0.7rem;
-    min-height: 10.5rem;
-    padding: 1rem;
-    border-right: 1px solid var(--atlas-rule);
-  }
-
-  .outcome-ledger li:last-child {
-    border-right: 0;
-  }
-
-  .outcome-ledger > li > span {
-    grid-row: 1 / span 2;
-    color: var(--atlas-violet);
-    font-size: 0.68rem;
-  }
-
-  .outcome-ledger h2 {
-    max-width: none;
-    font-size: 1.15rem;
-    line-height: 1.15;
-    letter-spacing: -0.02em;
-  }
-
-  .outcome-ledger p {
-    font-size: 0.8rem;
-    line-height: 1.42;
-  }
-
-  .ledger-map {
-    margin-top: clamp(2.5rem, 5vw, 4rem);
-    border-top: 1px solid var(--atlas-rule);
-    background: var(--atlas-paper);
-  }
-
-  .ledger-map svg {
-    display: block;
-    width: 100%;
-    height: clamp(220px, 23vw, 310px);
-  }
-
-  .map-grid {
-    fill: none;
-    stroke: #e4e5df;
-    stroke-width: 1;
-    vector-effect: non-scaling-stroke;
-  }
-
-  .signal-line {
-    fill: none;
-    stroke: var(--atlas-violet);
-    stroke-linecap: square;
-    stroke-linejoin: miter;
-    stroke-width: 3;
-    vector-effect: non-scaling-stroke;
-  }
-
-  .signal-points {
-    fill: var(--atlas-signal);
-    stroke: var(--atlas-ink);
-    stroke-width: 2;
-    vector-effect: non-scaling-stroke;
-  }
-
-  .ledger-map figcaption {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.75rem 1rem;
-    border-top: 1px solid var(--atlas-rule);
-    border-bottom: 1px solid var(--atlas-rule);
-    font-family: "Fragment Mono", monospace;
-    font-size: 0.7rem;
-  }
-
-  .map-annotations,
-  .capability-ledger,
-  .system-map ol,
-  .roadmap-track,
-  .incident-events {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .map-annotations {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .map-annotations li {
-    display: grid;
-    grid-template-columns: 2.2rem minmax(0, 1fr);
-    gap: 0.35rem 0.7rem;
-    padding: 1rem;
-    border-right: 1px solid var(--atlas-rule);
-  }
-
-  .map-annotations li:last-child {
-    border-right: 0;
-  }
-
-  .map-annotations span {
-    grid-row: 1 / span 2;
-    color: var(--atlas-violet);
-    font-size: 0.7rem;
-  }
-
-  .map-annotations strong {
-    font-size: 0.88rem;
-  }
-
-  .map-annotations p {
-    font-size: 0.76rem;
-    line-height: 1.35;
-  }
-
-  .atlas-section {
-    padding: clamp(5rem, 9vw, 8.5rem) 0;
-    border-bottom: 1px solid var(--atlas-rule);
-  }
-
-  .chapter-grid {
-    display: grid;
-    grid-template-columns: repeat(12, minmax(0, 1fr));
-    gap: 1.5rem;
-  }
-
-  .chapter-title {
-    grid-column: 1 / span 5;
-    display: grid;
-    grid-template-columns: 2.5rem minmax(0, 1fr);
-    gap: 1rem;
-    align-items: start;
-  }
-
-  .chapter-title > span {
-    padding-top: 0.5rem;
-    color: var(--atlas-violet);
-    font-size: 0.7rem;
-  }
-
-  .chapter-copy,
-  .architecture-intro {
-    grid-column: 7 / -1;
-  }
-
-  .chapter-copy {
-    display: grid;
-    gap: 1.25rem;
-  }
-
-  .lead-copy {
-    color: #2f2a34;
-    font-size: 1.3rem;
-    font-weight: 500;
-    line-height: 1.5;
-  }
-
-  .risk-register {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    margin: 1rem 0 0;
-    padding: 0;
-    border-top: 1px solid var(--atlas-rule);
-    list-style: none;
-  }
-
-  .risk-register li {
-    padding: 0.75rem 0.75rem 0.75rem 0;
-    border-bottom: 1px solid var(--atlas-rule);
-    font-size: 0.86rem;
-    font-weight: 600;
-  }
-
-  .problem-chapter,
-  .system-chapter,
-  .faq-chapter {
-    background: var(--atlas-paper);
-  }
-
-  .problem-sequence {
-    display: grid;
-    grid-template-columns: 1.4fr 4fr 5fr;
-    gap: 1.5rem;
-    align-items: center;
-    margin-top: clamp(4rem, 7vw, 6rem);
-    padding: 1.2rem 0;
-    border-top: 2px solid var(--atlas-anomaly);
-    border-bottom: 1px solid var(--atlas-rule);
-    text-decoration: none;
-  }
-
-  .problem-sequence:hover strong {
-    color: var(--atlas-violet);
-  }
-
-  .problem-sequence span {
-    color: var(--atlas-anomaly);
-    font-family: "Fragment Mono", monospace;
-    font-size: 0.68rem;
-    text-transform: uppercase;
-  }
-
-  .problem-sequence strong {
-    font-family: "Archivo SemiCondensed", sans-serif;
-    font-size: 1rem;
-    line-height: 1.35;
-  }
-
-  .problem-sequence p {
-    font-size: 0.82rem;
-  }
-
-  .first-release {
-    padding: 0.9rem 0;
-    border-top: 1px solid var(--atlas-violet);
-    border-bottom: 1px solid var(--atlas-rule);
-    font-size: 0.88rem;
-  }
-
-  .first-release strong {
-    margin-right: 0.55rem;
-    color: var(--atlas-violet);
-    font-family: "Fragment Mono", monospace;
-    font-size: 0.68rem;
-    text-transform: uppercase;
-  }
-
-  .capability-ledger {
-    margin-top: clamp(4rem, 7vw, 6rem);
-    border-top: 1px solid var(--atlas-ink);
-  }
-
-  .capability-ledger li {
-    display: grid;
-    grid-template-columns: 1fr 3fr 7fr;
-    gap: 1.5rem;
-    padding: 1.6rem 0;
-    border-bottom: 1px solid var(--atlas-rule);
-  }
-
-  .capability-ledger > li > span {
-    color: var(--atlas-violet);
-    font-size: 0.72rem;
-  }
-
-  .capability-ledger p {
-    max-width: 52rem;
-  }
-
-  .wallet-boundary {
-    display: grid;
-    grid-template-columns: 3fr 7fr;
-    gap: 1.5rem;
-    margin-top: 2rem;
-    padding: 1.2rem 0;
-    border-top: 1px solid var(--atlas-violet);
-    border-bottom: 1px solid var(--atlas-rule);
-  }
-
-  .wallet-boundary strong {
-    color: var(--atlas-violet);
-    font-family: "Archivo SemiCondensed", sans-serif;
-  }
-
-  .wallet-boundary p {
-    max-width: 52rem;
-    font-size: 0.86rem;
-  }
-
-  .comparison-block {
-    display: grid;
-    grid-template-columns: 4fr 6fr;
-    gap: 1.5rem;
-    align-items: end;
-    margin-top: clamp(5rem, 8vw, 7rem);
-  }
-
-  .comparison-block > div > p {
-    margin-bottom: 0.45rem;
-    color: var(--atlas-violet);
-    font-family: "Fragment Mono", monospace;
-    font-size: 0.68rem;
-    text-transform: uppercase;
-  }
-
-  .comparison-block h3 {
-    font-size: clamp(1.7rem, 3vw, 2.7rem);
-  }
-
-  .comparison-block > p {
-    font-size: 1.02rem;
-  }
-
-  .comparison-frame {
-    margin-top: 2rem;
-    overflow-x: auto;
-    border-top: 1px solid var(--atlas-ink);
-  }
-
-  .comparison-frame table {
-    width: 100%;
-    min-width: 720px;
-    border-collapse: collapse;
-    text-align: left;
-  }
-
-  .comparison-frame th,
-  .comparison-frame td {
-    padding: 0.9rem 1rem 0.9rem 0;
-    border-bottom: 1px solid var(--atlas-rule);
-    font-size: 0.82rem;
-    line-height: 1.4;
-    vertical-align: top;
-  }
-
-  .comparison-frame thead th {
-    color: var(--atlas-muted);
-    font-family: "Fragment Mono", monospace;
-    font-size: 0.65rem;
-    font-weight: 400;
-    text-transform: uppercase;
-  }
-
-  .comparison-frame tbody th {
-    width: 15%;
-    font-family: "Archivo SemiCondensed", sans-serif;
-    font-size: 0.95rem;
-  }
-
-  .comparison-frame .watch-row {
-    background: var(--atlas-violet-soft);
-  }
-
-  .comparison-frame .watch-row > *:first-child {
-    padding-left: 0.8rem;
-    color: var(--atlas-violet);
-  }
-
-  .compact-chapter {
-    align-items: end;
-  }
-
-  .architecture-intro {
-    max-width: 44rem;
-    color: #37323d;
-    font-size: 1.08rem;
-  }
-
-  .system-map {
-    margin-top: clamp(4rem, 7vw, 6rem);
-    border-top: 1px solid var(--atlas-ink);
-    border-bottom: 1px solid var(--atlas-rule);
-  }
-
-  .system-map ol {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-
-  .system-map li {
-    min-height: 13rem;
-    padding: 1rem;
-    border-right: 1px solid var(--atlas-rule);
-  }
-
-  .system-map li:last-child {
-    border-right: 0;
-  }
-
-  .system-map li > span {
-    display: block;
-    margin-bottom: 3.5rem;
-    color: var(--atlas-violet);
-    font-size: 0.7rem;
-  }
-
-  .system-map strong {
-    display: block;
-    font-family: "Archivo SemiCondensed", sans-serif;
-    font-size: 1.2rem;
-  }
-
-  .system-map p {
-    margin-top: 0.5rem;
-    font-size: 0.78rem;
-    line-height: 1.4;
-  }
-
-  .system-map figcaption {
-    max-width: 54rem;
-    padding: 1.2rem 0;
-    color: var(--atlas-muted);
-    font-size: 0.8rem;
-    line-height: 1.5;
-  }
-
-  .incident-record {
-    display: grid;
-    grid-template-columns: repeat(12, minmax(0, 1fr));
-    gap: 1.5rem;
-    margin-top: clamp(5rem, 8vw, 7rem);
-    padding-top: 1.2rem;
-    border-top: 3px solid var(--atlas-anomaly);
-  }
-
-  .incident-record > header {
-    grid-column: 1 / span 3;
-  }
-
-  .incident-record > header p {
-    margin-bottom: 0.55rem;
-    color: var(--atlas-anomaly);
-    font-family: "Fragment Mono", monospace;
-    font-size: 0.7rem;
-  }
-
-  .incident-summary {
-    grid-column: 4 / span 4;
-    display: grid;
-    align-content: start;
-    gap: 1.1rem;
-  }
-
-  .causal-finding {
-    color: #2e2933;
-    font-weight: 600;
-  }
-
-  .incident-events {
-    grid-column: 8 / -1;
-    border-top: 1px solid var(--atlas-rule);
-  }
-
-  .incident-events li {
-    display: grid;
-    grid-template-columns: 2rem minmax(0, 1fr);
-    gap: 0.2rem 0.7rem;
-    padding: 0.7rem 0;
-    border-bottom: 1px solid var(--atlas-rule);
-  }
-
-  .incident-events span {
-    grid-row: 1 / span 2;
-    color: var(--atlas-anomaly);
-    font-size: 0.68rem;
-  }
-
-  .incident-events strong {
-    font-size: 0.85rem;
-  }
-
-  .incident-events p {
-    font-size: 0.76rem;
-    line-height: 1.35;
-  }
-
-  .incident-record > footer {
-    grid-column: 4 / -1;
-    display: flex;
-    justify-content: space-between;
-    gap: 2rem;
-    margin-top: 1.5rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--atlas-rule);
-  }
-
-  .incident-record > footer p {
-    max-width: 43rem;
-    font-size: 0.78rem;
-  }
-
-  .incident-record > footer div {
-    display: flex;
-    flex-wrap: wrap;
-    align-content: start;
-    justify-content: flex-end;
-    gap: 0.7rem 1rem;
-    font-size: 0.76rem;
-    font-weight: 600;
-  }
-
-  .roadmap-chapter {
-    background: var(--atlas-violet-soft);
-  }
-
-  .roadmap-track {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    margin-top: clamp(4rem, 7vw, 6rem);
-    border-top: 1px solid var(--atlas-ink);
-  }
-
-  .roadmap-phase {
-    position: relative;
-    display: grid;
-    align-content: start;
-    gap: 0.65rem;
-    min-height: 26rem;
-    padding: 1rem 1.2rem 1.2rem;
-    border-right: 1px solid rgba(100, 54, 232, 0.22);
-  }
-
-  .roadmap-phase:last-child {
-    border-right: 0;
-  }
-
-  .roadmap-phase.current::before {
-    position: absolute;
-    top: -1px;
-    right: 0;
-    left: 0;
-    height: 5px;
-    background: var(--atlas-signal);
-    content: "";
-  }
-
-  .phase-coordinate {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 3rem;
-    color: var(--atlas-violet);
-    font-size: 0.68rem;
-  }
-
-  .phase-coordinate p {
-    color: inherit;
-    font: inherit;
-  }
-
-  .phase-window {
-    min-height: 2.4rem;
-    color: var(--atlas-violet);
-    font-family: "Fragment Mono", monospace;
-    font-size: 0.66rem;
-    line-height: 1.35;
-  }
-
-  .roadmap-phase > p:not(.phase-window) {
-    font-size: 0.84rem;
-    line-height: 1.48;
-  }
-
-  .phase-gate {
-    align-self: end;
-    margin-top: auto;
-    padding-top: 1rem;
-    border-top: 1px solid rgba(100, 54, 232, 0.22);
-  }
-
-  .phase-gate strong {
-    font-size: 0.76rem;
-  }
-
-  .phase-gate p {
-    margin-top: 0.35rem;
-    font-size: 0.74rem;
-    line-height: 1.42;
-  }
-
-  .faq-grid {
-    display: grid;
-    grid-template-columns: repeat(12, minmax(0, 1fr));
-    gap: 1.5rem;
-  }
-
-  .faq-grid .chapter-title {
-    grid-column: 1 / span 5;
-  }
-
-  .faq-list {
-    grid-column: 7 / -1;
-    border-top: 1px solid var(--atlas-ink);
-  }
-
-  details {
-    padding: 1rem 0;
-    border-bottom: 1px solid var(--atlas-rule);
-  }
-
-  summary {
-    font-family: "Archivo SemiCondensed", sans-serif;
-    font-size: 1.1rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  details p {
-    max-width: 42rem;
-    padding-top: 0.8rem;
-  }
-
-  .closing-chapter {
-    padding: clamp(5rem, 9vw, 8rem) 0;
-    background: var(--atlas-violet);
-    color: #fff;
-  }
-
-  .closing-grid {
-    display: grid;
-    grid-template-columns: repeat(12, minmax(0, 1fr));
-    gap: 1.5rem;
-    align-items: end;
-  }
-
-  .closing-grid h2 {
-    grid-column: 1 / span 7;
-  }
-
-  .closing-grid > div {
-    grid-column: 9 / -1;
-    display: grid;
-    gap: 1.4rem;
-  }
-
-  .closing-grid p {
-    color: rgba(255, 255, 255, 0.76);
-  }
-
-  .closing-grid a {
-    justify-self: start;
-    padding-bottom: 0.15rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.7);
-    font-weight: 600;
-    text-decoration: none;
-  }
-
-  @media (max-width: 1020px) {
-    .outcome-ledger {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .cover-title {
-      grid-column: 1 / span 7;
-    }
-
-    .cover-copy {
-      grid-column: 8 / -1;
-    }
-
-    .chapter-title {
-      grid-column: 1 / span 6;
-    }
-
-    .chapter-copy,
-    .architecture-intro {
-      grid-column: 7 / -1;
-    }
-
-    .system-map ol {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .system-map li:nth-child(3) {
-      border-right: 0;
-    }
-
-    .system-map li:nth-child(n + 4) {
-      border-top: 1px solid var(--atlas-rule);
-    }
-
-    .roadmap-track {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .roadmap-phase {
-      min-height: 27rem;
-      border-bottom: 1px solid rgba(100, 54, 232, 0.22);
-    }
-
-    .roadmap-phase:nth-child(2n) {
-      border-right: 0;
-    }
-
-    .roadmap-phase:last-child {
-      border-right: 1px solid rgba(100, 54, 232, 0.22);
-    }
-  }
-
-  @media (max-width: 760px) {
-    .atlas-width {
-      width: min(100vw - 2rem, 1320px);
-    }
-
-    h1 {
-      font-size: clamp(3.5rem, 18vw, 5.2rem);
-    }
-
-    h2 {
-      font-size: clamp(2.4rem, 12vw, 3.7rem);
-    }
-
-    .signal-cover {
-      padding-top: 3.5rem;
-    }
-
-    .cover-grid,
-    .chapter-grid,
-    .faq-grid,
-    .closing-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .cover-title,
-    .cover-copy,
-    .chapter-title,
-    .chapter-copy,
-    .architecture-intro,
-    .faq-grid .chapter-title,
-    .faq-list,
-    .closing-grid h2,
-    .closing-grid > div {
-      grid-column: 1;
-    }
-
-    .cover-copy {
-      margin-top: 2rem;
-    }
-
-    .outcome-ledger {
-      grid-template-columns: 1fr;
-    }
-
-    .outcome-ledger li:nth-child(n) {
-      min-height: 0;
-      border-right: 0;
-    }
-
-    .outcome-ledger li:nth-child(n + 2) {
-      border-top: 1px solid var(--atlas-rule);
-    }
-
-    .ledger-map {
-      margin-right: 0;
-      margin-left: 0;
-    }
-
-    .ledger-map svg {
-      height: 220px;
-    }
-
-    .ledger-map figcaption {
-      align-items: flex-start;
-      flex-direction: column;
-    }
-
-    .map-annotations {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .map-annotations li:nth-child(2) {
-      border-right: 0;
-    }
-
-    .map-annotations li:nth-child(n + 3) {
-      border-top: 1px solid var(--atlas-rule);
-    }
-
-    .chapter-title {
-      grid-template-columns: 2rem minmax(0, 1fr);
-    }
-
-    .chapter-copy,
-    .architecture-intro {
-      margin-top: 2rem;
-    }
-
-    .risk-register {
-      grid-template-columns: 1fr;
-    }
-
-    .problem-sequence,
-    .wallet-boundary,
-    .comparison-block {
-      grid-template-columns: 1fr;
-    }
-
-    .problem-sequence {
-      gap: 0.7rem;
-    }
-
-    .comparison-block > p {
-      margin-top: 1rem;
-    }
-
-		.comparison-frame {
-			margin-right: 0;
+	:global(.watch-content) {
+		overflow: hidden;
+	}
+
+	:global(.watch-content h1),
+	:global(.watch-content h2),
+	:global(.watch-content h3),
+	:global(.watch-content p) {
+		text-wrap: pretty;
+	}
+
+	.hero,
+	.problem-section,
+	.signals-section,
+	.workflow-section,
+	.demo-section,
+	.firewatch-section,
+	.scope-section,
+	.roadmap-section,
+	.team-section,
+	.closing-section {
+		width: min(1320px, calc(100vw - 4rem));
+		margin: 0 auto;
+	}
+
+	.hero {
+		display: grid;
+		grid-template-columns: minmax(0, 1.05fr) minmax(25rem, 0.95fr);
+		min-height: calc(100svh - 4.25rem);
+		align-items: center;
+		gap: clamp(2rem, 5vw, 6rem);
+		padding: clamp(4rem, 8vw, 7.5rem) 0;
+	}
+
+	.kicker,
+	.eyebrow,
+	.section-index {
+		font: 500 0.69rem/1.4 'Fragment Mono', monospace;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+	}
+
+	.kicker {
+		display: flex;
+		align-items: center;
+		gap: 0.7rem;
+		margin: 0 0 1.5rem;
+		color: var(--watch-blue-soft);
+	}
+
+	.kicker span {
+		width: 1.8rem;
+		height: 1px;
+		background: var(--watch-blue);
+		box-shadow: 0 0 0.8rem var(--watch-blue);
+	}
+
+	.hero h1 {
+		max-width: 13ch;
+		margin: 0;
+		font: 500 clamp(3.9rem, 7vw, 7.4rem)/0.9 'Archivo SemiCondensed', sans-serif;
+		letter-spacing: -0.06em;
+	}
+
+	.hero h1 em {
+		color: var(--watch-blue-soft);
+		font-style: normal;
+	}
+
+	.hero-lede {
+		max-width: 43rem;
+		margin: 2rem 0 0;
+		color: var(--watch-muted);
+		font-size: clamp(1rem, 1.45vw, 1.18rem);
+		line-height: 1.65;
+	}
+
+	.hero-actions,
+	.closing-section > div {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+		margin-top: 2rem;
+	}
+
+	.action {
+		display: inline-flex;
+		min-height: 3.15rem;
+		align-items: center;
+		justify-content: center;
+		gap: 1.4rem;
+		padding: 0 1.2rem;
+		border: 1px solid var(--watch-rule-strong);
+		font-size: 0.88rem;
+		font-weight: 600;
+		text-decoration: none;
+	}
+
+	.action-primary {
+		border-color: var(--watch-blue);
+		background: var(--watch-blue);
+		color: #fff;
+	}
+
+	.action-primary:hover {
+		background: #7890ff;
+	}
+
+	.action-secondary:hover {
+		border-color: var(--watch-blue-soft);
+		color: var(--watch-blue-soft);
+	}
+
+	.availability {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		max-width: 48rem;
+		margin-top: clamp(2.5rem, 5vw, 4.5rem);
+		border-top: 1px solid var(--watch-rule);
+		border-bottom: 1px solid var(--watch-rule);
+	}
+
+	.availability div {
+		padding: 1rem 1rem 1rem 0;
+	}
+
+	.availability div + div {
+		padding-left: 1rem;
+		border-left: 1px solid var(--watch-rule);
+	}
+
+	.availability strong,
+	.availability span {
+		display: block;
+	}
+
+	.availability strong {
+		color: var(--watch-blue-soft);
+		font-size: 0.78rem;
+	}
+
+	.availability span {
+		margin-top: 0.3rem;
+		color: var(--watch-muted);
+		font-size: 0.78rem;
+		line-height: 1.4;
+	}
+
+	.hero-visual {
+		position: relative;
+		min-height: min(68svh, 47rem);
+		margin: 0;
+		overflow: hidden;
+		border: 1px solid var(--watch-rule);
+		background: #02040b;
+	}
+
+	.hero-visual::before {
+		position: absolute;
+		z-index: 2;
+		top: 1.5rem;
+		left: 1.5rem;
+		width: 0.55rem;
+		height: 0.55rem;
+		border: 1px solid var(--watch-blue-soft);
+		border-radius: 50%;
+		box-shadow: 0 0 1rem var(--watch-blue);
+		content: '';
+	}
+
+	.hero-visual img {
+		position: absolute;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		object-position: right center;
+		transform: scale(1.3);
+		transform-origin: right center;
+	}
+
+	.visual-shade {
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(
+			90deg,
+			#02040b 0%,
+			#02040b 28%,
+			rgba(2, 4, 11, 0.88) 43%,
+			rgba(2, 4, 11, 0.04) 68%
+		);
+	}
+
+	.hero-visual figcaption {
+		position: absolute;
+		z-index: 3;
+		right: 1.25rem;
+		bottom: 1.25rem;
+		left: 1.25rem;
+		padding: 1rem;
+		border-top: 1px solid rgba(190, 204, 255, 0.45);
+		background: rgba(2, 5, 14, 0.82);
+		backdrop-filter: blur(12px);
+	}
+
+	.hero-visual figcaption span,
+	.hero-visual figcaption strong,
+	.hero-visual figcaption small {
+		display: block;
+	}
+
+	.hero-visual figcaption span,
+	.hero-visual figcaption small {
+		font: 0.64rem/1.4 'Fragment Mono', monospace;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+	}
+
+	.hero-visual figcaption span {
+		color: var(--watch-blue-soft);
+	}
+
+	.hero-visual figcaption strong {
+		margin-top: 0.35rem;
+		font: 500 1.2rem/1.25 'Archivo SemiCondensed', sans-serif;
+	}
+
+	.hero-visual figcaption small {
+		margin-top: 0.35rem;
+		color: var(--watch-muted);
+	}
+
+	.problem-section,
+	.workflow-section,
+	.demo-section,
+	.firewatch-section,
+	.team-section {
+		border-top: 1px solid var(--watch-rule);
+	}
+
+	.problem-section {
+		display: grid;
+		grid-template-columns: 0.38fr 1.2fr 0.62fr;
+		gap: clamp(2rem, 5vw, 5rem);
+		padding: clamp(4rem, 8vw, 7rem) 0;
+	}
+
+	.section-index {
+		color: var(--watch-blue-soft);
+	}
+
+	.problem-copy h2,
+	.section-heading h2,
+	.workflow-intro h2,
+	.demo-copy h2,
+	.firewatch-copy h2,
+	.roadmap-section h2,
+	.team-section h2,
+	.closing-section h2 {
+		margin: 0;
+		font: 500 clamp(2.5rem, 5vw, 5.2rem)/0.98 'Archivo SemiCondensed', sans-serif;
+		letter-spacing: -0.045em;
+	}
+
+	.problem-copy > p,
+	.section-heading > p,
+	.workflow-intro > p:last-child,
+	.demo-copy > p,
+	.firewatch-copy > p,
+	.team-section p {
+		color: var(--watch-muted);
+		font-size: 1rem;
+		line-height: 1.65;
+	}
+
+	.problem-section aside {
+		align-self: end;
+		padding: 1.2rem 0;
+		border-top: 2px solid var(--watch-blue);
+		border-bottom: 1px solid var(--watch-rule);
+	}
+
+	.problem-section aside span,
+	.problem-section aside strong {
+		display: block;
+	}
+
+	.problem-section aside span {
+		color: var(--watch-muted);
+		font: 0.64rem/1.4 'Fragment Mono', monospace;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+	}
+
+	.problem-section aside strong {
+		margin-top: 0.65rem;
+		font: 500 1.1rem/1.35 'Archivo SemiCondensed', sans-serif;
+	}
+
+	.signals-section,
+	.scope-section,
+	.roadmap-section {
+		padding: clamp(4rem, 8vw, 7rem) 0;
+	}
+
+	.section-heading {
+		display: grid;
+		grid-template-columns: 0.38fr 1.1fr 0.72fr;
+		gap: clamp(2rem, 5vw, 5rem);
+		align-items: end;
+	}
+
+	.eyebrow {
+		margin: 0 0 0.9rem;
+		color: var(--watch-blue-soft);
+	}
+
+	.section-heading h2 {
+		font-size: clamp(2.5rem, 4.5vw, 4.7rem);
+	}
+
+	.signal-grid {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		margin-top: clamp(3rem, 6vw, 5rem);
+		border-top: 1px solid var(--watch-rule-strong);
+		border-bottom: 1px solid var(--watch-rule-strong);
+	}
+
+	.signal-grid article {
+		min-height: 17rem;
+		padding: 1.3rem;
+		border-right: 1px solid var(--watch-rule);
+	}
+
+	.signal-grid article:last-child {
+		border-right: 0;
+	}
+
+	.signal-grid article > span,
+	.workflow-list li > span,
+	.roadmap-section li > span {
+		color: var(--watch-blue-soft);
+		font: 0.68rem/1.4 'Fragment Mono', monospace;
+	}
+
+	.signal-grid h3 {
+		margin: 5rem 0 0;
+		font: 500 1.5rem/1.15 'Archivo SemiCondensed', sans-serif;
+	}
+
+	.signal-grid p,
+	.workflow-list p,
+	.roadmap-section li p {
+		color: var(--watch-muted);
+		line-height: 1.55;
+	}
+
+	.workflow-section {
+		display: grid;
+		grid-template-columns: minmax(19rem, 0.8fr) minmax(30rem, 1.2fr);
+		gap: clamp(3rem, 8vw, 8rem);
+		padding: clamp(4rem, 8vw, 7rem) 0;
+	}
+
+	.workflow-intro h2 {
+		font-size: clamp(3rem, 5.5vw, 5.8rem);
+	}
+
+	.workflow-list {
+		margin: 0;
+		padding: 0;
+		border-top: 1px solid var(--watch-rule-strong);
+		list-style: none;
+	}
+
+	.workflow-list li {
+		display: grid;
+		grid-template-columns: 3rem 8rem 1fr;
+		gap: 1rem;
+		align-items: baseline;
+		padding: 1.4rem 0;
+		border-bottom: 1px solid var(--watch-rule);
+	}
+
+	.workflow-list strong {
+		font: 500 1.15rem/1.3 'Archivo SemiCondensed', sans-serif;
+	}
+
+	.workflow-list p {
+		margin: 0;
+	}
+
+	.demo-section {
+		display: grid;
+		grid-template-columns: minmax(20rem, 0.72fr) minmax(30rem, 1.28fr);
+		gap: clamp(3rem, 8vw, 8rem);
+		padding: clamp(4rem, 8vw, 7rem) 0;
+	}
+
+	.demo-copy ul,
+	.scope-columns ul {
+		margin: 2rem 0 0;
+		padding: 0;
+		border-top: 1px solid var(--watch-rule);
+		list-style: none;
+	}
+
+	.demo-copy li,
+	.scope-columns li {
+		position: relative;
+		padding: 0.85rem 0 0.85rem 1.5rem;
+		border-bottom: 1px solid var(--watch-rule);
+		color: var(--watch-muted);
+		line-height: 1.45;
+	}
+
+	.demo-copy li::before,
+	.scope-columns li::before {
+		position: absolute;
+		left: 0;
+		color: var(--watch-blue-soft);
+		content: '✦';
+	}
+
+	.demo-console {
+		align-self: start;
+		border: 1px solid var(--watch-rule-strong);
+		background: var(--watch-surface);
+	}
+
+	.demo-console > header {
+		display: flex;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 0.85rem 1rem;
+		border-bottom: 1px solid var(--watch-rule);
+		font: 0.64rem/1.4 'Fragment Mono', monospace;
+		letter-spacing: 0.07em;
+	}
+
+	.demo-console > header i {
+		color: #7ee0b6;
+		font-style: normal;
+	}
+
+	.console-event {
+		padding: clamp(1.5rem, 4vw, 3rem);
+	}
+
+	.event-meta {
+		display: flex;
+		justify-content: space-between;
+		gap: 1rem;
+		color: var(--watch-muted);
+		font: 0.68rem/1.4 'Fragment Mono', monospace;
+	}
+
+	.event-meta strong {
+		color: #ff7f9d;
+	}
+
+	.event-protocol {
+		margin: 3.5rem 0 0;
+		color: var(--watch-blue-soft);
+		font: 0.7rem/1.4 'Fragment Mono', monospace;
+		text-transform: uppercase;
+	}
+
+	.console-event h3 {
+		max-width: 15ch;
+		margin: 0.65rem 0 0;
+		font: 500 clamp(2rem, 4vw, 3.7rem)/1 'Archivo SemiCondensed', sans-serif;
+		letter-spacing: -0.035em;
+	}
+
+	.console-event > p:last-of-type {
+		max-width: 38rem;
+		color: var(--watch-muted);
+		line-height: 1.55;
+	}
+
+	.console-event > a,
+	.demo-console nav a {
+		font-size: 0.87rem;
+		font-weight: 600;
+		text-decoration: none;
+	}
+
+	.console-event > a {
+		display: inline-flex;
+		gap: 1rem;
+		margin-top: 1rem;
+		color: var(--watch-blue-soft);
+	}
+
+	.demo-console nav {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		border-top: 1px solid var(--watch-rule);
+	}
+
+	.demo-console nav a {
+		display: flex;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 1rem;
+		border-right: 1px solid var(--watch-rule);
+	}
+
+	.demo-console nav a:last-child {
+		border-right: 0;
+	}
+
+	.demo-console nav a:hover {
+		background: rgba(109, 131, 255, 0.08);
+		color: var(--watch-blue-soft);
+	}
+
+	.firewatch-section {
+		display: grid;
+		grid-template-columns: minmax(23rem, 0.95fr) minmax(30rem, 1.05fr);
+		gap: clamp(3rem, 6vw, 6rem);
+		align-items: start;
+		padding: clamp(4rem, 8vw, 7rem) 0;
+	}
+
+	.firewatch-copy h2 {
+		max-width: 15ch;
+		margin-top: 0.9rem;
+		font-size: clamp(2.8rem, 3.8vw, 4rem);
+	}
+
+	.firewatch-copy > p {
+		max-width: 35rem;
+		margin: 1.6rem 0 0;
+	}
+
+	.firewatch-evidence {
+		border-top: 1px solid var(--watch-rule-strong);
+	}
+
+	.platform-lineage {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+		gap: 1.5rem;
+		align-items: center;
+		padding: 1.4rem 0;
+		border-bottom: 1px solid var(--watch-rule);
+	}
+
+	.platform-lineage > div:last-child {
+		text-align: right;
+	}
+
+	.platform-lineage span,
+	.platform-lineage strong,
+	.platform-lineage em {
+		display: block;
+	}
+
+	.platform-lineage span {
+		color: var(--watch-blue-soft);
+		font: 500 0.67rem/1.4 'Fragment Mono', monospace;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+	}
+
+	.platform-lineage strong {
+		margin-top: 0.3rem;
+		font: 500 1.65rem/1.15 'Archivo SemiCondensed', sans-serif;
+	}
+
+	.platform-lineage em {
+		margin-top: 0.3rem;
+		color: var(--watch-muted);
+		font-size: 0.78rem;
+		font-style: normal;
+	}
+
+	.platform-lineage > i {
+		color: var(--watch-blue-soft);
+		font: normal 1rem/1 'Fragment Mono', monospace;
+	}
+
+	.firewatch-description {
+		max-width: 50rem;
+		margin: 1.6rem 0;
+		color: var(--watch-muted);
+		font-size: 1rem;
+		line-height: 1.65;
+	}
+
+	.firewatch-facts {
+		margin: 0;
+		border-top: 1px solid var(--watch-rule);
+	}
+
+	.firewatch-facts div {
+		display: grid;
+		grid-template-columns: minmax(8.5rem, 0.4fr) minmax(0, 1fr);
+		gap: 1.5rem;
+		align-items: baseline;
+		padding: 1rem 0;
+		border-bottom: 1px solid var(--watch-rule);
+	}
+
+	.firewatch-facts dt {
+		font: 500 0.95rem/1.35 'Archivo SemiCondensed', sans-serif;
+	}
+
+	.firewatch-facts dd {
+		margin: 0;
+		color: var(--watch-muted);
+		font-size: 0.88rem;
+		line-height: 1.45;
+	}
+
+	.scope-columns {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1px;
+		margin-top: clamp(3rem, 6vw, 5rem);
+		border: 1px solid var(--watch-rule-strong);
+		background: var(--watch-rule);
+	}
+
+	.scope-columns > div {
+		padding: clamp(1.5rem, 4vw, 3rem);
+		background: var(--watch-surface);
+	}
+
+	.scope-columns h3 {
+		margin: 0;
+		font: 500 1.5rem/1.2 'Archivo SemiCondensed', sans-serif;
+	}
+
+	.roadmap-section {
+		display: grid;
+		grid-template-columns: minmax(18rem, 0.65fr) minmax(32rem, 1.35fr);
+		gap: clamp(3rem, 8vw, 8rem);
+		border-top: 1px solid var(--watch-rule);
+	}
+
+	.roadmap-section h2 {
+		font-size: clamp(2.5rem, 4.5vw, 4.7rem);
+	}
+
+	.roadmap-section ol {
+		margin: 0;
+		padding: 0;
+		border-top: 1px solid var(--watch-rule-strong);
+		list-style: none;
+	}
+
+	.roadmap-section li {
+		display: grid;
+		grid-template-columns: 3rem 12rem 1fr;
+		gap: 1rem;
+		align-items: baseline;
+		padding: 1.4rem 0;
+		border-bottom: 1px solid var(--watch-rule);
+	}
+
+	.roadmap-section li h3 {
+		margin: 0;
+		font: 500 1.15rem/1.3 'Archivo SemiCondensed', sans-serif;
+	}
+
+	.roadmap-section li p {
+		margin: 0;
+	}
+
+	.team-section {
+		display: flex;
+		justify-content: space-between;
+		gap: 3rem;
+		align-items: end;
+		padding: 3rem 0;
+	}
+
+	.team-section > div {
+		max-width: 58rem;
+	}
+
+	.team-section h2 {
+		margin-top: 0.7rem;
+		font-size: clamp(2rem, 4vw, 3.8rem);
+	}
+
+	.team-section a {
+		flex: 0 0 auto;
+		padding-bottom: 0.35rem;
+		border-bottom: 1px solid var(--watch-blue-soft);
+		color: var(--watch-blue-soft);
+		font-weight: 600;
+		text-decoration: none;
+	}
+
+	.closing-section {
+		padding: clamp(5rem, 10vw, 9rem) 0;
+		border-top: 1px solid var(--watch-rule);
+	}
+
+	.closing-section h2 {
+		max-width: 18ch;
+		font-size: clamp(3rem, 6vw, 6rem);
+	}
+
+	@media (max-width: 1000px) {
+		.hero {
+			grid-template-columns: 1fr;
+			min-height: auto;
 		}
 
-    .capability-ledger li {
-      grid-template-columns: 2rem minmax(0, 1fr);
-      gap: 0.6rem 0.8rem;
-    }
+		.hero-visual {
+			min-height: 34rem;
+		}
 
-    .capability-ledger p {
-      grid-column: 2;
-    }
+		.problem-section,
+		.section-heading {
+			grid-template-columns: 0.3fr 1fr;
+		}
 
-    .system-map ol {
-      grid-template-columns: 1fr;
-    }
+		.problem-section aside,
+		.section-heading > p {
+			grid-column: 2;
+		}
 
-    .system-map li,
-    .system-map li:nth-child(3) {
-      display: grid;
-      grid-template-columns: 2rem 7rem minmax(0, 1fr);
-      gap: 0.8rem;
-      min-height: 0;
-      padding: 1rem 0;
-      border-top: 0;
-      border-right: 0;
-      border-bottom: 1px solid var(--atlas-rule);
-    }
+		.firewatch-section {
+			grid-template-columns: 1fr;
+			gap: 2.5rem;
+		}
 
-    .system-map li > span {
-      margin-bottom: 0;
-    }
+		.firewatch-copy h2,
+		.firewatch-copy > p {
+			max-width: 42rem;
+		}
 
-    .system-map p {
-      margin-top: 0;
-    }
+		.signal-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
 
-    .incident-record {
-      grid-template-columns: 1fr;
-    }
+		.signal-grid article:nth-child(2) {
+			border-right: 0;
+		}
 
-    .incident-record > header,
-    .incident-summary,
-    .incident-events,
-    .incident-record > footer {
-      grid-column: 1;
-    }
+		.signal-grid article:nth-child(-n + 2) {
+			border-bottom: 1px solid var(--watch-rule);
+		}
 
-    .incident-summary,
-    .incident-events {
-      margin-top: 1rem;
-    }
+		.workflow-section,
+		.demo-section,
+		.roadmap-section {
+			grid-template-columns: 1fr;
+		}
 
-    .incident-record > footer {
-      align-items: flex-start;
-      flex-direction: column;
-    }
+	}
 
-    .incident-record > footer div {
-      justify-content: flex-start;
-    }
+	@media (max-width: 680px) {
+		.hero,
+		.problem-section,
+		.signals-section,
+		.workflow-section,
+		.demo-section,
+		.firewatch-section,
+		.scope-section,
+		.roadmap-section,
+		.team-section,
+		.closing-section {
+			width: min(100vw - 2rem, 1320px);
+		}
 
-    .roadmap-track {
-      grid-template-columns: 1fr;
-      border-left: 1px solid var(--atlas-violet);
-    }
+		.hero {
+			padding-top: 3.25rem;
+		}
 
-    .roadmap-phase,
-    .roadmap-phase:last-child,
-    .roadmap-phase:nth-child(2n) {
-      min-height: 0;
-      padding: 1.2rem 0 1.8rem 1.2rem;
-      border-right: 0;
-      border-bottom: 1px solid rgba(100, 54, 232, 0.22);
-    }
+		.hero h1 {
+			font-size: clamp(3.3rem, 17vw, 5rem);
+		}
 
-    .roadmap-phase.current::before {
-      top: 0;
-      bottom: 0;
-      left: -4px;
-      width: 7px;
-      height: auto;
-    }
+		.hero-actions,
+		.closing-section > div {
+			align-items: stretch;
+			flex-direction: column;
+		}
 
-    .phase-coordinate {
-      margin-bottom: 1.5rem;
-    }
+		.availability,
+		.scope-columns {
+			grid-template-columns: 1fr;
+		}
 
-    .phase-window {
-      min-height: 0;
-    }
+		.availability div + div {
+			padding-left: 0;
+			border-top: 1px solid var(--watch-rule);
+			border-left: 0;
+		}
 
-    .phase-gate {
-      margin-top: 1rem;
-    }
+		.hero-visual {
+			min-height: 28rem;
+		}
 
-    .closing-grid > div {
-      margin-top: 2rem;
-    }
-  }
+		.problem-section,
+		.section-heading {
+			grid-template-columns: 1fr;
+		}
 
-  @media (prefers-reduced-motion: reduce) {
-    :global(html) {
-      scroll-behavior: auto;
-    }
-  }
+		.problem-section aside,
+		.section-heading > p {
+			grid-column: auto;
+		}
+
+		.signal-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.signal-grid article {
+			min-height: 13rem;
+			border-right: 0;
+			border-bottom: 1px solid var(--watch-rule);
+		}
+
+		.signal-grid article:last-child {
+			border-bottom: 0;
+		}
+
+		.signal-grid h3 {
+			margin-top: 3rem;
+		}
+
+		.workflow-list li,
+		.roadmap-section li {
+			grid-template-columns: 2rem 1fr;
+		}
+
+		.workflow-list p,
+		.roadmap-section li p {
+			grid-column: 2;
+		}
+
+		.demo-console nav {
+			grid-template-columns: 1fr;
+		}
+
+		.demo-console nav a {
+			border-right: 0;
+			border-bottom: 1px solid var(--watch-rule);
+		}
+
+		.demo-console nav a:last-child {
+			border-bottom: 0;
+		}
+
+		.platform-lineage {
+			gap: 0.75rem;
+		}
+
+		.platform-lineage strong {
+			font-size: 1.35rem;
+		}
+
+		.platform-lineage em {
+			font-size: 0.7rem;
+		}
+
+		.firewatch-facts div {
+			grid-template-columns: 1fr;
+			gap: 0.25rem;
+		}
+
+		.team-section {
+			align-items: flex-start;
+			flex-direction: column;
+		}
+	}
 </style>

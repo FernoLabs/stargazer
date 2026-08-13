@@ -1,0 +1,15 @@
+[Unit]
+Description=Stargazer read API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/volume1/stargazer/stargazer/bin/stargazer-read-api --db /volume1/stargazer/stargazer/index/stargazer-one-year-compact.sqlite --serving-db /volume1/stargazer/stargazer/index/stargazer-serving.sqlite --governance-dir /volume1/stargazer/stargazer/governance/state --host 127.0.0.1 --port 8787 --query-timeout-ms 30000 --cors-origin http://192.168.1.45:5173
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=default.target

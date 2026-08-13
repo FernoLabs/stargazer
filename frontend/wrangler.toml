@@ -1,4 +1,8 @@
 name = "ferno-pulsar"
-compatibility_date = "2026-05-22"
+compatibility_date = "2026-08-01"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = ".svelte-kit/cloudflare"
+
+[[services]]
+binding = "STARGAZER_NAS_GATEWAY"
+service = "stargazer-nas-gateway"

@@ -170,9 +170,47 @@ Page immediately when live lag exceeds the recent source's safe recovery margin.
 
 ## Capacity notes
 
-SDF's full-history Galexie guide estimated roughly 3 TB and about USD 1,100 for a complete full-network export at the time of publication. That estimate is useful for scale, not a fixed budget. Our initial smart-contract-only derived database will be much smaller, but retaining raw full-ledger XDR eventually approaches data-lake scale.
+SDF's full-history Galexie guide estimated roughly 3 TB and about USD 1,100 for
+a complete full-network export at the time of publication. That estimate is
+useful for scale, not a fixed budget. A stratified 100,000-object sample of the
+live AWS pubnet lake on 2026-07-24 projected about 5.1 TB of compressed payload
+(planning range 4.5–6 TB) across 63.6 million per-ledger objects. Recent
+Soroban-era ledgers are much larger than early history, so reserve at least 6 TB
+plus comfortable filesystem-metadata headroom on the NAS.
+
+The NAS downloader runs one 64,000-ledger partition at a time with
+[`download-galexie-pubnet.sh`](../ingester/scripts/download-galexie-pubnet.sh).
+This bounds remote listings and memory while producing completed partitions the
+indexer can consume immediately. The live tip partition is deliberately never
+marked complete and is resynchronized on the next pass.
 
 Keep raw ledger metadata in object storage and searchable derived facts in the application database. SQLite is acceptable for the first vertical slice; plan a PostgreSQL migration before sustained parallel historical ingestion or high-cardinality analytics.
+
+## Protocol 23 archive provenance
+
+Stellar's Protocol 23 state-archival incident overlaps ledgers
+`58,762,517`–`59,501,299` in the NAS range. The local copy was verified on
+2026-07-27 with high confidence as the corrected post-v24.1.0 re-export:
+
+- all 12 overlapping 64,000-ledger partitions were copied on 2026-07-25 with
+  64,000 successful objects and zero errors per partition;
+- one object in every partition reports `stellar-core 24.1.0`, has a remote
+  last-modified date of 2025-12-07, and has an ETag equal to the local MD5;
+- the compact database contains all 738,783 inclusive ledgers in the affected
+  range with local archive paths.
+
+The executable-history signal is unaffected. It is derived from contract
+instance ledger-entry changes, separately from token-event payloads. SDF's 478
+affected keys contain no contract-code entries, and the 11 contract-instance
+keys preserve the same executable kind and Wasm hash between the correct and
+corrupted values. The affected Reflector DAO instance is therefore represented
+as a restoration, not a program upgrade.
+
+The corrected raw archive contains the re-emitted Stellar Events, but the
+compact index retains only event-derived contract-touch facts. A dedicated raw
+reparse is still required before Stargazer can claim a complete token-transfer
+event table. This incident should be classified as `network/state-integrity`,
+not as a hack or executable-upgrade alert.
 
 ## References
 
@@ -186,6 +224,7 @@ Keep raw ledger metadata in object storage and searchable derived facts in the a
 - [Galexie](https://developers.stellar.org/docs/data/indexers/build-your-own/galexie)
 - [Public Galexie providers](https://developers.stellar.org/docs/data/indexers/build-your-own/galexie/providers)
 - [Full-history Galexie guidance](https://developers.stellar.org/docs/data/indexers/build-your-own/galexie/admin_guide/full-history-exporting)
+- [Reconciling Stellar Events after Protocol 23](https://stellar.org/blog/developers/reconciling-stellar-events)
+- [Protocol 23 state-archival post-mortem](https://stellar.org/blog/foundation-news/state-archival-issue-post-mortem)
 - [Stellar validator types](https://developers.stellar.org/docs/validators)
 - [History archives](https://developers.stellar.org/docs/validators/admin-guide/environment-preparation#history-archives)
-
