@@ -9,47 +9,38 @@ export interface ProtocolBrand {
 const PROTOCOL_BRANDS: Readonly<Record<string, ProtocolBrand>> = {
 	aquarius: {
 		name: 'Aquarius',
-		logoPath: '/protocols/aquarius.svg',
 		logoSurface: 'light'
 	},
 	'blend-v2': {
 		name: 'Blend v2',
-		logoPath: '/protocols/blend-v2.svg',
 		logoSurface: 'light'
 	},
 	defindex: {
 		name: 'DeFindex',
-		logoPath: '/protocols/defindex.svg',
-		logoSurface: 'dark'
+		logoSurface: 'light'
 	},
 	fxdao: {
 		name: 'FxDAO',
-		logoPath: '/protocols/fxdao.svg',
 		logoSurface: 'light'
 	},
 	phoenix: {
 		name: 'Phoenix',
-		logoPath: '/protocols/phoenix.svg',
-		logoSurface: 'dark'
+		logoSurface: 'light'
 	},
 	reflector: {
 		name: 'Reflector',
-		logoPath: '/protocols/reflector.svg',
 		logoSurface: 'light'
 	},
 	soroswap: {
 		name: 'Soroswap',
-		logoPath: '/protocols/soroswap.svg',
-		logoSurface: 'dark'
+		logoSurface: 'light'
 	},
 	yieldblox: {
 		name: 'YieldBlox',
-		logoPath: '/protocols/yieldblox.svg',
 		logoSurface: 'light'
 	},
 	'yieldblox-blend-v2-pool': {
 		name: 'YieldBlox pool',
-		logoPath: '/protocols/yieldblox.svg',
 		logoSurface: 'light'
 	}
 };

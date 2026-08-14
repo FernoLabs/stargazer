@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-s5cmd_bin="${S5CMD_BIN:-/srv/stargazer/bin/s5cmd}"
-destination="${STARGAZER_ARCHIVE_ROOT:-/srv/stargazer/raw/galexie/pubnet}"
+s5cmd_bin="${S5CMD_BIN:-s5cmd}"
+destination="${STARGAZER_ARCHIVE_ROOT:-/srv/stargazer/archive/galexie/pubnet}"
 state_dir="${STARGAZER_DOWNLOAD_STATE_DIR:-${destination}.state}"
 s3_source="${STELLAR_GALEXIE_S3:-s3://aws-public-blockchain/v1.1/stellar/ledgers/pubnet}"
 workers="${S5CMD_WORKERS:-64}"

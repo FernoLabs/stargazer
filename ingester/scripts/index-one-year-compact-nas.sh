@@ -2,10 +2,10 @@
 
 set -euo pipefail
 
-reader="${STARGAZER_READER_BIN:-/srv/stargazer/bin/stargazer-ledger-reader}"
-archive="${STARGAZER_ARCHIVE_ROOT:-/srv/stargazer/raw/galexie/pubnet}"
-database="${STARGAZER_INDEX_DB:-/srv/stargazer/index/stargazer-one-year-compact.sqlite}"
-protocol_roots="${STARGAZER_PROTOCOL_ROOTS:-/srv/stargazer/config/stellar-mainnet-defi-roots.json}"
+reader="${STARGAZER_READER_BIN:-/usr/local/bin/stargazer-ledger-reader}"
+archive="${STARGAZER_ARCHIVE_ROOT:-/srv/stargazer/archive/galexie/pubnet}"
+database="${STARGAZER_INDEX_DB:-/var/lib/stargazer/index/stargazer-one-year-compact.sqlite}"
+protocol_roots="${STARGAZER_PROTOCOL_ROOTS:-/etc/stargazer/stellar-mainnet-defi-roots.json}"
 retention_days="${STELLAR_RETENTION_DAYS:-365}"
 decode_workers="${STARGAZER_DECODE_WORKERS:-2}"
 decode_ahead="${STARGAZER_DECODE_AHEAD:-4}"

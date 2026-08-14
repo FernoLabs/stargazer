@@ -60,7 +60,7 @@
 		'Historical incidents connected to exposed wallets and protocol surfaces'
 	] as const;
 
-	const grantScope = [
+	const developmentScope = [
 		'Continuous Soroban deployment, upgrade, and protocol-control monitoring',
 		'Repository, governance, SDK, package, and release signals',
 		'AI-assisted dependency impact analysis and concise summaries',
@@ -138,7 +138,7 @@
 	</div>
 
 	<figure class="hero-visual" aria-label="Stargazer monitoring Stellar protocol signals">
-		<img src="/brand/stargazer-cosmic-hero.jpeg" alt="" />
+		<img src="/brand/stargazer-cosmic-hero-public.jpeg" alt="" />
 		<div class="visual-shade"></div>
 		<figcaption>
 			<span>Stellar Mainnet</span>
@@ -314,7 +314,7 @@
 		<div>
 			<h3>In development</h3>
 			<ul>
-				{#each grantScope as item (item)}<li>{item}</li>{/each}
+				{#each developmentScope as item (item)}<li>{item}</li>{/each}
 			</ul>
 		</div>
 	</div>

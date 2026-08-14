@@ -14,15 +14,13 @@ production alerting service.
 The active tree contains:
 
 - the deployable Stargazer product website and real-data wallet dashboard;
-- an unlisted, non-indexed SCF application working page;
 - a bounded-memory Rust archive reader, compact SQLite reverse index, and read-only API;
 - a separate Telegram pairing and alert-policy control plane with fail-closed billing;
 - Stellar RPC, registry, multisig, parser, and incident research;
 - a source-attributed Stellar Mainnet DeFi registry seed and governance watcher.
 
 Only Stellar-facing product and research work belongs in this repository. Prior runtime
-implementations remain available through Git history but are not part of the active
-Stargazer codebase.
+implementations and private planning material are not part of this public codebase.
 
 ## Architecture direction
 
@@ -52,9 +50,9 @@ delivery remain separate trust boundaries.
 ## Repository map
 
 ```text
-frontend/       SvelteKit product site and SCF working page
+frontend/       SvelteKit product site and dashboard
 ingester/       Archive indexer, read API, alert control, provider probes, and registry seed
-docs/           Architecture, provider, protocol, parser, and grant research
+docs/           Architecture, provider, protocol, and parser research
 ```
 
 ## Start here
@@ -64,8 +62,6 @@ docs/           Architecture, provider, protocol, parser, and grant research
 3. [Contract registry research](docs/stellar-contract-registry-research.md)
 4. [DeFi backfill parser and incident plan](docs/stellar-defi-backfill-parser-plan.md)
 5. [Ingestion service boundary](ingester/README.md)
-6. [SCF grant-readiness plan](docs/stellar-scf-grant-readiness.md)
-7. [SCF Build application draft](docs/stellar-scf-application-draft.md)
 
 ## Current vertical slice
 
@@ -106,6 +102,10 @@ Cloudflare Pages deployment runs through
 [`.github/workflows/cloudflare-pages.yml`](.github/workflows/cloudflare-pages.yml).
 The public product domain is [`stargazer.ferno.ag`](https://stargazer.ferno.ag/).
 The previous `stellarwatch.ferno.ag` hostname remains available as a legacy alias.
+
+Public releases must start from a reviewed snapshot with clean Git history. See
+the [public release checklist](docs/public-release-checklist.md). Report security
+issues through [SECURITY.md](SECURITY.md).
 
 ## License
 

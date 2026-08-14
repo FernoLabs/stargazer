@@ -23,7 +23,7 @@ Run it against a local or mounted archive with:
 
 ```bash
 cargo run --release --manifest-path reader-rs/Cargo.toml -- index \
-  --root /srv/stargazer/raw/galexie/pubnet \
+  --root /srv/stargazer/archive/galexie/pubnet \
   --db ./data/stargazer-mainnet.sqlite --limit 10 \
   --decode-workers 2 --decode-ahead 4
 ```
@@ -204,16 +204,16 @@ the window may also have no executable row. Removing this limitation requires
 a trusted contract-state snapshot at the cutoff or replay from earlier
 history.
 
-### NAS paths and service
+### Example archive paths and service
 
-The deployed one-year compact run uses:
+One deployment can use these conventional paths:
 
-- reader: `/srv/stargazer/bin/stargazer-ledger-reader`;
-- runner: `/srv/stargazer/bin/index-one-year-compact-nas.sh`;
-- archive: `/srv/stargazer/raw/galexie/pubnet`;
-- database: `/srv/stargazer/index/stargazer-one-year-compact.sqlite`;
-- protocol seed: `/srv/stargazer/config/stellar-mainnet-defi-roots.json`;
-- lock: `/srv/stargazer/index/stargazer-one-year-compact.sqlite.indexer.lock`.
+- reader: `/usr/local/bin/stargazer-ledger-reader`;
+- runner: `/opt/stargazer/ingester/scripts/index-one-year-compact-nas.sh`;
+- archive: `/srv/stargazer/archive/galexie/pubnet`;
+- database: `/var/lib/stargazer/index/stargazer-one-year-compact.sqlite`;
+- protocol seed: `/etc/stargazer/stellar-mainnet-defi-roots.json`;
+- lock: `/var/lib/stargazer/index/stargazer-one-year-compact.sqlite.indexer.lock`.
 
 The runner selects the latest approximate 365-day range, processes closed
 partitions oldest first, excludes the changing live partition, and resumes the
@@ -223,10 +223,10 @@ same database after failure. Its environment overrides are
 `STARGAZER_DECODE_WORKERS`, `STARGAZER_DECODE_AHEAD`, and
 `STARGAZER_BATCH_LEDGERS`.
 
-The current process runs as the transient user unit
+The process can run as the transient user unit
 `stargazer-one-year-compact-indexer.service`; systemd exposes its generated
 unit at
-`/run/user/$(id -u)/systemd/transient/stargazer-one-year-compact-indexer.service`.
+`/run/user/<uid>/systemd/transient/stargazer-one-year-compact-indexer.service`.
 It restarts on failure after 30 seconds, but because it is transient it must be
 launched again after a NAS reboot. From an SSH session, inspect it with:
 

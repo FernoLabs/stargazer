@@ -7,7 +7,7 @@ import {
 } from '$lib/dashboard/live';
 
 const DEFAULT_API_BASE = 'http://127.0.0.1:8787';
-const PRIVATE_GATEWAY_BASE = 'http://stargazer-api.invalid';
+const PRIVATE_GATEWAY_BASE = 'http://stargazer-private-gateway.invalid';
 type PrivateGateway = NonNullable<App.Platform['env']['STARGAZER_NAS_GATEWAY']>;
 
 export function createLiveDashboardClient(

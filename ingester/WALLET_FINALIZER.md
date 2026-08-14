@@ -32,9 +32,9 @@ database has been backed up and verified.
 
 ```bash
 stargazer-wallet-finalizer \
-  --compact-db /srv/stargazer/index/stargazer-one-year-compact.sqlite \
-  --output /srv/stargazer/index/stargazer-serving.sqlite \
-  --work-dir /srv/stargazer/tmp/wallet-finalizer
+  --compact-db /var/lib/stargazer/index/stargazer-one-year-compact.sqlite \
+  --output /var/lib/stargazer/index/stargazer-serving.sqlite \
+  --work-dir /var/lib/stargazer/tmp/wallet-finalizer
 ```
 
 The default 256 shards keep peak memory bounded on the 8 GiB NAS. Progress is flushed to

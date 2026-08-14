@@ -46,7 +46,7 @@ Keep SQLite on a local SSD while reading archive files from the NAS:
 
 ```bash
 ingester/reader-rs/target/release/stargazer-ledger-reader index \
-  --root /srv/stargazer/raw/galexie/pubnet \
+  --root /srv/stargazer/archive/galexie/pubnet \
   --db ./data/stargazer-mainnet.sqlite \
   --batch-ledgers 200 \
   --decode-workers 2 \
@@ -106,16 +106,16 @@ network ID at startup, opens SQLite with `READ_ONLY` and `query_only`, caps page
 sizes, interrupts SQLite statements at a deadline, and limits concurrent query
 workers.
 
-On the NAS, bind explicitly to the LAN interface and allow the exact browser
-origin used by the Svelte development server:
+On a private archive host, bind explicitly to the required interface and allow
+only the exact browser origin used by the Svelte development server:
 
 ```bash
 ingester/reader-rs/target/release/stargazer-read-api \
-  --db /srv/stargazer/index/stargazer-one-year-compact.sqlite \
-  --serving-db /srv/stargazer/index/stargazer-wallet-serving.sqlite \
+  --db /var/lib/stargazer/index/stargazer-one-year-compact.sqlite \
+  --serving-db /var/lib/stargazer/index/stargazer-wallet-serving.sqlite \
   --host 0.0.0.0 \
   --port 8787 \
-  --cors-origin http://192.0.2.10:5173
+  --cors-origin https://stargazer.example
 ```
 
 The equivalent environment variables are `STARGAZER_INDEX_DB`,

@@ -20,9 +20,6 @@ The public product page is served at `/`. The product preview is under `/app`, w
 - `/app/protocols/[id]` — registered roots, exact executable history, upgrade
   dates, controller policy, and transaction evidence for one protocol.
 
-The grant working page is served at `/scf/application` with `noindex`, `nofollow`, and
-`noarchive` headers.
-
 The product data routes use a typed read-only API colocated with the NAS archive
 index. Wallet relationships, serving-snapshot rankings, contract usage, and
 executable histories are real indexed facts. Historical wallet findings come
@@ -45,11 +42,9 @@ enables it, and otherwise states that payment is not configured. The alert
 delivery worker is not connected in this POC. No placeholder invoice, delivery
 claim, or unverified entitlement is created.
 
-Protocol identity marks are served locally from `static/protocols`; the source
-and usage notes for every third-party mark are recorded in
-[`static/protocols/README.md`](static/protocols/README.md). The UI keeps the
-protocol name visible and falls back to initials for unknown IDs, so logos are
-decorative context rather than the only identifier.
+Protocol identities use local initials. The UI keeps the full protocol name
+visible, so the initials are decorative context rather than the only
+identifier.
 
 Unattributed contracts use deterministic local identicons and their on-chain
 C-address. They remain explicitly separate from verified protocol identities;

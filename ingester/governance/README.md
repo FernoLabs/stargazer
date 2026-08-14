@@ -9,7 +9,7 @@ Run one complete cycle:
 
 ```sh
 node ingester/governance/watcher.mjs --once \
-  --output-dir /srv/stargazer/governance/state
+  --output-dir /var/lib/stargazer/governance/state
 ```
 
 Omit `--once` to poll every 60 seconds. `--horizon-url`, `--interval-ms`,
@@ -63,7 +63,7 @@ state on `/api/protocols`:
 stargazer-read-api \
   --db /path/to/stargazer-one-year-compact.sqlite \
   --serving-db /path/to/stargazer-serving.sqlite \
-  --governance-dir /srv/stargazer/governance/state
+  --governance-dir /var/lib/stargazer/governance/state
 ```
 
 The equivalent environment variable is `STARGAZER_GOVERNANCE_DIR`. Missing

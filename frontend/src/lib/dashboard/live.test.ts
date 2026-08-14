@@ -107,7 +107,7 @@ function walletResponse(alerts: unknown, alertCount: number | null = null) {
 
 test('maps exact wallet relationships while preserving unavailable values as null', async () => {
 	let requestedUrl = '';
-	const client = new LiveDashboardClient('http://192.0.2.10:8787/', {
+	const client = new LiveDashboardClient('http://nas.test/', {
 		fetch: async (input) => {
 			requestedUrl = String(input);
 			return jsonResponse(
@@ -126,7 +126,7 @@ test('maps exact wallet relationships while preserving unavailable values as nul
 	const result = await client.getWallet(parsedAccount.value.address);
 	assert.equal(
 		requestedUrl,
-		`http://192.0.2.10:8787/api/wallets/${ACCOUNT}?limit=100`
+		`http://nas.test/api/wallets/${ACCOUNT}?limit=100`
 	);
 	assert.equal(result.summary.transactionCount, null);
 	assert.equal(result.summary.transactionRank, null);
