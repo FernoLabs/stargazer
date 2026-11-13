@@ -257,11 +257,12 @@
 
 <section class="firewatch-section" id="firewatch" aria-labelledby="firewatch-title">
 	<div class="firewatch-copy">
-		<div class="section-index">05 / Proven infrastructure</div>
-		<h2 id="firewatch-title">Proven infrastructure, adapted for Stellar.</h2>
+		<div class="section-index">05 / Foundation</div>
+		<h2 id="firewatch-title">Built on Firewatch, adapted for Stellar.</h2>
 		<p>
-			Stargazer extends Firewatch, Ferno’s live protocol-intelligence platform for Solana. The
-			foundation is already used by developers, teams, and ecosystem contributors.
+			Stargazer extends Firewatch, the protocol-intelligence engine Ferno built for Solana. The public
+			Firewatch alert feed was archived on 16 July 2026. The engine still runs in production inside
+			Firestrat.
 		</p>
 	</div>
 	<div class="firewatch-evidence">
@@ -269,7 +270,7 @@
 			<div>
 				<span>Firewatch</span>
 				<strong>Solana</strong>
-				<em>Live in production</em>
+				<em>Engine in production in Firestrat</em>
 			</div>
 			<i aria-hidden="true">→</i>
 			<div>
@@ -284,8 +285,14 @@
 			Soroban contracts and the wider Stellar developer stack.
 		</p>
 		<dl class="firewatch-facts">
-			<div><dt>Operational</dt><dd>Live protocol intelligence on Solana</dd></div>
-			<div><dt>Used in practice</dt><dd>Adopted by developers and ecosystem teams</dd></div>
+			<div><dt>Engine</dt><dd>In production inside Firestrat on Solana</dd></div>
+			<div>
+				<dt>Public feed</dt>
+				<dd>
+					Archived on 16 July 2026; the alert history stays readable at
+					<a href="https://watch.ferno.ag">watch.ferno.ag</a>
+				</dd>
+			</div>
 			<div><dt>Shared foundation</dt><dd>Monitoring, analysis, and notification infrastructure</dd></div>
 		</dl>
 	</div>
@@ -978,6 +985,11 @@
 		color: var(--watch-muted);
 		font-size: 0.88rem;
 		line-height: 1.45;
+	}
+
+	.firewatch-facts dd a {
+		color: var(--watch-blue-soft);
+		text-underline-offset: 0.18em;
 	}
 
 	.scope-columns {
