@@ -65,7 +65,7 @@ export const VERIFIED_INCIDENTS: readonly VerifiedIncident[] = [
 		primaryContract: null,
 		evidenceTransaction: null,
 		archiveStatus:
-			'NAS provenance verified: all 12 overlapping partitions are the corrected stellar-core 24.1.0 re-export. Executable hashes were unaffected; full token-event payloads still require a dedicated reparse.',
+			'Archive provenance verified: all 12 overlapping partitions are the corrected stellar-core 24.1.0 re-export. Executable hashes were unaffected; full token-event payloads still require a dedicated reparse.',
 		sources: [
 			{
 				label: 'SDF post-mortem',

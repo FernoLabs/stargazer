@@ -50,7 +50,7 @@
 		<p class="doc-kicker">Pipeline / Archive indexer</p>
 		<h1>Local history is the development and recovery surface.</h1>
 		<p class="doc-lede">
-			Stargazer mirrors Stellar's Galexie ledger data onto local NAS storage, then replays it with a
+			Stargazer mirrors Stellar's Galexie ledger data onto local storage, then replays it with a
 			bounded Rust pipeline. Parsing experiments, schema changes, new protocol modules, and incident
 			research can run repeatedly without depending on remote RPC retention.
 		</p>
@@ -75,7 +75,7 @@
 			<h2>A mirror, not a validator.</h2>
 		</div>
 		<p>
-			The NAS contains a local mirror of Galexie <code>LedgerCloseMeta</code> objects. It does not
+			The archive host keeps a local mirror of Galexie <code>LedgerCloseMeta</code> objects. It does not
 			participate in consensus and should not be described as a Stellar validator. The downloader works
 			one 64,000-ledger partition at a time, reuses existing files by size, and records completion only
 			for closed partitions.
@@ -133,24 +133,24 @@
 					<tr>
 						<td>Parallel decode</td>
 						<td>Fixed worker pool and hard decode-ahead limit</td>
-						<td>Two workers, four in-flight ledgers in the NAS runner</td>
+						<td>Two workers, four in-flight ledgers in the archive runner</td>
 					</tr>
 					<tr>
 						<td>Database writes</td>
 						<td>One ordered writer with atomic batches</td>
-						<td>2,000 ledgers per compact NAS batch</td>
+						<td>2,000 ledgers per compact batch</td>
 					</tr>
 					<tr>
 						<td>Wallet ranking</td>
 						<td>256 disk-backed shards, one aggregated at a time</td>
-						<td>Designed to stay bounded on the 8 GiB NAS</td>
+						<td>Designed to stay bounded on an 8 GiB archive host</td>
 					</tr>
 				</tbody>
 			</table>
 		</div>
 		<p>
 			A representative 1,000-ledger local soak measured 56.6 ledgers per second with two decoders;
-			that is an engineering benchmark, not a production service-level promise. NAS throughput depends
+			that is an engineering benchmark, not a production service-level promise. Throughput depends
 			on ledger mix, storage, database size, and the derived facts enabled for a run.
 		</p>
 	</section>

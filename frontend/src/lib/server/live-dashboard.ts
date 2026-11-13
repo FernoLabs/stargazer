@@ -31,7 +31,7 @@ export function liveDashboardErrorMessage(error: unknown): string {
 			case 'timeout':
 				return 'The archive query took too long. Try again in a moment.';
 			case 'network':
-				return 'The NAS read service cannot be reached right now.';
+				return 'The archive read service cannot be reached right now.';
 			case 'configuration':
 				return 'The archive read service is not configured correctly.';
 			case 'invalid-response':
