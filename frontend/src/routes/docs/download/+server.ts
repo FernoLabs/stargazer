@@ -1,5 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 
 export function GET(): never {
-	redirect(307, '/docs/stargazer-technical-documentation.pdf');
+	// The August 2026 PDF is retired; the current architecture lives on one page.
+	redirect(308, '/docs/architecture');
 }
