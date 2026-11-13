@@ -929,6 +929,134 @@
 	font: 0.8rem/1.65 'Fragment Mono', monospace;
 }
 
+/* Note shown on the pages that describe the August 2026 proof of concept. */
+.docs-poc-note {
+	margin: 0 0 1.75rem;
+	padding: 0.9rem 1.1rem;
+	border: 1px solid var(--docs-border-strong);
+	border-left: 3px solid #f2b45a;
+	border-radius: 0.35rem;
+	background: var(--docs-surface);
+}
+
+.docs-poc-note strong {
+	display: block;
+	color: var(--docs-ink);
+	font-size: 0.86rem;
+	font-weight: 600;
+}
+
+.docs-poc-note p {
+	margin: 0.35rem 0 0;
+	color: var(--docs-muted);
+	font-size: 0.92rem;
+	line-height: 1.55;
+}
+
+.docs-poc-note a {
+	color: var(--docs-accent);
+}
+
+/* Pages rendered from repository Markdown, such as docs/ARCHITECTURE.md. */
+.doc-markdown {
+	color: var(--docs-muted);
+	font-size: 0.98rem;
+	line-height: 1.68;
+}
+
+.doc-markdown > h1 {
+	max-width: 20ch;
+	margin: 0;
+	color: var(--docs-ink);
+	font: 500 clamp(2.25rem, 3vw, 2.75rem)/1.08 'Archivo SemiCondensed', sans-serif;
+	letter-spacing: -0.025em;
+}
+
+.doc-markdown > h1 + p {
+	max-width: 48rem;
+	margin-top: 1rem;
+	font-size: 1.02rem;
+	line-height: 1.62;
+}
+
+.doc-markdown > h2 {
+	margin: 2.6rem 0 0;
+	color: var(--docs-ink);
+	font: 500 1.65rem/1.25 'Archivo SemiCondensed', sans-serif;
+	letter-spacing: -0.015em;
+	scroll-margin-top: 5rem;
+}
+
+.doc-markdown > h3 {
+	margin: 1.6rem 0 0;
+	color: var(--docs-ink);
+	font: 500 1.15rem/1.35 'Archivo SemiCondensed', sans-serif;
+	scroll-margin-top: 5rem;
+}
+
+.doc-markdown > p {
+	max-width: 46rem;
+	margin: 0.8rem 0 0;
+}
+
+.doc-markdown > ul,
+.doc-markdown > ol {
+	max-width: 46rem;
+	margin: 0.8rem 0 0;
+	padding-left: 1.25rem;
+}
+
+.doc-markdown li + li {
+	margin-top: 0.35rem;
+}
+
+.doc-markdown strong {
+	color: var(--docs-ink);
+	font-weight: 600;
+}
+
+.doc-markdown a {
+	color: var(--docs-accent);
+	text-underline-offset: 0.18em;
+	overflow-wrap: anywhere;
+}
+
+.doc-markdown hr {
+	margin: 2rem 0 0;
+	border: 0;
+	border-top: 1px solid var(--docs-border);
+}
+
+.doc-diagram {
+	margin: 1.5rem 0 0;
+	padding: 1rem;
+	overflow-x: auto;
+	border: 1px solid var(--docs-border);
+	border-radius: 0.45rem;
+	background: var(--docs-surface);
+}
+
+.doc-page .doc-diagram pre {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+}
+
+.doc-diagram-render svg {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	margin: 0 auto;
+}
+
+.doc-markdown > .doc-source-note {
+	margin-top: 3rem;
+	padding-top: 1rem;
+	border-top: 1px solid var(--docs-border);
+	font-size: 0.85rem;
+}
+
 @media (max-width: 1180px) {
 	.docs-toolbar-inner,
 	.docs-grid,

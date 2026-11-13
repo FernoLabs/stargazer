@@ -6,10 +6,12 @@ on:
       - "**"
     paths:
       - "frontend/**"
+      - "docs/ARCHITECTURE.md"
       - ".github/workflows/cloudflare-pages.yml"
   pull_request:
     paths:
       - "frontend/**"
+      - "docs/ARCHITECTURE.md"
       - ".github/workflows/cloudflare-pages.yml"
   workflow_dispatch:
 
