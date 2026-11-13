@@ -1,14 +1,17 @@
 export type DocsStatus = 'Implemented' | 'In progress' | 'Planned';
 
 export type DocsHref =
-	| '/docs'
 	| '/docs/architecture'
+	| '/docs/overview'
 	| '/docs/data-model'
 	| '/docs/archive-indexer'
 	| '/docs/live-ingestion'
 	| '/docs/backfill'
 	| '/docs/operations'
 	| '/docs/roadmap';
+
+/** Pages that describe the August 2026 proof of concept, not the current architecture. */
+export const PROOF_OF_CONCEPT_GROUP = 'Proof of concept (August 2026)';
 
 export type DocsSection = {
 	id: string;
@@ -30,10 +33,65 @@ export type DocsNavigationGroup = {
 
 export const docsNavigation = [
 	{
-		label: 'Start',
+		label: 'Architecture',
 		items: [
 			{
-				href: '/docs',
+				href: '/docs/architecture',
+				label: 'Technical architecture',
+				description:
+					'Live ingestion, contract control history, SEP-48 decoding, detectors, delivery, GuardVault, and Sentinel.',
+				keywords: [
+					'architecture',
+					'ingestion',
+					'RPC',
+					'control history',
+					'SEP-48',
+					'OpenZeppelin',
+					'Blend',
+					'detector',
+					'webhook',
+					'Telegram',
+					'GuardVault',
+					'Sentinel',
+					'DeFindex',
+					'vault',
+					'threat model',
+					'monitoring'
+				],
+				sections: [
+					{ id: 'summary', label: '1. Summary' },
+					{ id: 'what-exists-what-is-new', label: '2. What exists, what is new' },
+					{ id: 'why-stellar', label: '3. Why Stellar' },
+					{ id: 'overview', label: '4. Overview' },
+					{ id: 'ledger-sources', label: '5. Ledger sources' },
+					{ id: 'verification-and-atomic-commit', label: '6. Verification and atomic commit' },
+					{ id: 'contract-control-history', label: '7. Contract control history' },
+					{ id: 'attribution-and-decoding', label: '8. Attribution and decoding' },
+					{ id: 'detector-catalogue', label: '9. Detector catalogue' },
+					{ id: 'the-yieldblox-replay', label: '10. The YieldBlox replay' },
+					{ id: 'ai-context', label: '11. AI context' },
+					{ id: 'access-api-dashboard-status', label: '12. Access: API, dashboard, status' },
+					{ id: 'subscriptions-and-delivery', label: '13. Subscriptions and delivery' },
+					{ id: 'replayable-modules', label: '14. Replayable modules' },
+					{ id: 'the-protection-vault-guardvault-and-sentinel', label: '15. GuardVault and Sentinel' },
+					{ id: 'operations', label: '16. Operations' },
+					{ id: 'guarantees', label: '17. Guarantees' },
+					{ id: 'business-model', label: '18. Business model' },
+					{ id: 'scope-boundaries-and-what-comes-next', label: '19. Scope boundaries' },
+					{ id: 'threat-model-stride', label: '20. Threat model (STRIDE)' },
+					{ id: 'monitoring-plan', label: '21. Monitoring plan' },
+					{ id: 'environments-and-tests', label: '22. Environments and tests' },
+					{ id: 'versions-november-2026', label: '23. Versions (November 2026)' },
+					{ id: 'references', label: 'References' }
+				]
+			}
+		]
+	},
+	{
+		label: PROOF_OF_CONCEPT_GROUP,
+		items: [
+			{
+				href: '/docs/overview',
 				label: 'Overview',
 				description: 'How the archive, indexer, database, live path, and backfill model fit together.',
 				keywords: ['introduction', 'local-first', 'Stellar', 'system', 'documentation'],
@@ -44,24 +102,6 @@ export const docsNavigation = [
 					{ id: 'shared-core-heading', label: 'Historical and live paths' },
 					{ id: 'backfill-heading', label: 'Adding an indexer' },
 					{ id: 'reading-heading', label: 'Documentation map' }
-				]
-			}
-		]
-	},
-	{
-		label: 'Core concepts',
-		items: [
-			{
-				href: '/docs/architecture',
-				label: 'Architecture',
-				description: 'Component boundaries, data paths, trust boundaries, and deployment model.',
-				keywords: ['architecture', 'NAS', 'Cloudflare', 'services', 'trust', 'storage'],
-				sections: [
-					{ id: 'archive-path', label: 'Archive replay' },
-					{ id: 'live-path', label: 'Target live path' },
-					{ id: 'boundaries', label: 'Service boundaries' },
-					{ id: 'deployment', label: 'Deployment' },
-					{ id: 'principles', label: 'Design rules' }
 				]
 			},
 			{
@@ -78,12 +118,7 @@ export const docsNavigation = [
 					{ id: 'versions', label: 'Contract versions' },
 					{ id: 'alerts', label: 'Alert provenance' }
 				]
-			}
-		]
-	},
-	{
-		label: 'Pipelines',
-		items: [
+			},
 			{
 				href: '/docs/archive-indexer',
 				label: 'Archive indexer',
@@ -125,12 +160,7 @@ export const docsNavigation = [
 					{ id: 'validation', label: 'Validation gate' },
 					{ id: 'delivery', label: 'Historical alert safety' }
 				]
-			}
-		]
-	},
-	{
-		label: 'Operate',
-		items: [
+			},
 			{
 				href: '/docs/operations',
 				label: 'Operations',

@@ -9,7 +9,7 @@
 	const navigation = [
 		{ href: '/#product', label: 'Product' },
 		{ href: '/#signals', label: 'How it works' },
-		{ href: '/docs', label: 'Documentation' },
+		{ href: '/docs/architecture', label: 'Documentation' },
 		{ href: '/#roadmap', label: 'Roadmap' }
 	] as const;
 </script>
@@ -44,7 +44,7 @@
 					{#each navigation as item (item.href)}
 						<a
 							href={resolve(item.href)}
-							aria-current={item.href === '/docs' && page.url.pathname.startsWith('/docs')
+							aria-current={item.href === '/docs/architecture' && isDocs
 								? 'page'
 								: undefined}
 						>

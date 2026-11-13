@@ -2,7 +2,13 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import DocsSearch from '$lib/components/docs/DocsSearch.svelte';
-	import { docsItems, docsNavigation, getDocsGroup, type DocsHref } from '$lib/docs/navigation';
+	import {
+		docsItems,
+		docsNavigation,
+		getDocsGroup,
+		PROOF_OF_CONCEPT_GROUP,
+		type DocsHref
+	} from '$lib/docs/navigation';
 	import '$lib/styles/docs.css';
 	import type { Snippet } from 'svelte';
 
@@ -11,6 +17,7 @@
 	let activeIndex = $derived(Math.max(0, docsItems.findIndex((item) => item.href === page.url.pathname)));
 	let activeItem = $derived(docsItems[activeIndex]);
 	let activeGroup = $derived(getDocsGroup(activeItem));
+	let isProofOfConcept = $derived(activeGroup.label === PROOF_OF_CONCEPT_GROUP);
 	let previousItem = $derived(activeIndex > 0 ? docsItems[activeIndex - 1] : undefined);
 	let nextItem = $derived(activeIndex < docsItems.length - 1 ? docsItems[activeIndex + 1] : undefined);
 	let copiedPath = $state('');
@@ -32,7 +39,7 @@
 
 	<header class="docs-toolbar">
 		<div class="docs-toolbar-inner">
-			<a class="docs-home" href={resolve('/docs')}>
+			<a class="docs-home" href={resolve('/docs/architecture')}>
 				<svg viewBox="0 0 24 24" aria-hidden="true">
 					<path d="M12 1.5c0 6.1-2.8 9.1-9.1 9.8 6.3.7 9.1 3.7 9.1 9.8 0-6.1 2.8-9.1 9.1-9.8C14.8 10.6 12 7.6 12 1.5Z"></path>
 				</svg>
@@ -43,7 +50,7 @@
 
 			<nav class="docs-toolbar-actions" aria-label="Documentation actions">
 				<a href={resolve('/app')}>Open demo</a>
-				<a href={resolve('/docs/download')} download="stargazer-technical-documentation.pdf">PDF</a>
+				<a href="https://github.com/FernoLabs/stargazer">GitHub</a>
 			</nav>
 		</div>
 	</header>
@@ -99,18 +106,29 @@
 
 			<div class="docs-sidebar-links">
 				<a href={resolve('/app')}>Stellar demo <span aria-hidden="true">↗</span></a>
-				<a href={resolve('/docs/download')} download="stargazer-technical-documentation.pdf">Download PDF <span aria-hidden="true">↓</span></a>
+				<a href="https://github.com/FernoLabs/stargazer">Source on GitHub <span aria-hidden="true">↗</span></a>
 			</div>
 		</aside>
 
 		<main class="docs-content" id="docs-content" tabindex="-1">
 			<nav class="docs-breadcrumbs" aria-label="Breadcrumb">
-				<a href={resolve('/docs')}>Docs</a>
+				<a href={resolve('/docs/architecture')}>Docs</a>
 				<span aria-hidden="true">/</span>
 				<span>{activeGroup.label}</span>
 				<span aria-hidden="true">/</span>
 				<strong>{activeItem.label}</strong>
 			</nav>
+
+			{#if isProofOfConcept}
+				<aside class="docs-poc-note" aria-label="Proof-of-concept page">
+					<strong>Proof of concept, August 2026</strong>
+					<p>
+						This page describes the archive proof of concept as it was built in August 2026. The current
+						design is on the <a href={resolve('/docs/architecture')}>technical architecture</a> page. Where
+						the two differ, the technical architecture page applies.
+					</p>
+				</aside>
+			{/if}
 
 			{@render children()}
 

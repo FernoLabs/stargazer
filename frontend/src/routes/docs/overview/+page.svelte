@@ -7,7 +7,7 @@
 		{
 			label: 'Local Galexie archive',
 			detail:
-				'Closed ledger partitions are kept on the NAS so large historical passes are reproducible and do not depend on repeated RPC retrieval.',
+				'Closed ledger partitions are kept in local archive storage so large historical passes are reproducible and do not depend on repeated RPC retrieval.',
 			status: 'Implemented'
 		},
 		{
@@ -66,12 +66,12 @@
 		{
 			href: '/docs/architecture',
 			label: 'Architecture',
-			detail: 'Component boundaries, shared invariants, and the archive-to-live handoff.'
+			detail: 'The current architecture: live ingestion, contract control history, detectors, delivery, GuardVault, and Sentinel.'
 		},
 		{
 			href: '/docs/archive-indexer',
 			label: 'Archive indexer',
-			detail: 'How the NAS archive is discovered, decoded, validated, and indexed efficiently.'
+			detail: 'How the local archive is discovered, decoded, validated, and indexed efficiently.'
 		},
 		{
 			href: '/docs/live-ingestion',
@@ -102,12 +102,12 @@
 </script>
 
 <svelte:head>
-	<title>Technical documentation · Stargazer</title>
+	<title>Proof-of-concept overview · Stargazer documentation</title>
 	<meta
 		name="description"
 		content="How Stargazer turns a local Stellar ledger archive into a compact protocol intelligence index, then extends the same processing model to live ingestion and repeatable backfills."
 	/>
-	<link rel="canonical" href="https://stargazer.ferno.ag/docs" />
+	<link rel="canonical" href="https://stargazer.ferno.ag/docs/overview" />
 </svelte:head>
 
 <article class="doc-page">
@@ -155,7 +155,7 @@
 	<section class="doc-section" aria-labelledby="local-first-heading">
 		<h2 id="local-first-heading">What local-first means</h2>
 		<p>
-			The local archive is a retained Galexie copy on the NAS, alongside local index databases and
+			The local archive is a retained Galexie copy, kept alongside local index databases and
 			benchmarks. It lets engineering runs use stable inputs, resume without redownloading history,
 			and preserve an exact path back to the compressed ledger evidence.
 		</p>
