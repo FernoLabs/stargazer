@@ -27,6 +27,45 @@ jobs:
           bash -n ingester/scripts/fetch-ledger-fixtures.sh
           bash -n ingester/scripts/probe-rpc-providers.sh
 
+  ingester-rust:
+    name: Ingester Rust tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        crate:
+          - reader-rs
+          - alert-control-rs
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Test
+        run: cargo test --locked --manifest-path ingester/${{ matrix.crate }}/Cargo.toml
+
+  governance-watcher:
+    name: Governance watcher tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: frontend/.node-version
+
+      - name: Test
+        run: node --test ingester/governance/watcher.test.mjs
+
   frontend:
     name: Frontend checks
     runs-on: ubuntu-latest
